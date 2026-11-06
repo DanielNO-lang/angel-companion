@@ -1,0 +1,6 @@
+{
+  "name": "Angel - Universal Personal AI Companion",
+  "description": "Unified personal AI companion and intelligent work environment with locked responsive Home architecture, adaptive workspaces, activities, agents, studios, and tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,234 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-heading: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+    
+    /* Dark theme tokens (Locked Reference Default) */
+    --bg-primary: #070815;
+    --bg-secondary: #0b0d21;
+    --card-bg: rgba(14, 18, 42, 0.55);
+    --card-border: rgba(110, 130, 255, 0.18);
+    --card-border-glow: rgba(138, 110, 255, 0.35);
+    --glass-highlight: rgba(255, 255, 255, 0.08);
+    --accent-blue: #3b82f6;
+    --accent-indigo: #6366f1;
+    --accent-purple: #a855f7;
+    --accent-cyan: #06b6d4;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+  }
+
+  .theme-light {
+    --bg-primary: #f1f5f9;
+    --bg-secondary: #e2e8f0;
+    --card-bg: rgba(255, 255, 255, 0.85);
+    --card-border: rgba(99, 102, 241, 0.2);
+    --card-border-glow: rgba(99, 102, 241, 0.4);
+    --glass-highlight: rgba(255, 255, 255, 0.6);
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #64748b;
+  }
+  .theme-transition,
+  .theme-transition *,
+  .theme-transition *::before,
+  .theme-transition *::after {
+    transition: background-color 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                color 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Breathing Bell Animation for Unread Notifications */
+@keyframes bellBreath {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.4));
+  }
+  50% {
+    transform: scale(1.15) rotate(6deg);
+    filter: drop-shadow(0 0 12px rgba(239, 68, 68, 0.85));
+  }
+}
+
+.animate-bell-breath {
+  animation: bellBreath 2.2s ease-in-out infinite;
+}
+
+/* Custom Glassmorphism styles - Borderless seamless blending */
+.glass-panel {
+  background: rgba(8, 12, 32, 0.38);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.35);
+}
+
+.glass-panel-glow {
+  background: rgba(9, 14, 38, 0.42);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  box-shadow: 0 0 30px rgba(59, 130, 246, 0.12),
+              0 8px 32px 0 rgba(0, 0, 0, 0.4);
+}
+
+.glass-button {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+.gradient-text-angel {
+  background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 35%, #a855f7 70%, #38bdf8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gradient-text-purple {
+  background: linear-gradient(135deg, #e0e7ff 0%, #a855f7 50%, #6366f1 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.blend-screen {
+  mix-blend-mode: screen;
+}
+
+/* Animations & Keyframes */
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(1deg); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+
+@keyframes spinSlow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes cyberneticBlink {
+  0%, 84%, 90%, 100% {
+    opacity: 0.95;
+    transform: scaleY(1);
+    filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.95)) drop-shadow(0 0 12px rgba(6, 182, 212, 0.75));
+  }
+  86%, 88% {
+    opacity: 0.15;
+    transform: scaleY(0.12);
+    filter: drop-shadow(0 0 2px rgba(56, 189, 248, 0.3));
+  }
+}
+
+@keyframes companionSway {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-3.5px) rotate(0.35deg);
+  }
+}
+
+@keyframes pulseHalo {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.06);
+  }
+}
+
+.animate-float {
+  animation: floatSlow 6s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 4s ease-in-out infinite;
+}
+
+.animate-spin-slow {
+  animation: spinSlow 20s linear infinite;
+}
+
+.animate-cybernetic-blink {
+  animation: cyberneticBlink 4.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.animate-companion-sway {
+  animation: companionSway 5s ease-in-out infinite;
+}
+
+.animate-pulse-halo {
+  animation: pulseHalo 4s ease-in-out infinite;
+}
+
+/* Double Glow Pulsing for Rounded Options (Plus, Voice/Mic, Send, Action Circles) - Borderless Edge Blending */
+@keyframes doubleGlowPulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.5)) drop-shadow(0 0 18px rgba(99, 102, 241, 0.3));
+    opacity: 0.85;
+  }
+  50% {
+    filter: drop-shadow(0 0 16px rgba(56, 189, 248, 0.95)) drop-shadow(0 0 32px rgba(168, 85, 247, 0.65));
+    opacity: 1.0;
+  }
+}
+
+.double-glow-pulse-rounded {
+  border: none !important;
+  outline: none !important;
+  animation: doubleGlowPulse 3.5s ease-in-out infinite;
+}
+
+.card-orbiting-light-container {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(7, 8, 21, 0.5);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.25);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.5);
+}
+
+/* Screen reader only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
