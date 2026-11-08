@@ -165,6 +165,20 @@ export class WorkspaceEngine {
 
     return results;
   }
+
+  addInstructionToProject(projectId: string, instructionText: string): WorkspaceFile | null {
+    const proj = this.projects.find((p) => p.id === projectId) || this.projects[0];
+    if (!proj) return null;
+
+    const fileName = `Instruction_${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).replace(/\s/g, '_')}.md`;
+    return this.addFileToProject(
+      proj.id,
+      fileName,
+      `# Project Instruction\n\n**Submitted:** ${new Date().toLocaleString()}\n\n${instructionText}`,
+      'note',
+      ['instruction']
+    );
+  }
 }
 
 export const workspaceEngine = new WorkspaceEngine();

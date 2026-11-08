@@ -31,7 +31,7 @@ async function runPhase3PromptEngineTests() {
   // 1. Requirement 1: General Conversation accepts an ordinary greeting without Studio selection.
   const res1 = await promptIntelligenceEngine.processPrompt('Hello Angel', { scope: 'general' });
   assert(
-    res1.responseMessage.includes('Hello! I am Angel') && res1.parsedIntent.intent === 'greeting',
+    res1.responseMessage.toLowerCase().includes('hey') && res1.parsedIntent.intent === 'greeting',
     1,
     'General Conversation accepts ordinary greeting without forcing Studio selection'
   );

@@ -28,6 +28,11 @@ interface SidebarProps {
   onNavClick: (item: PrimaryNavItem) => void;
   onSecondaryNavClick: (item: SecondaryNavItem) => void;
   onToggleMore: () => void;
+  onHoverMore?: () => void;
+  onLeaveMore?: () => void;
+  onCloseMore?: () => void;
+  morePopupOpen?: boolean;
+  isMorePinned?: boolean;
   onOpenSearch: () => void;
   isMobileOpen: boolean;
   onCloseMobile: () => void;
@@ -50,6 +55,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNavClick,
   onSecondaryNavClick,
   onToggleMore,
+  onHoverMore,
+  onLeaveMore,
+  onCloseMore,
+  morePopupOpen = false,
+  isMorePinned = false,
   onOpenSearch,
   isMobileOpen,
   onCloseMobile,
@@ -62,6 +72,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [isHoverExpanded, setIsHoverExpanded] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
 
   // Close account menu if clicked outside
   useEffect(() => {
@@ -74,6 +85,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showAccountMenu]);
+
+  // When clicking outside the sidebar and the More pop-up, close temporary sidebar expansion & more popup
+  useEffect(() => {
+    if (!collapsed) return;
+    if (!isHoverExpanded && !morePopupOpen) return;
+
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      const isInsideSidebar = sidebarRef.current && sidebarRef.current.contains(target);
+      const isInsideMorePopup = document.getElementById('angel-more-popup')?.contains(target);
+
+      if (!isInsideSidebar && !isInsideMorePopup) {
+        setIsHoverExpanded(false);
+        if (morePopupOpen && onCloseMore) {
+          onCloseMore();
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [collapsed, isHoverExpanded, morePopupOpen, onCloseMore]);
+
+  // When more popup is closed while sidebar is collapsed, reset hover expanded state
+  useEffect(() => {
+    if (!morePopupOpen && collapsed) {
+      setIsHoverExpanded(false);
+    }
+  }, [morePopupOpen, collapsed]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -114,7 +154,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   // Whether sidebar is visually showing full expanded view
-  const isExpandedView = !collapsed || isHoverExpanded;
+  // Stays open if explicitly expanded, hovered, or if the More pop-up is active
+  const isExpandedView = !collapsed || isHoverExpanded || morePopupOpen;
+
+  const handleNavAction = (id: PrimaryNavItem) => {
+    onNavClick(id);
+    if (onCloseMore) {
+      onCloseMore();
+    }
+    if (collapsed) {
+      setIsHoverExpanded(false);
+    }
+  };
 
   const sidebarContent = (
     <div className="flex flex-col h-full select-none relative z-10">
@@ -129,7 +180,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className={`flex items-center ${isExpandedView ? 'justify-between px-3' : 'justify-center px-1'} pt-3.5 pb-2 mb-1 shrink-0`}>
         <div 
           className="flex items-center gap-2 cursor-pointer group" 
-          onClick={() => onNavClick('home')}
+          onClick={() => handleNavAction('home')}
           title="Angel Home"
         >
           <div className="w-8 h-8 flex items-center justify-center shrink-0 drop-shadow-[0_0_12px_rgba(147,197,253,0.7)] group-hover:scale-105 transition-transform">
@@ -180,7 +231,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           return (
             <button
               key={item.id}
-              onClick={() => onNavClick(item.id)}
+              onClick={() => handleNavAction(item.id)}
               title={item.label}
               className={`w-full flex items-center ${isExpandedView ? 'gap-3 px-3' : 'justify-center px-0'} py-2 rounded-xl text-xs font-medium transition-colors bg-transparent group`}
             >
@@ -213,7 +264,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           return (
             <button
               key={item.id}
-              onClick={() => onNavClick(item.id)}
+              onClick={() => handleNavAction(item.id)}
               title={item.label}
               className={`w-full flex items-center ${isExpandedView ? 'gap-3 px-3' : 'justify-center px-0'} py-2 rounded-xl text-xs font-medium transition-colors bg-transparent group`}
             >
@@ -233,9 +284,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           );
         })}
 
-        {/* More Item */}
+        {/* More Item - Hover preview or click to open permanently (pinned) */}
         <button
           onClick={onToggleMore}
+          onMouseEnter={() => {
+            if (collapsed) setIsHoverExpanded(true);
+            if (onHoverMore) onHoverMore();
+          }}
+          onMouseLeave={() => {
+            if (!isMorePinned && onLeaveMore) onLeaveMore();
+          }}
           title="More"
           className={`w-full flex items-center ${isExpandedView ? 'justify-between px-3' : 'justify-center px-0'} py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-cyan-300 bg-transparent transition-colors group`}
         >
@@ -273,7 +331,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={() => {
                 const activeThread = conversationEngine.getActiveThread('general');
                 conversationEngine.renameThread(activeThread.id, thread.title);
-                onNavClick('new-conversation');
+                handleNavAction('new-conversation');
               }}
               className="w-full flex items-center gap-3 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-300 hover:text-cyan-300 bg-transparent transition-colors truncate group text-left"
             >
@@ -299,7 +357,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {/* BOTTOM ACCOUNT PROFILE CARD WITH POPUP */}
-      <div ref={accountMenuRef} className="relative mt-auto pt-1 pb-2 px-2 shrink-0 z-30">
+      <div 
+        ref={accountMenuRef} 
+        onMouseLeave={() => setShowAccountMenu(false)}
+        className="relative mt-auto pt-1 pb-2 px-2 shrink-0 z-30"
+      >
         {/* Floating Account Menu Popup with outside click dismiss */}
         {showAccountMenu && (
           <div className={`absolute ${isExpandedView ? 'left-2 right-2' : 'left-14 w-56'} bottom-16 z-50 p-2.5 rounded-2xl bg-[#090d24]/95 text-slate-100 shadow-[0_10px_35px_rgba(0,0,0,0.85)] backdrop-blur-2xl animate-in zoom-in-95 duration-150`}>
@@ -375,11 +437,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* User Account Pill at bottom of Sidebar */}
         <button
           onClick={() => setShowAccountMenu(!showAccountMenu)}
-          className={`w-full flex items-center ${isExpandedView ? 'justify-between p-2 rounded-2xl bg-[#0b102c]/70' : 'justify-center p-1.5 rounded-xl bg-transparent'} transition-all cursor-pointer group`}
+          className={`w-full flex items-center ${isExpandedView ? 'justify-between p-2 rounded-2xl bg-[#0b102c]/70' : 'justify-center p-1 rounded-full bg-transparent'} transition-all cursor-pointer group`}
           title="Account & Settings"
         >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-[0_0_10px_rgba(59,130,246,0.5)]">
+          <div className="flex items-center justify-center gap-2.5 min-w-0 shrink-0">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-[0_0_10px_rgba(59,130,246,0.5)] overflow-hidden">
               JD
             </div>
             {isExpandedView && (
@@ -419,11 +481,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <>
       {/* Desktop Fixed Sidebar with floating hover overlay when collapsed */}
       <aside 
+        ref={sidebarRef}
         onMouseEnter={() => {
           if (collapsed) setIsHoverExpanded(true);
+          if (morePopupOpen && onHoverMore) onHoverMore();
         }}
         onMouseLeave={() => {
-          if (collapsed) setIsHoverExpanded(false);
+          if (!isMorePinned && onLeaveMore) {
+            onLeaveMore();
+          }
+          if (collapsed && !morePopupOpen) {
+            setIsHoverExpanded(false);
+          }
         }}
         className={`hidden md:block shrink-0 h-screen sticky top-0 transition-all duration-300 z-40 ${
           !collapsed ? 'w-60 lg:w-64' : 'w-16'
@@ -433,15 +502,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className={`h-screen transition-all duration-300 p-2.5 ${
             !collapsed
               ? 'w-full relative'
-              : isHoverExpanded
+              : isExpandedView
                 ? 'absolute top-0 left-0 w-60 lg:w-64 z-50 shadow-[0_12px_45px_rgba(0,0,0,0.9)]'
                 : 'w-16 relative'
           }`}
         >
-          <div className={`w-full h-full rounded-3xl overflow-hidden relative flex flex-col transition-all duration-300 ${
+          <div className={`w-full h-full rounded-3xl overflow-hidden relative flex flex-col transition-all duration-300 border-0 ${
             isExpandedView 
-              ? 'glass-panel bg-[#07091a]/75 shadow-[0_0_30px_rgba(0,0,0,0.7)] backdrop-blur-2xl' 
-              : 'bg-transparent shadow-none backdrop-blur-none'
+              ? 'bg-[#07091a]/30 shadow-none backdrop-blur-xl border-0' 
+              : 'bg-transparent shadow-none backdrop-blur-none border-0'
           }`}>
             {sidebarContent}
           </div>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { LayoutGrid, Code2, Search, PenTool, Palette, Layers, CheckCircle2 } from 'lucide-react';
+import { UniversalComposer } from '../composer/UniversalComposer';
 
 export const AdaptiveWorkspacePage: React.FC = () => {
   const [activePreset, setActivePreset] = useState<'research' | 'code' | 'writing' | 'design'>('research');
@@ -94,10 +95,23 @@ export const AdaptiveWorkspacePage: React.FC = () => {
               ].map((cap) => (
                 <li key={cap} className="flex items-center gap-2 p-2 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-300">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>{cap}</span>
                 </li>
               ))}
             </ul>
+          </div>
+
+          {/* Adaptive Workspace Instruction Composer */}
+          <div className="rounded-3xl glass-panel border border-indigo-500/30 bg-slate-950/40 backdrop-blur-2xl p-5 space-y-3">
+            <h4 className="text-xs font-bold font-heading text-white uppercase tracking-wider text-indigo-400">
+              Adaptive Prompt Context:
+            </h4>
+            <UniversalComposer
+              context={{
+                type: 'adaptive',
+                projectId: activePreset,
+              }}
+              variant="compact"
+            />
           </div>
         </div>
       </div>

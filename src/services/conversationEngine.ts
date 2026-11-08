@@ -337,12 +337,13 @@ export class ConversationEngine {
         studioId: thread.studioId,
         conversationHistory: thread.messages,
       });
-      responseText = memoryContext ? `${memoryContext}\n${processed.responseMessage}` : processed.responseMessage;
+      // Memory context is kept private and used by reasoning/model context internally without raw string leakage
+      responseText = processed.responseMessage;
     } catch (err: any) {
       console.warn('[ConversationEngine] Prompt Intelligence Engine processing error:', err);
       responseText = thread.scope === 'studio'
-        ? `[${this.formatStudioName(thread.studioId)} Local Engine] Contextual response for: "${promptText}".`
-        : `[General Local Engine] Response for: "${promptText}".`;
+        ? `[${this.formatStudioName(thread.studioId)} Local Engine] Encountered an error processing this request: ${err?.message || 'Processing failed'}. Integration with an external model is pending.`
+        : `I was unable to process that request locally. External model provider connection is pending. Please verify your connection or try a different request.`;
     }
 
     const assistantMessage: ChatMessage = {

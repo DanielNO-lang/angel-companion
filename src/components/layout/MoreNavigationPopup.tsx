@@ -17,12 +17,16 @@ interface MoreNavigationPopupProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectSubItem: (subItem: MoreSubNavItem) => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }
 
 export const MoreNavigationPopup: React.FC<MoreNavigationPopupProps> = ({
   isOpen,
   onClose,
   onSelectSubItem,
+  onMouseEnter,
+  onMouseLeave,
 }) => {
   const popupRef = useRef<HTMLDivElement>(null);
 
@@ -54,7 +58,10 @@ export const MoreNavigationPopup: React.FC<MoreNavigationPopupProps> = ({
   return (
     <div 
       ref={popupRef}
-      className="fixed left-16 md:left-64 top-1/2 -translate-y-1/2 z-50 w-56 max-h-[85vh] overflow-y-auto p-2 rounded-2xl bg-[#080c22]/95 border border-indigo-500/30 text-slate-100 shadow-[0_12px_40px_rgba(0,0,0,0.85)] backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-150 scrollbar-thin scrollbar-thumb-slate-800"
+      id="angel-more-popup"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className="fixed left-16 md:left-60 lg:left-64 top-1/2 -translate-y-1/2 z-50 w-56 max-h-[85vh] overflow-y-auto p-2 rounded-2xl bg-[#080c22]/95 border-0 text-slate-100 shadow-[0_12px_45px_rgba(0,0,0,0.9),0_0_20px_rgba(56,189,248,0.18)] backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-150 scrollbar-thin scrollbar-thumb-slate-800"
     >
       <div className="space-y-0.5">
         {items.map((item) => {

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Bot, User, Mic, Volume2, VolumeX, RotateCcw, Copy, Check } from 'lucide-react';
+import { Bot, User, Volume2, Copy, Check } from 'lucide-react';
 import { CompanionOrbState, StudioId } from '../../types/angel';
 import { conversationEngine, ConversationThread } from '../../services/conversationEngine';
-import { AngelEmblem3D } from '../branding/AngelEmblem3D';
 import { voiceEngine } from '../../services/voiceEngine';
+import { ComposerBar } from '../home/ComposerBar';
 
 interface NewConversationPageProps {
   orbState: CompanionOrbState;
@@ -19,7 +19,6 @@ const FormattedText: React.FC<{ text: string }> = ({ text }) => {
       {lines.map((line, idx) => {
         const trimmed = line.trim();
 
-        // Heading 3
         if (line.startsWith('### ')) {
           return (
             <h4 key={idx} className="text-sm font-bold text-white font-heading mt-2.5 mb-1">
@@ -28,7 +27,6 @@ const FormattedText: React.FC<{ text: string }> = ({ text }) => {
           );
         }
 
-        // Bullet point
         if (line.startsWith('- ')) {
           const itemText = line.replace('- ', '');
           return (
@@ -133,7 +131,7 @@ const RichMessageContent: React.FC<{ content: string }> = ({ content }) => {
           <span className="font-semibold text-cyan-400 uppercase tracking-wider">{lang}</span>
           <button
             onClick={() => copyCode(code, currentIndex)}
-            className="flex items-center gap-1 px-2 py-0.5 rounded-lg hover:bg-slate-800 hover:text-white transition-colors"
+            className="flex items-center gap-1 px-2 py-0.5 rounded-lg hover:bg-slate-800 hover:text-white transition-colors cursor-pointer"
           >
             {copiedIndex === currentIndex ? (
               <>
@@ -177,10 +175,7 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
     conversationEngine.getActiveThread('general')
   );
   const [inputText, setInputText] = useState('');
-  const [isDictating, setIsDictating] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
-
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -188,74 +183,14 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
   };
 
   useEffect(() => {
+    // Keep activeThread synced with engine
+    const current = conversationEngine.getActiveThread('general');
+    setActiveThread({ ...current });
+  }, []);
+
+  useEffect(() => {
     scrollToBottom();
   }, [activeThread.messages]);
-
-  const handleSend = async () => {
-    if (!inputText.trim()) return;
-
-    const userText = inputText;
-    setInputText('');
-    if (isDictating) {
-      voiceEngine.stopListening();
-      setIsDictating(false);
-    }
-
-    onOrbStateChange('thinking');
-
-    // Add user message to active General Thread
-    await conversationEngine.addMessage(activeThread.id, userText, 'user');
-    setActiveThread({ ...conversationEngine.getActiveThread('general') });
-
-    // Generate assistant response without auto speech
-    setTimeout(async () => {
-      onOrbStateChange('speaking');
-      await conversationEngine.generateAssistantResponse(activeThread.id);
-      setActiveThread({ ...conversationEngine.getActiveThread('general') });
-      setTimeout(() => onOrbStateChange('idle'), 1500);
-    }, 600);
-  };
-
-  const handleResetConversation = () => {
-    voiceEngine.stopSpeaking();
-    voiceEngine.stopListening();
-    const newThread = conversationEngine.createThread('general', undefined, 'Conversation with Angel');
-    setActiveThread(newThread);
-    setStatusNotice('Started fresh conversation.');
-    setTimeout(() => setStatusNotice(null), 2500);
-  };
-
-  const toggleDictation = () => {
-    if (isDictating) {
-      voiceEngine.stopListening();
-      setIsDictating(false);
-      onOrbStateChange('idle');
-    } else {
-      const started = voiceEngine.startListening({
-        onTranscript: (transcript) => {
-          setInputText(transcript);
-          onOrbStateChange('listening');
-        },
-        onError: (err) => {
-          setStatusNotice(`Mic: ${err}`);
-          setIsDictating(false);
-          onOrbStateChange('idle');
-          setTimeout(() => setStatusNotice(null), 3000);
-        },
-        onEnd: () => {
-          setIsDictating(false);
-          onOrbStateChange('idle');
-        },
-      });
-
-      if (started) {
-        setIsDictating(true);
-        onOrbStateChange('listening');
-        setStatusNotice('Listening... Speak now');
-        setTimeout(() => setStatusNotice(null), 2000);
-      }
-    }
-  };
 
   const handleSpeakMessage = (msgContent: string) => {
     if (voiceEngine.getIsSynthesizing()) {
@@ -271,42 +206,16 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
   };
 
   return (
-    <div className="h-[calc(100vh-100px)] flex flex-col p-2 sm:p-4 relative overflow-hidden select-none">
-      {/* Toast Notice */}
+    <div className="h-[calc(100vh-64px)] w-full flex flex-col justify-between relative select-none overflow-hidden">
+      {/* Toast Notice Banner */}
       {statusNotice && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-40 px-4 py-1.5 rounded-full bg-slate-950/90 text-xs text-blue-200 font-semibold shadow-2xl animate-in fade-in">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 px-4 py-1.5 rounded-full bg-slate-950/90 text-xs text-cyan-200 font-semibold shadow-[0_0_20px_rgba(56,189,248,0.5)] animate-in fade-in">
           {statusNotice}
         </div>
       )}
 
-      {/* Clean Conversation Header displaying conversation title */}
-      <div className="flex items-center justify-between pb-3 px-1 shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold font-heading text-white tracking-wide truncate">
-                {activeThread.title || 'New Conversation'}
-              </h2>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-              <span className="text-[10px] text-emerald-400 font-medium shrink-0">Active</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1 sm:gap-2">
-          {/* New / Reset Conversation */}
-          <button
-            onClick={handleResetConversation}
-            className="p-2 rounded-xl bg-white/5 text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
-            title="Start new conversation"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Message History List */}
-      <div className="flex-1 overflow-y-auto space-y-4 my-3 pr-2 scrollbar-thin scrollbar-thumb-slate-800/50">
+      {/* Message History Stream - Scrollable Middle Body */}
+      <div className="flex-1 overflow-y-auto space-y-4 px-2 sm:px-4 py-3 scrollbar-thin scrollbar-thumb-slate-800/50">
         {activeThread.messages.map((msg) => (
           <div
             key={msg.id}
@@ -327,7 +236,7 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
                 className={`p-3.5 sm:p-4 rounded-3xl text-xs sm:text-sm leading-relaxed ${
                   msg.sender === 'user'
                     ? 'bg-blue-600/90 text-white rounded-tr-none shadow-lg'
-                    : 'bg-[#090e26]/40 backdrop-blur-xl text-slate-200 rounded-tl-none shadow-md'
+                    : 'bg-[#090e26]/40 backdrop-blur-xl text-slate-200 rounded-tl-none shadow-md border border-cyan-500/10'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1.5 opacity-60 text-[10px]">
@@ -337,12 +246,12 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
                 <RichMessageContent content={msg.content} />
               </div>
 
-              {/* Per-Message Interactive Options for Angel's Replies - Clean Icon-Only Action Toolbar */}
+              {/* Per-Message Toolbar */}
               {msg.sender === 'angel' && (
                 <div className="flex items-center gap-1.5 mt-1.5 pl-2 opacity-80 hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => handleSpeakMessage(msg.content)}
-                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-cyan-300 hover:text-white transition-colors"
+                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-cyan-300 hover:text-white transition-colors cursor-pointer"
                     title="Read out loud"
                   >
                     <Volume2 className="w-3.5 h-3.5" />
@@ -350,7 +259,7 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
 
                   <button
                     onClick={() => fallbackCopyText(msg.content)}
-                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
                     title="Copy response"
                   >
                     <Copy className="w-3.5 h-3.5" />
@@ -363,40 +272,19 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Composer Input Bar */}
-      <div className="pt-2 shrink-0">
-        <div className="flex items-center gap-1.5 sm:gap-2 p-1.5 sm:p-2 rounded-full bg-[#070b1e]/40 backdrop-blur-2xl shadow-[0_8px_30px_rgba(0,0,0,0.4)]">
-          <input
-            type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Talk with Angel..."
-            className="flex-1 min-w-0 bg-transparent px-3 text-xs sm:text-sm text-slate-100 placeholder-slate-400 focus:outline-none"
-          />
-
-          {/* Dictation (Mic) Button with Pulsing Double Glow */}
-          <button
-            onClick={toggleDictation}
-            className={`p-2 rounded-full transition-all shrink-0 double-glow-pulse-rounded ${
-              isDictating
-                ? 'bg-cyan-500/30 text-cyan-300 animate-pulse'
-                : 'text-slate-400 hover:text-white hover:bg-white/10'
-            }`}
-            title="Dictate with voice"
-          >
-            <Mic className="w-4 h-4" />
-          </button>
-
-          {/* Send Button with Pulsing Double Glow */}
-          <button
-            onClick={handleSend}
-            className="p-2 sm:p-2.5 rounded-full bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-[0_0_15px_rgba(59,130,246,0.6)] shrink-0 double-glow-pulse-rounded"
-            title="Send Message"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </div>
+      {/* Chat Composer Bar - Pinned at the Utmost Bottom */}
+      <div className="w-full sticky bottom-0 z-30 p-2 sm:p-3 bg-transparent shrink-0">
+        <ComposerBar
+          context={{
+            type: 'general',
+            conversationId: activeThread.id,
+          }}
+          onSendMessage={() => {
+            const updatedThread = conversationEngine.getActiveThread('general');
+            setActiveThread({ ...updatedThread });
+          }}
+          onOrbStateChange={onOrbStateChange}
+        />
       </div>
     </div>
   );

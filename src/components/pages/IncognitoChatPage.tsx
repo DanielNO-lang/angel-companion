@@ -183,7 +183,7 @@ export const IncognitoChatPage: React.FC<IncognitoChatPageProps> = ({ onReturnTo
           <button
             onClick={handleSend}
             disabled={!input.trim()}
-            className="p-2.5 sm:p-3 rounded-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white transition-all shadow-[0_0_15px_rgba(59,130,246,0.6)] double-glow-pulse-rounded shrink-0 flex items-center justify-center"
+            className="p-2.5 sm:p-3 rounded-full bg-transparent hover:bg-white/10 disabled:opacity-30 text-cyan-300 hover:text-white transition-all drop-shadow-[0_0_10px_rgba(56,189,248,0.7)] double-glow-pulse-rounded shrink-0 flex items-center justify-center cursor-pointer"
             title="Send Message"
           >
             <Send className="w-4 h-4 sm:w-5 sm:h-5" />

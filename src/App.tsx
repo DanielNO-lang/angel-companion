@@ -10,10 +10,11 @@ import { AuthModal } from './components/modals/AuthModal';
 import { FeatureStatusModal } from './components/modals/FeatureStatusModal';
 import { SupabaseBoundaryModal } from './components/modals/SupabaseBoundaryModal';
 import { SystemDetailsModal } from './components/modals/SystemDetailsModal';
+import { MediaStreamOverlays } from './components/media/MediaStreamOverlays';
 
 // Home View Components
 import { HeroSection } from './components/home/HeroSection';
-import { ComposerBar } from './components/home/ComposerBar';
+import { SimpleComposerBar } from './components/home/SimpleComposerBar';
 import { FourCoreCards } from './components/home/FourCoreCards';
 import { ActivityPanel } from './components/home/ActivityPanel';
 import { QuickAccessPanel } from './components/home/QuickAccessPanel';
@@ -76,6 +77,76 @@ export default function App() {
     deleteNotifications,
   } = useAngelState();
 
+  const [isMorePinned, setIsMorePinned] = React.useState(false);
+  const moreLeaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearMoreTimer = () => {
+    if (moreLeaveTimerRef.current) {
+      clearTimeout(moreLeaveTimerRef.current);
+      moreLeaveTimerRef.current = null;
+    }
+  };
+
+  const handleHoverMore = () => {
+    clearMoreTimer();
+    setMorePopupOpen(true);
+  };
+
+  const handleLeaveMore = () => {
+    if (isMorePinned) return; // When clicked, it stays open permanently until clicked elsewhere!
+    clearMoreTimer();
+    moreLeaveTimerRef.current = setTimeout(() => {
+      setMorePopupOpen(false);
+    }, 150);
+  };
+
+  const handleToggleMore = () => {
+    clearMoreTimer();
+    if (morePopupOpen && isMorePinned) {
+      setMorePopupOpen(false);
+      setIsMorePinned(false);
+    } else {
+      setMorePopupOpen(true);
+      setIsMorePinned(true);
+    }
+  };
+
+  const handleCloseAllMore = () => {
+    clearMoreTimer();
+    setMorePopupOpen(false);
+    setIsMorePinned(false);
+  };
+
+  const [cosmicToast, setCosmicToast] = React.useState<string | null>(null);
+
+  const handleSelectSpaceObject = async (data: {
+    title: string;
+    type: string;
+    prompt: string;
+    detail: string;
+  }) => {
+    const activeThread = conversationEngine.getActiveThread('general');
+    handleNavClick('new-conversation');
+    await conversationEngine.addMessage(activeThread.id, data.prompt, 'user');
+    setOrbState('thinking');
+    setCosmicToast(`🔭 Intercepted Telemetry: ${data.title}`);
+    setTimeout(() => setCosmicToast(null), 4500);
+
+    setTimeout(async () => {
+      setOrbState('speaking');
+      const assistantMsg = await conversationEngine.addMessage(activeThread.id, data.detail, 'angel');
+      voiceEngine.speak(
+        assistantMsg.content,
+        () => setOrbState('speaking'),
+        () => setOrbState('idle')
+      );
+    }, 600);
+  };
+
+  React.useEffect(() => {
+    return () => clearMoreTimer();
+  }, []);
+
   const renderActivePage = () => {
     switch (activeTab) {
       case 'home':
@@ -102,25 +173,12 @@ export default function App() {
             />
 
             {/* 2. Full-Width Single-Line Composer Bar */}
-            <ComposerBar
-              onSendMessage={async (msgText) => {
-                if (!msgText.trim()) return;
-                const activeThread = conversationEngine.getActiveThread('general');
-                await conversationEngine.addMessage(activeThread.id, msgText, 'user');
+            <SimpleComposerBar
+              context={{ type: 'general' }}
+              onSendMessage={() => {
                 setActiveTab('new-conversation');
-                setOrbState('thinking');
-                setTimeout(async () => {
-                  setOrbState('speaking');
-                  const assistantMsg = await conversationEngine.generateAssistantResponse(activeThread.id);
-                  voiceEngine.speak(
-                    assistantMsg.content,
-                    () => setOrbState('speaking'),
-                    () => setOrbState('idle')
-                  );
-                }, 800);
               }}
               onOrbStateChange={setOrbState}
-              onStartVoiceSession={() => handleNavClick('new-conversation')}
             />
 
             {/* 3. The Four Main Cards (In Exact Reference Order: Conversation, Workspace, Studios, Tools) */}
@@ -203,18 +261,38 @@ export default function App() {
   return (
     <div className={`h-screen w-screen relative flex flex-col md:flex-row bg-[#070815] text-slate-100 font-sans antialiased overflow-hidden theme-transition ${theme === 'light' ? 'theme-light' : ''}`}>
       {/* Reconstructed Multi-Layer Cosmic Background Environment */}
-      <CosmicEnvironment />
+      <CosmicEnvironment onSelectSpaceObject={handleSelectSpaceObject} />
+
+      {/* Floating HUD Telemetry Intercept Toast */}
+      {cosmicToast && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-[#090d24]/95 border border-cyan-400/50 text-cyan-200 text-xs font-semibold shadow-[0_0_30px_rgba(56,189,248,0.6)] backdrop-blur-2xl flex items-center gap-2.5 animate-in fade-in zoom-in-95">
+          <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
+          <span>{cosmicToast}</span>
+        </div>
+      )}
 
       {/* Primary Sidebar - Hidden in Incognito/Private Mode */}
       {!isIncognitoMode && (
         <Sidebar
           activeTab={activeTab}
-          onNavClick={handleNavClick}
+          onNavClick={(item) => {
+            handleCloseAllMore();
+            handleNavClick(item);
+          }}
           onSecondaryNavClick={(secondaryId) => {
+            handleCloseAllMore();
             handleNavClick(secondaryId as any);
           }}
-          onToggleMore={() => setMorePopupOpen(!morePopupOpen)}
-          onOpenSearch={() => setActiveModal('search')}
+          onToggleMore={handleToggleMore}
+          onHoverMore={handleHoverMore}
+          onLeaveMore={handleLeaveMore}
+          onCloseMore={handleCloseAllMore}
+          morePopupOpen={morePopupOpen}
+          isMorePinned={isMorePinned}
+          onOpenSearch={() => {
+            handleCloseAllMore();
+            setActiveModal('search');
+          }}
           isMobileOpen={mobileMenuOpen}
           onCloseMobile={() => setMobileMenuOpen(false)}
           collapsed={sidebarCollapsed}
@@ -226,8 +304,11 @@ export default function App() {
       {!isIncognitoMode && (
         <MoreNavigationPopup
           isOpen={morePopupOpen}
-          onClose={() => setMorePopupOpen(false)}
+          onClose={handleCloseAllMore}
+          onMouseEnter={handleHoverMore}
+          onMouseLeave={handleLeaveMore}
           onSelectSubItem={(subItem) => {
+            handleCloseAllMore();
             if (subItem === 'activities' || subItem === 'workspace' || subItem === 'tools') {
               handleNavClick(subItem);
             } else {
@@ -239,9 +320,31 @@ export default function App() {
 
       {/* Main Content Area with Independent Scroll */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto overflow-x-hidden relative z-10 scrollbar-thin scrollbar-thumb-slate-800">
-        {/* Top Header Bar - Hidden in Incognito Mode which has its own dedicated top bar */}
+        {/* Top Header Bar - Hidden in Incognito Mode */}
         {!isIncognitoMode && (
           <Header
+            activeTab={activeTab}
+            activeThreadTitle={conversationEngine.getActiveThread('general').title}
+            onResetConversation={() => {
+              conversationEngine.createThread('general');
+              handleNavClick('new-conversation');
+            }}
+            onClearMessages={() => {
+              const active = conversationEngine.getActiveThread('general');
+              active.messages = [];
+              conversationEngine.renameThread(active.id, 'New Conversation');
+              handleNavClick('new-conversation');
+            }}
+            onExportConversation={() => {
+              const active = conversationEngine.getActiveThread('general');
+              const md = conversationEngine.exportThreadMarkdown(active.id);
+              const blob = new Blob([md], { type: 'text/markdown' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `${active.title.replace(/\s+/g, '_')}.md`;
+              a.click();
+            }}
             onOpenMobileMenu={() => setMobileMenuOpen(true)}
             onOpenNotifications={() => setActiveModal('notifications')}
             unreadCount={unreadNotificationCount}
@@ -254,7 +357,13 @@ export default function App() {
         )}
 
         {/* Dynamic Route Content */}
-        <main className={isIncognitoMode ? 'flex-1 p-0 w-full min-h-screen flex flex-col' : 'flex-1 px-3 sm:px-6 md:px-8 pb-12 max-w-7xl w-full mx-auto'}>
+        <main className={
+          isIncognitoMode 
+            ? 'flex-1 p-0 w-full min-h-screen flex flex-col' 
+            : activeTab === 'new-conversation'
+              ? 'flex-1 p-0 w-full flex flex-col min-h-0'
+              : 'flex-1 px-3 sm:px-6 md:px-8 pb-12 max-w-7xl w-full mx-auto'
+        }>
           {renderActivePage()}
         </main>
       </div>
@@ -300,6 +409,9 @@ export default function App() {
         isOpen={activeModal === 'system_details'}
         onClose={() => setActiveModal(null)}
       />
+
+      {/* Global Live Camera Preview & Screen Share Overlays */}
+      <MediaStreamOverlays />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Folder, FileText, Plus, FileCode, Search, Check, Trash2, Save } from 'lucide-react';
 import { workspaceEngine, WorkspaceProject, WorkspaceFile, WorkspaceFileType } from '../../services/workspaceEngine';
+import { UniversalComposer } from '../composer/UniversalComposer';
 
 export const WorkspacePage: React.FC = () => {
   const [projects, setProjects] = useState<WorkspaceProject[]>([]);
@@ -158,6 +159,21 @@ export const WorkspacePage: React.FC = () => {
                   </div>
                 );
               })}
+          </div>
+
+          {/* Project Instruction Composer powered by UniversalComposer */}
+          <div className="pt-3 border-t border-slate-800 mt-3">
+            <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider block mb-1">
+              Project Instruction:
+            </span>
+            <UniversalComposer
+              context={{
+                type: 'workspace',
+                projectId: activeProject?.id || 'proj_default',
+              }}
+              variant="compact"
+              onSubmitted={() => refreshWorkspace()}
+            />
           </div>
         </div>
       </div>

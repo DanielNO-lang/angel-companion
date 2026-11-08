@@ -1,5 +1,5 @@
 /**
- * Voice Engine - Real Web Speech Recognition (Dictation) & Web Speech Synthesis (Angel Voice)
+ * Voice Engine - Real Web Speech Recognition (Continuous Dictation) & Instant Web Speech Synthesis (Angel Voice)
  */
 
 export interface SpeechRecognitionListener {
@@ -12,7 +12,10 @@ export class VoiceEngine {
   private static instance: VoiceEngine;
   private recognition: any = null;
   private isListening: boolean = false;
+  private shouldKeepListening: boolean = false;
   private isSynthesizing: boolean = false;
+  private baseTranscript: string = '';
+  private activeListener: SpeechRecognitionListener | null = null;
 
   private constructor() {
     this.initSpeechRecognition();
@@ -43,9 +46,9 @@ export class VoiceEngine {
   }
 
   /**
-   * Start dictation / speech-to-text
+   * Start continuous dictation / speech-to-text without word truncation or auto-ending
    */
-  public startListening(listener: SpeechRecognitionListener): boolean {
+  public startListening(listener: SpeechRecognitionListener, initialText: string = ''): boolean {
     if (this.isListening) {
       this.stopListening();
     }
@@ -59,34 +62,55 @@ export class VoiceEngine {
       return false;
     }
 
+    this.baseTranscript = initialText ? initialText.trim() + ' ' : '';
+    this.activeListener = listener;
+    this.shouldKeepListening = true;
+
     try {
       this.recognition.onresult = (event: any) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
+        let finalChunk = '';
+        let interimChunk = '';
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const trans = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
+            finalChunk += trans + ' ';
           } else {
-            interimTranscript += event.results[i][0].transcript;
+            interimChunk += trans;
           }
         }
 
-        const text = finalTranscript || interimTranscript;
-        if (text) {
-          listener.onTranscript(text, !!finalTranscript);
+        if (finalChunk) {
+          this.baseTranscript += finalChunk;
+        }
+
+        const fullText = (this.baseTranscript + interimChunk).replace(/\s+/g, ' ').trim();
+        if (fullText && this.activeListener) {
+          this.activeListener.onTranscript(fullText, !!finalChunk);
         }
       };
 
       this.recognition.onerror = (event: any) => {
         console.warn('[VoiceEngine] Speech recognition event error:', event.error);
-        listener.onError(event.error || 'Microphone capture error');
-        this.isListening = false;
+        if (event.error !== 'no-speech' && this.activeListener) {
+          this.activeListener.onError(event.error || 'Microphone capture error');
+        }
       };
 
       this.recognition.onend = () => {
+        // Auto-restart continuous dictation if user didn't explicitly hit stop or send
+        if (this.shouldKeepListening) {
+          try {
+            this.recognition.start();
+            return;
+          } catch (e) {
+            console.warn('[VoiceEngine] Auto-restart failed:', e);
+          }
+        }
         this.isListening = false;
-        listener.onEnd();
+        if (this.activeListener) {
+          this.activeListener.onEnd();
+        }
       };
 
       this.recognition.start();
@@ -96,14 +120,16 @@ export class VoiceEngine {
       console.warn('[VoiceEngine] Error starting speech recognition:', err);
       listener.onError(err.message || 'Failed to start microphone');
       this.isListening = false;
+      this.shouldKeepListening = false;
       return false;
     }
   }
 
   /**
-   * Stop dictation
+   * Stop dictation manually
    */
   public stopListening() {
+    this.shouldKeepListening = false;
     if (this.recognition && this.isListening) {
       try {
         this.recognition.stop();
@@ -119,7 +145,7 @@ export class VoiceEngine {
   }
 
   /**
-   * Speak response aloud using Angel's natural AI voice
+   * Speak response aloud immediately using Angel's natural AI voice (0ms latency)
    */
   public speak(
     text: string,
@@ -131,7 +157,11 @@ export class VoiceEngine {
     }
 
     try {
+      // Immediately cancel any pending/paused speech queue for zero-lag response
       window.speechSynthesis.cancel();
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
 
       // Clean markdown tags and code snippets from spoken text
       const cleanText = text
@@ -143,8 +173,8 @@ export class VoiceEngine {
       if (!cleanText) return false;
 
       const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.rate = 1.05;
-      utterance.pitch = 1.08;
+      utterance.rate = 1.1; // Responsive, punchy cadence
+      utterance.pitch = 1.05;
 
       // Select high quality voice if available
       const voices = window.speechSynthesis.getVoices();
@@ -163,9 +193,12 @@ export class VoiceEngine {
         utterance.voice = preferredVoice;
       }
 
+      // Synchronously trigger onStart & set synthesizing flag for instant visual feedback
+      this.isSynthesizing = true;
+      if (onStart) onStart();
+
       utterance.onstart = () => {
         this.isSynthesizing = true;
-        if (onStart) onStart();
       };
 
       utterance.onend = () => {

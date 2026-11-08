@@ -62,13 +62,22 @@ class CapabilityRegistry {
       };
     }
 
-    if (cap.status === 'implemented_awaiting_integration') {
+    if (cap.status === 'integration_pending' || cap.status === 'implemented_awaiting_integration') {
+      const pendingReason =
+        cap.id === 'cap_device_browser_automation'
+          ? 'Requires external headless browser daemon connection (browser_automation_daemon).'
+          : cap.id === 'cap_hardware_camera_stream'
+          ? 'Requires local hardware camera sensor permission & driver adapter.'
+          : cap.id === 'cap_screen_share_capture'
+          ? 'Requires OS display media screen capture stream permission.'
+          : `Requires external platform connection or model provider: ${cap.dependencies.join(', ')}`;
+
       return {
         success: false,
         capabilityId,
         outputData: null,
-        summaryText: `Capability '${cap.name}' is designed and awaiting external hardware/system integration (${cap.dependencies.join(', ')}).`,
-        awaitingIntegrationReason: `Requires external platform hardware or integration adapter: ${cap.dependencies.join(', ')}`,
+        summaryText: `Capability '${cap.name}' is pending external integration (${cap.dependencies.join(', ')}).`,
+        awaitingIntegrationReason: pendingReason,
       };
     }
 
@@ -90,16 +99,16 @@ class CapabilityRegistry {
   }
 
   private registerCoreCapabilities(): void {
-    // 1. General Conversation Processing (implemented_local)
+    // 1. General Conversation Processing (implemented)
     this.registerCapability({
       id: 'cap_general_chat',
       name: 'General Conversational Processor',
-      description: 'Processes universal conversational inputs, Q&A, explanations, and casual dialogue.',
+      description: 'Processes universal conversational inputs, Q&A, explanations, and dialogue routing.',
       category: 'conversation',
       supportedInputTypes: ['text'],
       expectedOutputTypes: ['text'],
       dependencies: [],
-      status: 'implemented_local',
+      status: 'implemented',
       permissionLevel: 'none',
       supportedStudios: ['all'],
       handler: async (input: any) => {
@@ -113,16 +122,16 @@ class CapabilityRegistry {
       },
     });
 
-    // 2. Research Synthesis Engine (implemented_local)
+    // 2. Research Synthesis Engine (implemented - honest synthesis of user prompt without fabricating paper citations)
     this.registerCapability({
       id: 'cap_research_synthesis',
       name: 'Structured Research Synthesis',
-      description: 'Extracts research insights, synthesizes literature references, formulates methodologies.',
+      description: 'Provides structured literature review outlines, investigative methodologies, and exploratory questions.',
       category: 'research',
       supportedInputTypes: ['text', 'document'],
       expectedOutputTypes: ['research_report', 'text'],
       dependencies: [],
-      status: 'implemented_local',
+      status: 'implemented',
       permissionLevel: 'none',
       supportedStudios: ['research-studio', 'learning-education-studio', 'professional-intelligence-studio'],
       handler: async (input: any) => {
@@ -132,25 +141,28 @@ class CapabilityRegistry {
           capabilityId: 'cap_research_synthesis',
           outputData: {
             topic,
-            methodology: 'Literature review & cross-reference synthesis',
-            findings: [`Synthesized primary literature for '${topic}'.`, 'Identified core methodologies and key findings.'],
-            citations: ['arXiv preprint reference database', 'Angel Research Intelligence Index'],
+            methodology: 'Investigative literature scoping & conceptual framing',
+            findings: [
+              `Framed fundamental research questions and core problem statements for "${topic}".`,
+              'Identified theoretical principles, key terminology, and candidate variables for empirical testing.',
+            ],
+            citations: ['Note: Real-time academic index integration pending. No fictitious citations generated.'],
           },
-          summaryText: `Generated research synthesis for topic: "${topic}".`,
+          summaryText: `Formulated structured research investigation framework for: "${topic}".`,
         };
       },
     });
 
-    // 3. Code & Architecture Generator (implemented_local)
+    // 3. Code & Architecture Generator (implemented - transparently declares structural scaffold/template)
     this.registerCapability({
       id: 'cap_code_generator',
       name: 'Code & Architecture Synthesis',
-      description: 'Generates structured code modules, AST specifications, and architecture refactorings.',
+      description: 'Generates structured starter scaffolds, type definitions, and architectural boilerplate.',
       category: 'coding',
       supportedInputTypes: ['text', 'code_spec'],
       expectedOutputTypes: ['code_file', 'ast_spec'],
       dependencies: [],
-      status: 'implemented_local',
+      status: 'implemented',
       permissionLevel: 'none',
       supportedStudios: ['development-studio', 'agent-automation-studio'],
       handler: async (input: any) => {
@@ -161,14 +173,14 @@ class CapabilityRegistry {
           outputData: {
             spec,
             language: input.language || 'typescript',
-            codeSnippet: `// Generated Code Spec for: ${spec}\nexport function executeTask() {\n  return { status: 'success', timestamp: Date.now() };\n}`,
+            codeSnippet: `// Starter TypeScript Scaffold for: ${spec}\n// Note: Structural template scaffold provided by local engine.\nexport function executeTask() {\n  return { status: 'scaffold_initialized', timestamp: Date.now() };\n}`,
           },
-          summaryText: `Synthesized development code for spec: "${spec}".`,
+          summaryText: `Generated structured TypeScript scaffold for spec: "${spec}".`,
         };
       },
     });
 
-    // 4. Workspace File Operations (implemented_local with permission)
+    // 4. Workspace File Operations (implemented with file_modification permission)
     this.registerCapability({
       id: 'cap_workspace_file_ops',
       name: 'Workspace File Creation & Auto-Save',
@@ -177,12 +189,12 @@ class CapabilityRegistry {
       supportedInputTypes: ['file_data'],
       expectedOutputTypes: ['workspace_file'],
       dependencies: ['workspaceEngine'],
-      status: 'implemented_local',
+      status: 'implemented',
       permissionLevel: 'file_modification',
       supportedStudios: ['development-studio', 'research-studio', 'creative-studio', 'professional-intelligence-studio'],
       handler: async (input: any) => {
         const projects = workspaceEngine.getProjects();
-        const targetProjId = input.projectId || projects[0]?.id || 'p_default';
+        const targetProjId = input.projectId || projects[0]?.id || 'proj_default';
         const fileName = input.fileName || `Artifact_${Date.now()}.md`;
         const fileContent = input.content || `# Generated Document\n\nCreated on ${new Date().toISOString()}`;
 
@@ -197,16 +209,16 @@ class CapabilityRegistry {
       },
     });
 
-    // 5. Creative Image Concept & SVG Canvas Drafting (implemented_local)
+    // 5. Creative Image Concept & SVG Canvas Drafting (implemented)
     this.registerCapability({
       id: 'cap_creative_image_gen',
       name: 'Creative Visual & Concept Generator',
-      description: 'Generates detailed image prompt specifications, composition art directions, and SVG canvas concepts.',
+      description: 'Generates visual layout specifications, art directions, and SVG layout drafts.',
       category: 'creative',
       supportedInputTypes: ['text', 'visual_prompt'],
       expectedOutputTypes: ['image_spec', 'svg_concept'],
       dependencies: [],
-      status: 'implemented_local',
+      status: 'implemented',
       permissionLevel: 'none',
       supportedStudios: ['creative-studio'],
       handler: async (input: any) => {
@@ -226,16 +238,16 @@ class CapabilityRegistry {
       },
     });
 
-    // 6. Educational Lesson Plan & Assessment Generator (implemented_local)
+    // 6. Educational Lesson Plan & Assessment Generator (implemented)
     this.registerCapability({
       id: 'cap_education_lesson_plan',
       name: 'Lesson Plan & Assessment Generator',
-      description: 'Creates structured educational curricula, quizzes, and learner assessments.',
+      description: 'Creates structured educational curricula, modular topics, and study questions.',
       category: 'education',
       supportedInputTypes: ['text', 'subject_spec'],
       expectedOutputTypes: ['curriculum', 'quiz'],
       dependencies: [],
-      status: 'implemented_local',
+      status: 'implemented',
       permissionLevel: 'none',
       supportedStudios: ['learning-education-studio'],
       handler: async (input: any) => {
@@ -257,16 +269,16 @@ class CapabilityRegistry {
       },
     });
 
-    // 7. Professional Intelligence Workflow (implemented_local)
+    // 7. Professional Intelligence Workflow (implemented)
     this.registerCapability({
       id: 'cap_prof_intel_workflow',
       name: 'Professional Compliance & Executive Analysis',
-      description: 'Generates executive briefings, risk reviews, and regulatory compliance disclosures.',
+      description: 'Generates executive briefings, risk reviews, and compliance boundary assessments.',
       category: 'professional',
       supportedInputTypes: ['text', 'executive_brief'],
       expectedOutputTypes: ['briefing_doc'],
       dependencies: [],
-      status: 'implemented_local',
+      status: 'implemented',
       permissionLevel: 'none',
       supportedStudios: ['professional-intelligence-studio'],
       handler: async (input: any) => {
@@ -284,7 +296,7 @@ class CapabilityRegistry {
       },
     });
 
-    // 8. Personal Life Planner & Itinerary (implemented_local)
+    // 8. Personal Life Planner & Itinerary (implemented)
     this.registerCapability({
       id: 'cap_personal_planner',
       name: 'Personal Life & Travel Planner',
@@ -293,7 +305,7 @@ class CapabilityRegistry {
       supportedInputTypes: ['text'],
       expectedOutputTypes: ['itinerary', 'schedule'],
       dependencies: [],
-      status: 'implemented_local',
+      status: 'implemented',
       permissionLevel: 'none',
       supportedStudios: ['personal-life-studio'],
       handler: async (input: any) => {
@@ -314,7 +326,7 @@ class CapabilityRegistry {
       },
     });
 
-    // 9. Agent & Automation Workflow Trigger (implemented_local)
+    // 9. Agent & Automation Workflow Trigger (implemented)
     this.registerCapability({
       id: 'cap_agent_workflow_trigger',
       name: 'Automated Agent Orchestrator',
@@ -323,7 +335,7 @@ class CapabilityRegistry {
       supportedInputTypes: ['workflow_spec'],
       expectedOutputTypes: ['automation_task'],
       dependencies: [],
-      status: 'implemented_local',
+      status: 'implemented',
       permissionLevel: 'none',
       supportedStudios: ['agent-automation-studio'],
       handler: async (input: any) => {
@@ -342,7 +354,7 @@ class CapabilityRegistry {
       },
     });
 
-    // 10. Browser DOM Interaction Protocol (implemented_awaiting_integration)
+    // 10. Browser DOM Interaction Protocol (integration_pending)
     this.registerCapability({
       id: 'cap_device_browser_automation',
       name: 'Browser Automation Protocol',
@@ -351,7 +363,7 @@ class CapabilityRegistry {
       supportedInputTypes: ['url', 'dom_selector'],
       expectedOutputTypes: ['dom_snapshot'],
       dependencies: ['browser_automation_daemon'],
-      status: 'implemented_awaiting_integration',
+      status: 'integration_pending',
       permissionLevel: 'device_control',
       supportedStudios: ['device-environment-studio'],
       handler: async () => {
@@ -359,13 +371,14 @@ class CapabilityRegistry {
           success: false,
           capabilityId: 'cap_device_browser_automation',
           outputData: null,
-          summaryText: 'Browser automation is designed and awaiting external browser daemon integration.',
+          summaryText: 'Browser automation requires an active external headless browser daemon connection.',
+          error: 'INTEGRATION_PENDING',
           awaitingIntegrationReason: 'Requires external headless browser daemon connection.',
         };
       },
     });
 
-    // 11. Hardware Camera Stream Capture (implemented_awaiting_integration)
+    // 11. Hardware Camera Stream Capture (integration_pending)
     this.registerCapability({
       id: 'cap_hardware_camera_stream',
       name: 'Hardware Camera Vision Stream',
@@ -374,7 +387,7 @@ class CapabilityRegistry {
       supportedInputTypes: ['camera_feed_config'],
       expectedOutputTypes: ['video_frame_stream'],
       dependencies: ['local_hardware_camera_driver'],
-      status: 'implemented_awaiting_integration',
+      status: 'integration_pending',
       permissionLevel: 'device_control',
       supportedStudios: ['device-environment-studio'],
       handler: async () => {
@@ -382,13 +395,14 @@ class CapabilityRegistry {
           success: false,
           capabilityId: 'cap_hardware_camera_stream',
           outputData: null,
-          summaryText: 'Camera feed processing is designed and awaiting local hardware camera driver permission.',
+          summaryText: 'Hardware camera stream processing requires local camera device permission and driver.',
+          error: 'INTEGRATION_PENDING',
           awaitingIntegrationReason: 'Requires local hardware camera sensor permission & driver adapter.',
         };
       },
     });
 
-    // 12. Screen Share & Display Capture (implemented_awaiting_integration)
+    // 12. Screen Share & Display Capture (integration_pending)
     this.registerCapability({
       id: 'cap_screen_share_capture',
       name: 'Display Screen Share Capture Adapter',
@@ -397,7 +411,7 @@ class CapabilityRegistry {
       supportedInputTypes: ['screen_capture_config'],
       expectedOutputTypes: ['screen_frame'],
       dependencies: ['os_display_media_adapter'],
-      status: 'implemented_awaiting_integration',
+      status: 'integration_pending',
       permissionLevel: 'device_control',
       supportedStudios: ['device-environment-studio'],
       handler: async () => {
@@ -405,7 +419,8 @@ class CapabilityRegistry {
           success: false,
           capabilityId: 'cap_screen_share_capture',
           outputData: null,
-          summaryText: 'Screen capture adapter is designed and awaiting OS display media adapter grant.',
+          summaryText: 'Display capture adapter requires active OS display media stream grant.',
+          error: 'INTEGRATION_PENDING',
           awaitingIntegrationReason: 'Requires OS display media screen capture stream permission.',
         };
       },

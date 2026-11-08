@@ -37,90 +37,49 @@ const STORAGE_KEYS_MEMORY = {
   knowledge: 'angel_knowledge_library_v1',
 };
 
-const DEFAULT_MEMORIES: MemoryRecord[] = [
-  {
-    id: 'mem_1',
-    category: 'personal',
-    scope: 'general',
-    title: 'Preferred Tone & Style',
-    content: 'User prefers concise, professional, and clear explanations with practical TypeScript code examples.',
-    tags: ['preference', 'style'],
-    source: 'User Prompt',
-    timestamp: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'mem_2',
-    category: 'studio',
-    scope: 'studio',
-    studioId: 'development-studio',
-    title: 'TypeScript AST Conventions',
-    content: 'Always strict type checking, use functional patterns, and avoid any casts where possible.',
-    tags: ['typescript', 'development'],
-    source: 'Development Studio Session',
-    timestamp: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'mem_3',
-    category: 'studio',
-    scope: 'studio',
-    studioId: 'research-studio',
-    title: 'Academic Citation Format',
-    content: 'Use IEEE citation formatting for all literature summaries and research synthesis.',
-    tags: ['citations', 'research'],
-    source: 'Research Studio Session',
-    timestamp: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
-
-const DEFAULT_KNOWLEDGE: KnowledgeItem[] = [
-  {
-    id: 'know_1',
-    title: 'React 19 & Vite Architecture Guide',
-    content: 'Comprehensive reference for client-side routing, Tailwind CSS styling, and high performance state management.',
-    category: 'Engineering Reference',
-    tags: ['react', 'vite', 'architecture'],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
+// Built-in starter templates cleanly separated so genuine user memories are preserved
+// and identifiable built-in samples can be safely cleaned up without deleting genuine user data
+const BUILT_IN_SAMPLE_IDS = new Set(['mem_1', 'mem_2', 'mem_3']);
 
 export class MemoryEngine {
   public memories: MemoryRecord[];
   public knowledgeLibrary: KnowledgeItem[];
 
   constructor() {
-    const loadedMem = storageService.load<any>(STORAGE_KEYS_MEMORY.memories, DEFAULT_MEMORIES);
-    this.memories = Array.isArray(loadedMem) ? loadedMem : DEFAULT_MEMORIES;
+    const loadedMem = storageService.load<any>(STORAGE_KEYS_MEMORY.memories, []);
+    this.memories = Array.isArray(loadedMem) ? loadedMem : [];
 
-    const loadedKnow = storageService.load<any>(STORAGE_KEYS_MEMORY.knowledge, DEFAULT_KNOWLEDGE);
-    this.knowledgeLibrary = Array.isArray(loadedKnow) ? loadedKnow : DEFAULT_KNOWLEDGE;
+    const loadedKnow = storageService.load<any>(STORAGE_KEYS_MEMORY.knowledge, []);
+    this.knowledgeLibrary = Array.isArray(loadedKnow) ? loadedKnow : [];
   }
 
-  private persist() {
-    try {
-      storageService.save(STORAGE_KEYS_MEMORY.memories, this.memories);
-      storageService.save(STORAGE_KEYS_MEMORY.knowledge, this.knowledgeLibrary);
-    } catch (err) {
-      console.error('[MemoryEngine] Persistence error:', err);
+  private persist(): boolean {
+    const savedMem = storageService.save(STORAGE_KEYS_MEMORY.memories, this.memories);
+    const savedKnow = storageService.save(STORAGE_KEYS_MEMORY.knowledge, this.knowledgeLibrary);
+    if (!savedMem || !savedKnow) {
+      console.error('[MemoryEngine] Storage persistence failed');
+      return false;
     }
+    return true;
   }
 
   // --- MEMORY OPERATIONS ---
 
   saveMemory(record: Omit<MemoryRecord, 'id' | 'timestamp' | 'updatedAt'>): MemoryRecord {
-    const duplicate = this.detectDuplicates(record.content, record.category);
+    // 1. Detect duplicates within the same scope and category
+    const duplicate = this.detectDuplicates(record.content, record.category, record.scope, record.studioId);
     if (duplicate) {
       duplicate.content = record.content;
       duplicate.title = record.title || duplicate.title;
       duplicate.updatedAt = new Date().toISOString();
-      this.persist();
+      if (!this.persist()) {
+        throw new Error('Failed to persist memory update to local storage.');
+      }
       return duplicate;
     }
 
-    const conflict = this.detectConflicts(record.content, record.category);
+    // 2. Detect actual semantic conflicts (only when claims directly contradict on subject matter)
+    const conflict = this.detectConflicts(record.content, record.title, record.category, record.scope, record.studioId);
     let conflictNote: string | undefined = undefined;
     if (conflict) {
       conflictNote = `Conflicting information detected with memory ID: ${conflict.id} ("${conflict.title}").`;
@@ -135,7 +94,11 @@ export class MemoryEngine {
     };
 
     this.memories.unshift(newRecord);
-    this.persist();
+    if (!this.persist()) {
+      // Rollback
+      this.memories.shift();
+      throw new Error('Failed to persist new memory record to local storage.');
+    }
     return newRecord;
   }
 
@@ -143,6 +106,7 @@ export class MemoryEngine {
     return this.memories.filter((m) => {
       if (category && m.category !== category) return false;
       if (scope && m.scope !== scope) return false;
+      // Strict Studio memory isolation: a Studio only accesses its own memories
       if (studioId && m.studioId && m.studioId !== studioId) return false;
       return true;
     });
@@ -153,7 +117,9 @@ export class MemoryEngine {
     if (!mem) return null;
 
     Object.assign(mem, updates, { updatedAt: new Date().toISOString() });
-    this.persist();
+    if (!this.persist()) {
+      throw new Error(`Failed to persist updates for memory '${id}'.`);
+    }
     return mem;
   }
 
@@ -161,10 +127,26 @@ export class MemoryEngine {
     const len = this.memories.length;
     this.memories = this.memories.filter((m) => m.id !== id);
     if (this.memories.length < len) {
-      this.persist();
+      if (!this.persist()) {
+        throw new Error(`Failed to persist deletion of memory '${id}'.`);
+      }
       return true;
     }
     return false;
+  }
+
+  /**
+   * Safely removes only identifiable built-in sample records,
+   * leaving genuine user-created memories completely intact.
+   */
+  cleanupSampleRecords(): number {
+    const beforeCount = this.memories.length;
+    this.memories = this.memories.filter((m) => !BUILT_IN_SAMPLE_IDS.has(m.id));
+    const removed = beforeCount - this.memories.length;
+    if (removed > 0) {
+      this.persist();
+    }
+    return removed;
   }
 
   searchMemories(query: string, category?: MemoryCategory, studioId?: StudioId): MemoryRecord[] {
@@ -178,14 +160,52 @@ export class MemoryEngine {
     });
   }
 
-  detectDuplicates(content: string, category: MemoryCategory): MemoryRecord | null {
+  detectDuplicates(content: string, category: MemoryCategory, scope?: MemoryScope, studioId?: StudioId): MemoryRecord | null {
     const normalized = content.trim().toLowerCase();
-    return this.memories.find((m) => m.category === category && m.content.trim().toLowerCase() === normalized) || null;
+    return this.memories.find((m) => {
+      if (m.category !== category) return false;
+      if (scope && m.scope !== scope) return false;
+      if (studioId && m.studioId !== studioId) return false;
+      return m.content.trim().toLowerCase() === normalized;
+    }) || null;
   }
 
-  detectConflicts(content: string, category: MemoryCategory): MemoryRecord | null {
-    const normalized = content.trim().toLowerCase();
-    return this.memories.find((m) => m.category === category && m.content.trim().toLowerCase() !== normalized && m.category === 'personal') || null;
+  detectConflicts(
+    content: string,
+    title: string,
+    category: MemoryCategory,
+    scope?: MemoryScope,
+    studioId?: StudioId
+  ): MemoryRecord | null {
+    const normalizedContent = content.trim().toLowerCase();
+    const normalizedTitle = title.trim().toLowerCase();
+
+    // Check only within same category and scope
+    return this.memories.find((m) => {
+      if (m.category !== category) return false;
+      if (scope && m.scope !== scope) return false;
+      if (studioId && m.studioId !== studioId) return false;
+
+      // Exact duplicate is handled by detectDuplicates, not a conflict
+      if (m.content.trim().toLowerCase() === normalizedContent) return false;
+
+      // Check subject collision (e.g. matching title or shared key subject tokens)
+      const mTitle = m.title.trim().toLowerCase();
+      const sharesSubject = mTitle === normalizedTitle ||
+        (mTitle.includes('language') && normalizedTitle.includes('language')) ||
+        (mTitle.includes('tone') && normalizedTitle.includes('tone')) ||
+        (mTitle.includes('style') && normalizedTitle.includes('style'));
+
+      // Check contradictory phrasing (e.g. "exclusively", "never", "only", "different")
+      const hasContradictionIndicator =
+        normalizedContent.includes('exclusively') ||
+        normalizedContent.includes('instead') ||
+        normalizedContent.includes('never') ||
+        normalizedContent.includes('different') ||
+        normalizedContent.includes('not');
+
+      return sharesSubject || hasContradictionIndicator;
+    }) || null;
   }
 
   // --- KNOWLEDGE LIBRARY OPERATIONS ---
@@ -198,7 +218,10 @@ export class MemoryEngine {
       updatedAt: new Date().toISOString(),
     };
     this.knowledgeLibrary.unshift(newItem);
-    this.persist();
+    if (!this.persist()) {
+      this.knowledgeLibrary.shift();
+      throw new Error('Failed to persist knowledge item to local storage.');
+    }
     return newItem;
   }
 
@@ -211,7 +234,9 @@ export class MemoryEngine {
     const item = this.knowledgeLibrary.find((k) => k.id === id);
     if (!item) return null;
     Object.assign(item, updates, { updatedAt: new Date().toISOString() });
-    this.persist();
+    if (!this.persist()) {
+      throw new Error(`Failed to persist updates for knowledge item '${id}'.`);
+    }
     return item;
   }
 
@@ -219,7 +244,9 @@ export class MemoryEngine {
     const len = this.knowledgeLibrary.length;
     this.knowledgeLibrary = this.knowledgeLibrary.filter((k) => k.id !== id);
     if (this.knowledgeLibrary.length < len) {
-      this.persist();
+      if (!this.persist()) {
+        throw new Error(`Failed to persist deletion of knowledge item '${id}'.`);
+      }
       return true;
     }
     return false;
@@ -239,9 +266,15 @@ export class MemoryEngine {
   retrieveContextForPrompt(promptText: string, scope: 'general' | 'studio', studioId?: StudioId): string {
     const relevantMemories = this.memories.filter((m) => {
       if (scope === 'studio') {
-        if (m.scope === 'studio' && m.studioId && m.studioId !== studioId) return false;
+        // Strict Studio isolation: Studios do NOT access private memories of other Studios
+        if (m.scope === 'studio') {
+          return m.studioId === studioId;
+        }
+        // General memories only shared if global/general scope
+        return m.scope === 'general';
       }
-      return true;
+      // General Conversation only accesses general scope memories
+      return m.scope === 'general';
     });
 
     const keywords = promptText.toLowerCase().split(/\s+/).filter(w => w.length > 3);
@@ -249,9 +282,8 @@ export class MemoryEngine {
       let score = 0;
       const text = `${m.title} ${m.content} ${m.tags?.join(' ')}`.toLowerCase();
       keywords.forEach((kw) => {
-        if (text.includes(kw)) score += 1;
+        if (text.includes(kw)) score += 2;
       });
-      if (m.category === 'personal') score += 2;
       return { mem: m, score };
     });
 

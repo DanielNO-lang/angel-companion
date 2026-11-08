@@ -3,6 +3,7 @@ import { Clapperboard, Box, Search, Code2, Palette, GraduationCap, Briefcase, He
 import { StudioInfo, StudioId } from '../../types/angel';
 import { studiosEngine, APPROVED_EIGHT_STUDIOS } from '../../services/studiosEngine';
 import { conversationEngine, ConversationThread } from '../../services/conversationEngine';
+import { UniversalComposer } from '../composer/UniversalComposer';
 
 export const StudiosPage: React.FC = () => {
   const [activeStudioId, setActiveStudioId] = useState<StudioId>(studiosEngine.getActiveStudioId());
@@ -232,24 +233,17 @@ export const StudiosPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Studio Chat Input */}
+          {/* Studio Chat Input powered by UniversalComposer */}
           <div className="pt-2 border-t border-slate-800">
-            <div className="flex items-center gap-1.5 sm:gap-2 p-1.5 rounded-full bg-slate-900 border border-slate-800">
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSendStudioMessage()}
-                placeholder={`Ask ${activeStudio.name} assistant...`}
-                className="flex-1 min-w-0 bg-transparent px-2 text-xs text-white placeholder-slate-500 focus:outline-none"
-              />
-              <button
-                onClick={handleSendStudioMessage}
-                className="p-1.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white shadow shrink-0"
-              >
-                <Send className="w-3.5 h-3.5" />
-              </button>
-            </div>
+            <UniversalComposer
+              context={{
+                type: 'studio',
+                studioId: activeStudioId,
+                conversationId: studioThread.id,
+              }}
+              variant="simple"
+              onSubmitted={() => refreshStudioChat()}
+            />
           </div>
         </div>
       </div>

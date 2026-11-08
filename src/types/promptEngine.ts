@@ -28,9 +28,12 @@ export type CapabilityCategory =
   | 'system';
 
 export type CapabilityAvailability =
+  | 'implemented'
   | 'implemented_local'
+  | 'integration_pending'
   | 'implemented_awaiting_integration'
   | 'partially_implemented'
+  | 'partial'
   | 'unavailable';
 
 export type PermissionLevel =
