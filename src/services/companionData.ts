@@ -1,7 +1,7 @@
 import type { ChatMessage } from '../types/angel';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+const SUPABASE_URL = import.meta.env?.VITE_SUPABASE_URL as string | undefined;
+const SUPABASE_KEY = import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
 
 export interface CloudThread {
   id: string;
