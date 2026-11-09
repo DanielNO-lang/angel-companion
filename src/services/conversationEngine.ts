@@ -348,6 +348,7 @@ export class ConversationEngine {
             'You are Angel, a thoughtful, natural, capable personal AI companion.',
             'Speak naturally and directly. Use the conversation history to maintain continuity.',
             'Be honest about uncertainty and never claim to have performed actions you did not perform.',
+            lastUserMsg?.mode ? `Selected response mode: ${lastUserMsg.mode}. Respect this mode while remaining truthful about available tools.` : '',
             thread.scope === 'studio' ? `Current workspace: ${this.formatStudioName(thread.studioId)}.` : '',
             memoryContext ? `Relevant user memory, supplied for context only:\n${memoryContext}` : '',
           ].filter(Boolean).join('\n\n'),
