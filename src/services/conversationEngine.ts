@@ -1,6 +1,7 @@
 import { ChatMessage, StudioId } from '../types/angel';
 import { storageService, STORAGE_KEYS } from './storageService';
 import { memoryEngine } from './memoryEngine';
+import { companionData } from './companionData';
 
 export type ConversationScope = 'general' | 'studio';
 
@@ -78,6 +79,8 @@ export class ConversationEngine {
   private activeGeneralId: string;
   private activeStudioIds: Record<string, string> = {};
   private accessToken: string | null = null;
+  private cloudSyncRunning = false;
+  private cloudSyncQueued = false;
 
   constructor() {
     // 1. Load threads with safe migration fallback
@@ -112,6 +115,23 @@ export class ConversationEngine {
     storageService.save(STORAGE_KEYS.conversations, this.threads);
     storageService.save(STORAGE_KEYS.activeConversationId, this.activeGeneralId);
     storageService.save('angel_active_studio_convs_v1', this.activeStudioIds);
+    if (this.accessToken) void this.syncCloud();
+  }
+
+  private async syncCloud(): Promise<void> {
+    if (!this.accessToken) return;
+    if (this.cloudSyncRunning) { this.cloudSyncQueued = true; return; }
+    this.cloudSyncRunning = true;
+    try {
+      do {
+        this.cloudSyncQueued = false;
+        await companionData.syncThreads(this.accessToken, this.threads);
+      } while (this.cloudSyncQueued);
+    } catch (error) {
+      console.warn('[ConversationEngine] Cloud sync deferred:', error);
+    } finally {
+      this.cloudSyncRunning = false;
+    }
   }
 
   // Scoped Thread Retrieval
@@ -314,6 +334,7 @@ export class ConversationEngine {
 
   setAccessToken(token: string | null): void {
     this.accessToken = token;
+    if (token) void this.syncCloud();
   }
 
   async generateAssistantResponse(threadId: string): Promise<ChatMessage> {
