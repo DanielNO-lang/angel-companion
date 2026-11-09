@@ -36,18 +36,18 @@ import { IncognitoChatPage } from './components/pages/IncognitoChatPage';
 import { studiosEngine } from './services/studiosEngine';
 import { conversationEngine } from './services/conversationEngine';
 import { voiceEngine } from './services/voiceEngine';
+import { companionAuth } from './services/companionAuth';
 
 import { ArrowLeft } from 'lucide-react';
 
 export default function App() {
   const [authModalOpen, setAuthModalOpen] = React.useState(false);
   const [currentUser, setCurrentUser] = React.useState<{ email: string; name: string } | null>(() => {
-    try {
-      const saved = localStorage.getItem('angel_user_session');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
+    const saved = companionAuth.getStoredSession();
+    return saved?.user ? {
+      email: saved.user.email || '',
+      name: saved.user.user_metadata?.full_name || saved.user.email?.split('@')[0] || 'User',
+    } : null;
   });
 
   const {
@@ -144,7 +144,16 @@ export default function App() {
   };
 
   React.useEffect(() => {
-    return () => clearMoreTimer();
+    let mounted = true;
+    companionAuth.getSession().then((session) => {
+      if (!mounted) return;
+      if (session) setCurrentUser({
+        email: session.user.email || '',
+        name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+      });
+      else setCurrentUser(null);
+    });
+    return () => { mounted = false; clearMoreTimer(); };
   }, []);
 
   const renderActivePage = () => {
@@ -388,7 +397,7 @@ export default function App() {
       <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
-        onAuthSuccess={(user) => setCurrentUser(user)}
+        onAuthSuccess={(user) => setCurrentUser({ email: user.email, name: user.name })}
       />
 
       {/* Feature Readiness Inspector Modal */}
