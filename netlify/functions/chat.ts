@@ -78,7 +78,7 @@ export default async (request: Request) => {
 
     const ai = new GoogleGenAI({ apiKey: geminiKey });
     const result = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+      model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
       contents: safeMessages.map(m => ({
         role: m.role === "assistant" ? "model" : "user",
         parts: [{ text: m.content }],
