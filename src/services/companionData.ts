@@ -30,6 +30,41 @@ async function request(path: string, token: string, init: RequestInit = {}) {
 }
 
 export const companionData = {
+  async loadThreads(token: string): Promise<Array<{
+    id: string; title: string; scope: 'general' | 'studio'; studioId?: any;
+    createdAt: string; updatedAt: string; isArchived: boolean; messages: ChatMessage[];
+  }>> {
+    const rows = await request(
+      'companion_conversations?select=*,companion_messages(*)&order=updated_at.desc&limit=100',
+      token,
+      { method: 'GET', headers: { prefer: 'return=representation' } },
+    );
+    return (Array.isArray(rows) ? rows : []).map((row: any) => {
+      const cloudMessages = Array.isArray(row.companion_messages) ? row.companion_messages : [];
+      const messages: ChatMessage[] = cloudMessages
+        .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        .map((message: any) => ({
+          id: message.client_id || message.id,
+          sender: message.role === 'assistant' ? 'angel' : message.role,
+          content: message.content,
+          timestamp: message.metadata?.localTimestamp || message.created_at,
+          mode: message.metadata?.mode || undefined,
+          attachments: message.metadata?.attachments || undefined,
+        }));
+      const firstMeta = cloudMessages[0]?.metadata || {};
+      return {
+        id: row.client_id || row.id,
+        title: row.title,
+        scope: firstMeta.scope === 'studio' ? 'studio' : 'general',
+        studioId: firstMeta.studioId || undefined,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        isArchived: row.status === 'archived',
+        messages,
+      };
+    });
+  },
+
   async syncThreads(token: string, threads: Array<{
     id: string; title: string; createdAt: string; updatedAt: string;
     isArchived: boolean; scope: string; studioId?: string; messages: ChatMessage[];
