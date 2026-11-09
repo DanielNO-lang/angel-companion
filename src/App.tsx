@@ -147,6 +147,7 @@ export default function App() {
     let mounted = true;
     companionAuth.getSession().then((session) => {
       if (!mounted) return;
+      conversationEngine.setAccessToken(session?.access_token || null);
       if (session) setCurrentUser({
         email: session.user.email || '',
         name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
@@ -397,7 +398,10 @@ export default function App() {
       <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
-        onAuthSuccess={(user) => setCurrentUser({ email: user.email, name: user.name })}
+        onAuthSuccess={(user) => {
+          conversationEngine.setAccessToken(user.accessToken);
+          setCurrentUser({ email: user.email, name: user.name });
+        }}
       />
 
       {/* Feature Readiness Inspector Modal */}
