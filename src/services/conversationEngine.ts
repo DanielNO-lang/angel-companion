@@ -81,6 +81,7 @@ export class ConversationEngine {
   private accessToken: string | null = null;
   private cloudSyncRunning = false;
   private cloudSyncQueued = false;
+  private cloudHydrationToken: string | null = null;
 
   constructor() {
     // 1. Load threads with safe migration fallback
@@ -334,7 +335,36 @@ export class ConversationEngine {
 
   setAccessToken(token: string | null): void {
     this.accessToken = token;
-    if (token) void this.syncCloud();
+    if (!token) { this.cloudHydrationToken = null; return; }
+    if (this.cloudHydrationToken === token) return;
+    this.cloudHydrationToken = token;
+    void this.restoreCloud(token);
+  }
+
+  private async restoreCloud(token: string): Promise<void> {
+    try {
+      const cloudThreads = await companionData.loadThreads(token);
+      const localById = new Map(this.threads.map((thread) => [thread.id, thread]));
+      const restored = cloudThreads.map((cloud) => {
+        const local = localById.get(cloud.id);
+        if (!local) return cloud;
+        const messageMap = new Map<string, ChatMessage>();
+        [...cloud.messages, ...local.messages].forEach((message) => messageMap.set(message.id, message));
+        return {
+          ...cloud,
+          ...local,
+          messages: Array.from(messageMap.values()),
+          updatedAt: local.updatedAt > cloud.updatedAt ? local.updatedAt : cloud.updatedAt,
+        };
+      });
+      const cloudIds = new Set(cloudThreads.map((thread) => thread.id));
+      const localOnly = this.threads.filter((thread) => !cloudIds.has(thread.id));
+      this.threads = [...restored, ...localOnly].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      this.persist();
+    } catch (error) {
+      console.warn('[ConversationEngine] Cloud restore deferred:', error);
+      void this.syncCloud();
+    }
   }
 
   async generateAssistantResponse(threadId: string): Promise<ChatMessage> {
