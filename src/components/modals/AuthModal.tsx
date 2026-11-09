@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
+import { companionAuth } from '../../services/companionAuth';
 import { X, LogIn, UserPlus, Lock, Mail, User, ShieldCheck } from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAuthSuccess: (userData: { email: string; name: string }) => void;
+  onAuthSuccess: (userData: { email: string; name: string; accessToken: string }) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -18,33 +19,49 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [name, setName] = useState('');
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorNotice(null);
+    setSuccessNotice(null);
 
     if (!email.trim() || !password.trim()) {
       setErrorNotice('Please fill in all required fields.');
       return;
     }
-
-    if (password.length < 6) {
-      setErrorNotice('Password must be at least 6 characters long.');
+    if (password.length < 8) {
+      setErrorNotice('Use a password with at least 8 characters.');
       return;
     }
 
-    // Save user session credentials in localStorage securely
-    const userName = name.trim() || email.split('@')[0];
-    const userPayload = { email, name: userName, token: 'session_' + Date.now() };
-    localStorage.setItem('angel_user_session', JSON.stringify(userPayload));
+    setIsSubmitting(true);
+    try {
+      const userName = name.trim() || email.split('@')[0];
+      const session = mode === 'login'
+        ? await companionAuth.signIn(email.trim(), password)
+        : await companionAuth.signUp(email.trim(), password, userName);
 
-    setSuccessNotice(mode === 'login' ? 'Signed in successfully!' : 'Account created successfully!');
-    setTimeout(() => {
-      onAuthSuccess({ email, name: userName });
+      if (!session) {
+        setSuccessNotice('Account created. Check your email to confirm your address, then sign in.');
+        setMode('login');
+        return;
+      }
+
+      setSuccessNotice(mode === 'login' ? 'Signed in successfully!' : 'Account created successfully!');
+      onAuthSuccess({
+        email: session.user.email || email.trim(),
+        name: session.user.user_metadata?.full_name || userName,
+        accessToken: session.access_token,
+      });
       onClose();
-    }, 1000);
+    } catch (error) {
+      setErrorNotice(error instanceof Error ? error.message : 'Authentication failed. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -132,10 +149,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           <button
             type="submit"
+            disabled={isSubmitting}
             className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition-all shadow-[0_0_15px_rgba(59,130,246,0.5)] flex items-center justify-center gap-2 mt-2"
           >
             {mode === 'login' ? <LogIn className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
-            <span>{mode === 'login' ? 'Sign In' : 'Create Account'}</span>
+            <span>{isSubmitting ? 'Please wait…' : mode === 'login' ? 'Sign In' : 'Create Account'}</span>
           </button>
         </form>
 
