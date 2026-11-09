@@ -1,7 +1,5 @@
 import { ChatMessage, StudioId } from '../types/angel';
 import { storageService, STORAGE_KEYS } from './storageService';
-import { GoogleGenAI } from '@google/genai';
-import { promptIntelligenceEngine } from './promptIntelligenceEngine';
 import { memoryEngine } from './memoryEngine';
 
 export type ConversationScope = 'general' | 'studio';
@@ -79,7 +77,7 @@ export class ConversationEngine {
   private threads: ConversationThread[];
   private activeGeneralId: string;
   private activeStudioIds: Record<string, string> = {};
-  private aiClient: GoogleGenAI | null = null;
+  private accessToken: string | null = null;
 
   constructor() {
     // 1. Load threads with safe migration fallback
@@ -107,15 +105,7 @@ export class ConversationEngine {
       {}
     );
 
-    // 3. Initialize Gemini SDK client safely
-    const apiKey = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.GEMINI_API_KEY : process.env.GEMINI_API_KEY;
-    if (apiKey && apiKey !== 'MY_GEMINI_API_KEY') {
-      try {
-        this.aiClient = new GoogleGenAI({ apiKey });
-      } catch (err) {
-        console.warn('[ConversationEngine] Gemini API SDK setup deferred:', err);
-      }
-    }
+
   }
 
   private persist() {
@@ -322,28 +312,56 @@ export class ConversationEngine {
     return userMessage;
   }
 
+  setAccessToken(token: string | null): void {
+    this.accessToken = token;
+  }
+
   async generateAssistantResponse(threadId: string): Promise<ChatMessage> {
     const thread = this.threads.find((t) => t.id === threadId) || this.getActiveThread('general');
     const lastUserMsg = [...thread.messages].reverse().find((m) => m.sender === 'user');
     const promptText = lastUserMsg?.content || 'Hello';
-
     let responseText = '';
 
     try {
-      const memoryContext = memoryEngine.retrieveContextForPrompt(promptText, thread.scope, thread.studioId);
+      if (!this.accessToken) {
+        throw new Error('Sign in to start a private conversation with Angel.');
+      }
 
-      const processed = await promptIntelligenceEngine.processPrompt(promptText, {
-        scope: thread.scope,
-        studioId: thread.studioId,
-        conversationHistory: thread.messages,
+      const memoryContext = memoryEngine.retrieveContextForPrompt(promptText, thread.scope, thread.studioId);
+      const history = thread.messages
+        .filter((m) => m.sender === 'user' || m.sender === 'angel')
+        .slice(-24)
+        .map((m) => ({
+          role: m.sender === 'angel' ? 'assistant' : 'user',
+          content: m.content,
+        }));
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${this.accessToken}`,
+        },
+        body: JSON.stringify({
+          messages: history,
+          systemInstruction: [
+            'You are Angel, a thoughtful, natural, capable personal AI companion.',
+            'Speak naturally and directly. Use the conversation history to maintain continuity.',
+            'Be honest about uncertainty and never claim to have performed actions you did not perform.',
+            thread.scope === 'studio' ? `Current workspace: ${this.formatStudioName(thread.studioId)}.` : '',
+            memoryContext ? `Relevant user memory, supplied for context only:\n${memoryContext}` : '',
+          ].filter(Boolean).join('\n\n'),
+        }),
       });
-      // Memory context is kept private and used by reasoning/model context internally without raw string leakage
-      responseText = processed.responseMessage;
-    } catch (err: any) {
-      console.warn('[ConversationEngine] Prompt Intelligence Engine processing error:', err);
-      responseText = thread.scope === 'studio'
-        ? `[${this.formatStudioName(thread.studioId)} Local Engine] Encountered an error processing this request: ${err?.message || 'Processing failed'}. Integration with an external model is pending.`
-        : `I was unable to process that request locally. External model provider connection is pending. Please verify your connection or try a different request.`;
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Angel could not respond. Please try again.');
+      if (typeof payload.reply !== 'string' || !payload.reply.trim()) {
+        throw new Error('Angel returned an empty response. Please try again.');
+      }
+      responseText = payload.reply.trim();
+    } catch (err) {
+      console.warn('[ConversationEngine] Gemini request failed:', err);
+      responseText = err instanceof Error ? err.message : 'Angel could not reach her conversation model. Please try again.';
     }
 
     const assistantMessage: ChatMessage = {
@@ -352,11 +370,9 @@ export class ConversationEngine {
       content: responseText,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
-
     thread.messages.push(assistantMessage);
     thread.updatedAt = new Date().toISOString();
     this.persist();
-
     return assistantMessage;
   }
 
