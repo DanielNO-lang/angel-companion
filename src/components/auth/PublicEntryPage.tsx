@@ -2,7 +2,7 @@ import React from 'react';
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, ShieldCheck, Sparkles, UserRound, Stars, Orbit, ArrowLeft } from 'lucide-react';
 import { companionAuth } from '../../services/companionAuth';
 
-type EntryMode = 'landing' | 'signin' | 'signup' | 'forgot';
+type EntryMode = 'landing' | 'signin' | 'signup' | 'forgot' | 'reset';
 
 interface PublicEntryPageProps {
   onAuthenticated: (user: { email: string; name: string; accessToken: string }) => void;
@@ -18,6 +18,19 @@ export const PublicEntryPage: React.FC<PublicEntryPageProps> = ({ onAuthenticate
   const [error, setError] = React.useState('');
   const [notice, setNotice] = React.useState('');
 
+  React.useEffect(() => {
+    let active = true;
+    companionAuth.acceptRecoverySessionFromUrl().then((accepted) => {
+      if (active && accepted) setMode('reset');
+    }).catch((cause) => {
+      if (active) {
+        setMode('forgot');
+        setError(cause instanceof Error ? cause.message : 'The recovery link could not be verified.');
+      }
+    });
+    return () => { active = false; };
+  }, []);
+
   const changeMode = (next: EntryMode) => {
     setError('');
     setNotice('');
@@ -30,6 +43,15 @@ export const PublicEntryPage: React.FC<PublicEntryPageProps> = ({ onAuthenticate
     setNotice('');
     setBusy(true);
     try {
+      if (mode === 'reset') {
+        if (password.length < 8) throw new Error('Use a password with at least 8 characters.');
+        await companionAuth.updatePassword(password);
+        await companionAuth.signOut();
+        setPassword('');
+        changeMode('signin');
+        setNotice('Your password has been updated. Sign in with your new password.');
+        return;
+      }
       if (mode === 'forgot') {
         await companionAuth.resetPassword(email.trim());
         setNotice('If an account exists for this email, a password recovery link has been sent. Check your inbox.');
@@ -106,7 +128,7 @@ export const PublicEntryPage: React.FC<PublicEntryPageProps> = ({ onAuthenticate
           <div className="w-full max-w-md rounded-[28px] border border-indigo-300/15 bg-[#0a1024]/85 p-7 shadow-[0_25px_100px_rgba(0,0,0,.45)] backdrop-blur-2xl sm:p-9">
             <div className="mb-7 flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-300/20 bg-cyan-300/10"><LockKeyhole className="h-5 w-5 text-cyan-200"/></div>
-              <div><p className="text-lg font-semibold text-white">{mode === 'signin' ? 'Welcome back' : mode === 'signup' ? 'Create your Angel account' : 'Reset your password'}</p><p className="mt-1 text-xs text-slate-400">{mode === 'signin' ? 'Sign in to continue to your private space.' : mode === 'signup' ? 'Your personal space, ready when you are.' : 'We’ll email you a secure recovery link.'}</p></div>
+              <div><p className="text-lg font-semibold text-white">{mode === 'signin' ? 'Welcome back' : mode === 'signup' ? 'Create your Angel account' : mode === 'reset' ? 'Choose a new password' : 'Reset your password'}</p><p className="mt-1 text-xs text-slate-400">{mode === 'signin' ? 'Sign in to continue to your private space.' : mode === 'signup' ? 'Your personal space, ready when you are.' : mode === 'reset' ? 'Set a new password for your Angel account.' : 'We’ll email you a secure recovery link.'}</p></div>
             </div>
             {error && <div role="alert" className="mb-4 rounded-xl border border-rose-400/25 bg-rose-400/10 p-3 text-sm text-rose-200">{error}</div>}
             {notice && <div role="status" className="mb-4 rounded-xl border border-emerald-400/25 bg-emerald-400/10 p-3 text-sm text-emerald-200">{notice}</div>}
@@ -114,7 +136,7 @@ export const PublicEntryPage: React.FC<PublicEntryPageProps> = ({ onAuthenticate
               {mode === 'signup' && <label className="block text-xs font-medium text-slate-300">Your name<div className="relative mt-2"><UserRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"/><input value={name} onChange={e=>setName(e.target.value)} autoComplete="name" placeholder="Name" className="w-full rounded-xl border border-white/10 bg-[#050918] py-3 pl-10 pr-4 text-sm text-white outline-none transition focus:border-cyan-300/60" /></div></label>}
               <label className="block text-xs font-medium text-slate-300">Email address<div className="relative mt-2"><Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"/><input type="email" required value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email" placeholder="you@example.com" className="w-full rounded-xl border border-white/10 bg-[#050918] py-3 pl-10 pr-4 text-sm text-white outline-none transition focus:border-cyan-300/60"/></div></label>
               {mode !== 'forgot' && <label className="block text-xs font-medium text-slate-300">Password<div className="relative mt-2"><LockKeyhole className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"/><input type={showPassword?'text':'password'} required minLength={8} value={password} onChange={e=>setPassword(e.target.value)} autoComplete={mode==='signin'?'current-password':'new-password'} placeholder="At least 8 characters" className="w-full rounded-xl border border-white/10 bg-[#050918] py-3 pl-10 pr-11 text-sm text-white outline-none transition focus:border-cyan-300/60"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword?'Hide password':'Show password'} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">{showPassword?<EyeOff className="h-4 w-4"/>:<Eye className="h-4 w-4"/>}</button></div></label>}
-              <button disabled={busy} className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3.5 text-sm font-semibold text-white shadow-[0_8px_25px_rgba(14,165,233,.2)] transition hover:brightness-110 disabled:cursor-wait disabled:opacity-60">{busy?'Please wait…':mode==='signin'?'Sign in':mode==='signup'?'Create account':'Send recovery link'} <ArrowRight className="ml-1 inline h-4 w-4"/></button>
+              <button disabled={busy} className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3.5 text-sm font-semibold text-white shadow-[0_8px_25px_rgba(14,165,233,.2)] transition hover:brightness-110 disabled:cursor-wait disabled:opacity-60">{busy?'Please wait…':mode==='signin'?'Sign in':mode==='signup'?'Create account':mode==='reset'?'Update password':'Send recovery link'} <ArrowRight className="ml-1 inline h-4 w-4"/></button>
             </form>
             <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5 text-xs text-slate-400">
               {mode === 'signin' ? <><button onClick={()=>changeMode('forgot')} className="hover:text-cyan-200">Forgot password?</button><button onClick={()=>changeMode('signup')} className="font-semibold text-cyan-200 hover:text-white">Create account</button></> : mode === 'signup' ? <><span>Already registered?</span><button onClick={()=>changeMode('signin')} className="font-semibold text-cyan-200 hover:text-white">Sign in</button></> : <button onClick={()=>changeMode('signin')} className="font-semibold text-cyan-200 hover:text-white">Back to sign in</button>}
