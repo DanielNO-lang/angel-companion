@@ -198,7 +198,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
                     <p className="mt-0.5 opacity-90">
                       Live sign-in, registration, verification, and OAuth require{' '}
                       <code className="font-mono font-semibold">VITE_SUPABASE_URL</code> and{' '}
-                      <code className="font-mono font-semibold">VITE_SUPABASE_PUBLISHABLE_KEY</code> (or legacy <code className="font-mono font-semibold">VITE_SUPABASE_PUBLISHABLE_KEY</code>). Workspace access
+                      <code className="font-mono font-semibold">VITE_SUPABASE_PUBLISHABLE_KEY</code> (or legacy <code className="font-mono font-semibold">VITE_SUPABASE_ANON_KEY</code>). Workspace access
                       remains protected until a verified Supabase session is established.
                     </p>
                   </div>
