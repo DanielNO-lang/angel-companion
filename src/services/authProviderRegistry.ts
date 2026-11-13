@@ -237,7 +237,10 @@ export function getAuthProviderStatuses(
   );
 
   return ALL_SUPPORTED_PROVIDERS.map((provider) => {
-    const providerEnabledInEnv = enabledSet.has(provider.id);
+    // Google is the first-class login route. When the Supabase client is configured,
+    // allow the real OAuth request to reach Supabase; Auth itself is the source of truth
+    // for whether Google is enabled. Other providers remain explicitly allow-listed.
+    const providerEnabledInEnv = enabledSet.has(provider.id) || provider.id === 'google';
     return {
       ...provider,
       supabaseConfigured,
