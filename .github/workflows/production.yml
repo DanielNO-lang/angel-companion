@@ -70,8 +70,10 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
-      - name: Build and publish to Netlify
+      - name: Build production assets
+        run: npm run build
+      - name: Publish prebuilt assets to Netlify
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
-        run: npx --yes netlify-cli deploy --build --prod --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
+        run: npx --yes netlify-cli deploy --dir=dist --prod --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN"
