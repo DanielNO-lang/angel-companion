@@ -182,14 +182,41 @@ async function runPhase3PromptEngineTests() {
     'Capability routing respects user permissions and flags missing device control access'
   );
 
-  // 14. Requirement 14: Conversation context is preserved.
+  // 14. Requirement 14: Conversation context is preserved through the authenticated chat boundary.
   const genThread = conversationEngine.createThread('general', undefined, 'Phase 3 Context Test');
   await conversationEngine.addMessage(genThread.id, 'What is quantum computing?');
-  const aiReply = await conversationEngine.generateAssistantResponse(genThread.id);
+
+  const originalFetch = globalThis.fetch;
+  let capturedHistory: Array<{ role: string; content: string }> = [];
+  globalThis.fetch = async (input, init) => {
+    if (String(input) === '/api/chat') {
+      const requestBody = JSON.parse(String(init?.body || '{}'));
+      capturedHistory = requestBody.messages || [];
+      return new Response(JSON.stringify({
+        reply: 'Research Synthesis: quantum computing uses quantum states to process information.',
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+
+  let aiReply: Awaited<ReturnType<typeof conversationEngine.generateAssistantResponse>> | undefined;
+  try {
+    conversationEngine.setAccessToken('phase3-test-access-token');
+    aiReply = await conversationEngine.generateAssistantResponse(genThread.id);
+  } finally {
+    conversationEngine.setAccessToken(null);
+    globalThis.fetch = originalFetch;
+  }
+
   assert(
-    genThread.messages.length === 3 && aiReply.content.includes('Research Synthesis'),
+    genThread.messages.length === 3 &&
+      aiReply?.content.includes('Research Synthesis') === true &&
+      capturedHistory.some((message) => message.role === 'user' && message.content === 'What is quantum computing?'),
     14,
-    'Conversation context is preserved across multi-turn prompt intelligence engine calls'
+    'Authenticated chat sends the existing conversation history and appends the assistant reply'
   );
 
   // 15. Requirement 15: Prompt records and execution history persist using local persistence architecture.
@@ -211,6 +238,8 @@ async function runPhase3PromptEngineTests() {
   conversationEngine.deleteThread(genThread.id);
 
   console.log(`\n=== TEST SUITE RESULTS: ${passedTests} / ${totalTests} PASSED ===`);
+  if (passedTests !== totalTests) process.exitCode = 1;
+
   if (passedTests === totalTests) {
     console.log('ALL PHASE 3 PROMPT INTELLIGENCE SCENARIOS PASSED! ✅\n');
   } else {
@@ -220,4 +249,5 @@ async function runPhase3PromptEngineTests() {
 
 runPhase3PromptEngineTests().catch((err) => {
   console.error('Phase 3 test execution error:', err);
+  process.exitCode = 1;
 });

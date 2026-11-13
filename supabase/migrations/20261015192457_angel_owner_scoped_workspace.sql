@@ -1,0 +1,7 @@
+-- Historical migration marker for the pre-existing Angel database.
+-- This version is already recorded as applied in production Supabase.
+-- Its original SQL is not present in the Angel Companion repository.
+-- This no-op marker keeps the migration ledger aligned without replaying
+-- legacy DDL against the shared production database.
+-- A full clean-room baseline must be captured separately before provisioning
+-- a brand-new database from this repository.
