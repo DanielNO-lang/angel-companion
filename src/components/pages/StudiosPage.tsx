@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Clapperboard, Box, Search, Code2, Palette, GraduationCap, Briefcase, Heart, Cpu, Monitor, Wrench, Send, MessageSquare, Bot, User, Plus } from 'lucide-react';
+import { Clapperboard, Box, Search, Code2, Palette, GraduationCap, Briefcase, Heart, Cpu, Monitor, Wrench, Send, MessageSquare, Bot, User, Plus, BookOpen, Folder, FileText } from 'lucide-react';
 import { StudioInfo, StudioId } from '../../types/angel';
 import { studiosEngine, APPROVED_EIGHT_STUDIOS } from '../../services/studiosEngine';
 import { conversationEngine, ConversationThread } from '../../services/conversationEngine';
 import { UniversalComposer } from '../composer/UniversalComposer';
+import { MessageAttachmentsAndLinks } from '../chat/MessageAttachmentsAndLinks';
+import { libraryService, LibraryItem } from '../../services/libraryService';
+import { workspaceEngine } from '../../services/workspaceEngine';
 
 export const StudiosPage: React.FC = () => {
   const [activeStudioId, setActiveStudioId] = useState<StudioId>(studiosEngine.getActiveStudioId());
@@ -78,15 +81,13 @@ export const StudiosPage: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      {/* Header */}
+      {/* Header - simply STUDIOS without decorative main icons */}
       <div className="rounded-3xl glass-panel-glow border border-indigo-500/30 bg-slate-950/40 backdrop-blur-2xl p-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-3 rounded-2xl bg-indigo-600/30 border border-indigo-500/40 text-indigo-300">
-            <Clapperboard className="w-6 h-6" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold font-heading text-white">Eight Creative & Professional Studios</h2>
-          </div>
+        <div>
+          <h2 className="text-xl font-bold font-heading text-white">STUDIOS</h2>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Specialized environments with isolated context, domain tools, and authorized resource integration.
+          </p>
         </div>
       </div>
 
@@ -178,8 +179,38 @@ export const StudiosPage: React.FC = () => {
                 studiosEngine.updateCanvasBuffer(activeStudioId, e.target.value);
               }}
               placeholder={`Synthesize output or edit notes for ${activeTool}...`}
-              className="w-full bg-slate-900/80 p-3 rounded-2xl border border-slate-800 text-xs text-slate-100 font-mono focus:outline-none focus:border-indigo-400/50 min-h-[120px]"
+              className="w-full bg-slate-900/80 p-3 rounded-2xl border border-slate-800 text-xs text-slate-100 font-mono focus:outline-none focus:border-indigo-400/50 min-h-[100px]"
             />
+          </div>
+
+          {/* Authorised Library Resources for Active Studio */}
+          <div className="pt-2 border-t border-slate-800">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Authorised Library Resources</span>
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono">
+                {libraryService.getAuthorisedResources(activeStudioId).length} resources
+              </span>
+            </div>
+
+            <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+              {libraryService.getAuthorisedResources(activeStudioId).map((res) => (
+                <div
+                  key={res.id}
+                  className="p-2 rounded-xl bg-slate-900/60 border border-slate-800 text-xs flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    <FileText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    <span className="text-slate-200 truncate font-medium">{res.name}</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono px-2 py-0.5 rounded bg-slate-950 border border-slate-800 shrink-0">
+                    {res.type}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -227,6 +258,11 @@ export const StudiosPage: React.FC = () => {
                     }`}
                   >
                     <p className="whitespace-pre-wrap">{m.content}</p>
+                    <MessageAttachmentsAndLinks
+                      attachments={m.attachments}
+                      attachmentDetails={m.attachmentDetails}
+                      linkPreviews={m.linkPreviews}
+                    />
                   </div>
                 </div>
               ))}

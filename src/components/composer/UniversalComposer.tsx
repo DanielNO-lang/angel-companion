@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Sliders, Eye, Mic, Send, Camera, Monitor, Paperclip, Loader2, AlertCircle } from 'lucide-react';
+import { Plus, Sliders, Eye, Mic, Send, Camera, Monitor, Paperclip, Loader2, AlertCircle, Globe, FileText } from 'lucide-react';
 import { CompanionOrbState } from '../../types/angel';
 import { ComposerContext, ComposerMode, ComposerSubmissionResult } from '../../types/composer';
+import { AttachmentRecord } from '../../types/attachment';
 import { universalComposerService } from '../../services/universalComposerService';
+import { universalAttachmentService } from '../../services/universalAttachmentService';
+import { linkPreviewService } from '../../services/linkPreviewService';
 import { voiceEngine } from '../../services/voiceEngine';
 import { mediaStreamService } from '../../services/mediaStreamService';
-import { workspaceEngine } from '../../services/workspaceEngine';
 
 export interface UniversalComposerProps {
   context: ComposerContext;
@@ -19,6 +21,7 @@ export interface UniversalComposerProps {
 
 const MODES: ComposerMode[] = [
   'Standard Intelligent',
+  'Think',
   'Deep Research',
   'Code Analysis',
   'Creative Brainstorm',
@@ -39,16 +42,20 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
   const [showModesMenu, setShowModesMenu] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [attachedFile, setAttachedFile] = useState<{ name: string; size: number; content?: string } | null>(null);
+  const [stagedAttachments, setStagedAttachments] = useState<AttachmentRecord[]>(() =>
+    universalAttachmentService.getStagedAttachments(context)
+  );
+  const [isDragging, setIsDragging] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; type: 'info' | 'error' } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync draft when context changes
+  // Sync draft and staged attachments when context changes
   useEffect(() => {
     setText(universalComposerService.getDraft(context));
     setActiveMode(universalComposerService.getMode(context));
+    setStagedAttachments(universalAttachmentService.getStagedAttachments(context));
     setFeedback(null);
   }, [context.type, context.conversationId, context.studioId, context.projectId, context.agentId]);
 
@@ -78,19 +85,91 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
     setShowModesMenu(false);
   };
 
+  const handleFileSelection = async (fileList: FileList | File[]) => {
+    const files = Array.from(fileList);
+    if (files.length === 0) return;
+
+    for (const file of files) {
+      const reader = new FileReader();
+      const isText =
+        file.type.startsWith('text/') ||
+        file.name.endsWith('.txt') ||
+        file.name.endsWith('.md') ||
+        file.name.endsWith('.csv') ||
+        file.name.endsWith('.tsv') ||
+        file.name.endsWith('.json') ||
+        file.name.endsWith('.ts') ||
+        file.name.endsWith('.tsx') ||
+        file.name.endsWith('.js') ||
+        file.name.endsWith('.jsx') ||
+        file.name.endsWith('.sql');
+
+      reader.onload = async () => {
+        const content = reader.result;
+        if (!content) return;
+
+        const res = await universalAttachmentService.stageAttachment(context, {
+          name: file.name,
+          size: file.size,
+          content: content as string | ArrayBuffer,
+        });
+
+        if (res.success) {
+          setStagedAttachments(universalAttachmentService.getStagedAttachments(context));
+          setFeedback({ message: `Attached: ${file.name}`, type: 'info' });
+        } else {
+          setFeedback({ message: res.error || 'Failed to attach file', type: 'error' });
+        }
+        setTimeout(() => setFeedback(null), 3500);
+      };
+
+      if (isText) {
+        reader.readAsText(file);
+      } else {
+        reader.readAsArrayBuffer(file);
+      }
+    }
+  };
+
+  const handleRemoveAttachment = async (id: string) => {
+    await universalAttachmentService.removeStagedAttachment(context, id);
+    setStagedAttachments(universalAttachmentService.getStagedAttachments(context));
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      await handleFileSelection(e.dataTransfer.files);
+    }
+  };
+
   const handleSubmit = async () => {
-    if ((!text.trim() && !attachedFile) || isSubmitting) return;
+    if ((!text.trim() && stagedAttachments.length === 0) || isSubmitting) return;
 
     setIsSubmitting(true);
     setFeedback(null);
     if (onOrbStateChange) onOrbStateChange('thinking');
 
     try {
-      const result = await universalComposerService.submit(context, text, attachedFile);
+      const result = await universalComposerService.submit(context, text);
 
       if (result.success) {
         setText('');
-        setAttachedFile(null);
+        setStagedAttachments([]);
         if (isDictating) {
           voiceEngine.stopListening();
           setIsDictating(false);
@@ -170,30 +249,6 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
     setTimeout(() => setFeedback(null), 3500);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const content = typeof reader.result === 'string' ? reader.result : '';
-        const saved = workspaceEngine.addFileToProject(
-          context.projectId || 'proj_default',
-          file.name,
-          content || `Binary file: ${file.name} (${file.size} bytes)`,
-          'document'
-        );
-        if (saved) {
-          setAttachedFile({ name: file.name, size: file.size, content });
-          setFeedback({ message: `Attached: ${file.name}`, type: 'info' });
-        } else {
-          setFeedback({ message: 'Could not attach file.', type: 'error' });
-        }
-        setTimeout(() => setFeedback(null), 3000);
-      };
-      reader.readAsText(file);
-    }
-  };
-
   const defaultPlaceholder =
     context.type === 'agent_task'
       ? 'Specify task instructions for agent...'
@@ -204,14 +259,26 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
       : 'Message Angel...';
 
   const inputPlaceholder = placeholder || defaultPlaceholder;
+  const detectedUrls = linkPreviewService.detectUrls(text).validUrls;
 
   return (
-    <div ref={containerRef} className={`w-full relative select-none ${className}`}>
+    <div
+      ref={containerRef}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`w-full relative select-none transition-all rounded-3xl ${
+        isDragging ? 'ring-2 ring-cyan-400/80 bg-cyan-950/30' : ''
+      } ${className}`}
+    >
       {/* Hidden file input */}
       <input
         type="file"
         ref={fileInputRef}
-        onChange={handleFileChange}
+        onChange={(e) => {
+          if (e.target.files) handleFileSelection(e.target.files);
+        }}
+        multiple
         className="hidden"
       />
 
@@ -272,17 +339,59 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
         </div>
       )}
 
-      {/* Attached file chip */}
-      {attachedFile && (
-        <div className="mb-2 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 text-xs">
-          <Paperclip className="w-3.5 h-3.5" />
-          <span className="truncate max-w-[200px]">{attachedFile.name}</span>
-          <button
-            onClick={() => setAttachedFile(null)}
-            className="text-cyan-400 hover:text-white font-bold ml-1 cursor-pointer"
-          >
-            ×
-          </button>
+      {/* Staged attachments chips */}
+      {stagedAttachments.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1.5 max-h-24 overflow-y-auto px-1">
+          {stagedAttachments.map((att) => (
+            <div
+              key={att.id}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-950/80 border border-cyan-500/40 text-cyan-200 text-xs shadow-sm backdrop-blur-md"
+            >
+              <Paperclip className="w-3 h-3 text-cyan-400 shrink-0" />
+              <span className="truncate max-w-[140px] font-medium">{att.name}</span>
+              <span className="text-[10px] text-cyan-400/80 font-mono">
+                ({universalAttachmentService.formatFileSize(att.size)})
+              </span>
+              {att.status === 'pending_integration' && (
+                <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">
+                  Preserved
+                </span>
+              )}
+              {att.status === 'processed' && (
+                <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono">
+                  Processed
+                </span>
+              )}
+              <button
+                onClick={() => handleRemoveAttachment(att.id)}
+                className="text-cyan-400 hover:text-white font-bold ml-1 cursor-pointer"
+                title="Remove attachment"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Detected URL badges */}
+      {detectedUrls.length > 0 && (
+        <div className="mb-1.5 flex flex-wrap gap-1 px-1">
+          {detectedUrls.map((u) => {
+            let host = u;
+            try {
+              host = new URL(u).hostname;
+            } catch {}
+            return (
+              <div
+                key={u}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-950/70 border border-indigo-400/40 text-indigo-200 text-[11px]"
+              >
+                <Globe className="w-3 h-3 text-sky-400 shrink-0" />
+                <span className="truncate max-w-[180px]">{host}</span>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -303,7 +412,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="p-1.5 rounded-lg bg-slate-800 text-cyan-400 hover:text-white hover:bg-cyan-600/40 transition-all cursor-pointer"
-                title="Attach File"
+                title="Attach Files"
               >
                 <Plus className="w-3.5 h-3.5" />
               </button>
@@ -313,7 +422,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
             </div>
             <button
               onClick={handleSubmit}
-              disabled={(!text.trim() && !attachedFile) || isSubmitting}
+              disabled={(!text.trim() && stagedAttachments.length === 0) || isSubmitting}
               className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-md"
             >
               {isSubmitting ? (
@@ -331,18 +440,18 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
           <button
             onClick={() => fileInputRef.current?.click()}
             className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#10183b]/80 flex items-center justify-center text-cyan-400 hover:text-white hover:bg-cyan-600 transition-all shadow-[0_0_15px_rgba(56,189,248,0.4)] shrink-0 double-glow-pulse-rounded cursor-pointer"
-            title="Attach File"
+            title="Attach Files"
           >
             <Plus className="w-4 h-4" />
           </button>
 
-          <input
-            type="text"
+          <textarea
             value={text}
             onChange={(e) => handleTextChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={inputPlaceholder}
-            className="flex-1 min-w-0 bg-transparent px-3 text-xs sm:text-sm text-slate-100 placeholder-slate-400 focus:outline-none tracking-wide"
+            rows={1}
+            className="flex-1 min-w-0 bg-transparent px-3 text-xs sm:text-sm text-slate-100 placeholder-slate-400 focus:outline-none tracking-wide resize-none h-6 sm:h-7 py-0.5 leading-normal overflow-y-auto"
           />
 
           <button
@@ -359,7 +468,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
 
           <button
             onClick={handleSubmit}
-            disabled={(!text.trim() && !attachedFile) || isSubmitting}
+            disabled={(!text.trim() && stagedAttachments.length === 0) || isSubmitting}
             className="p-2 sm:p-2.5 rounded-full bg-transparent hover:bg-white/10 disabled:opacity-30 text-cyan-300 hover:text-white transition-all drop-shadow-[0_0_12px_rgba(56,189,248,0.8)] shrink-0 double-glow-pulse-rounded flex items-center justify-center cursor-pointer shadow-[0_0_12px_rgba(56,189,248,0.4)]"
             title="Send Message"
           >
@@ -372,18 +481,18 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
           <button
             onClick={() => fileInputRef.current?.click()}
             className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#10183b]/80 flex items-center justify-center text-cyan-400 hover:text-white hover:bg-cyan-600 transition-all shadow-[0_0_15px_rgba(56,189,248,0.4)] shrink-0 double-glow-pulse-rounded cursor-pointer"
-            title="Attach File"
+            title="Attach Files"
           >
             <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
 
-          <input
-            type="text"
+          <textarea
             value={text}
             onChange={(e) => handleTextChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={inputPlaceholder}
-            className="flex-1 min-w-0 bg-transparent text-xs sm:text-base text-slate-100 placeholder-slate-400 focus:outline-none px-1.5 sm:px-2 tracking-wide"
+            rows={1}
+            className="flex-1 min-w-0 bg-transparent text-xs sm:text-base text-slate-100 placeholder-slate-400 focus:outline-none px-1.5 sm:px-2 tracking-wide resize-none h-6 sm:h-8 py-0.5 leading-normal overflow-y-auto"
           />
 
           <div className="flex items-center gap-1 sm:gap-2 shrink-0 pr-0.5 sm:pr-1">
@@ -421,7 +530,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
               <Mic className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
 
-            {text.trim() || attachedFile ? (
+            {text.trim() || stagedAttachments.length > 0 ? (
               <button
                 onClick={handleSubmit}
                 disabled={isSubmitting}

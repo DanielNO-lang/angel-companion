@@ -3,11 +3,14 @@ import {
   ComposerMode,
   ComposerSubmissionResult,
 } from '../types/composer';
+import { AttachmentRecord, LinkPreview } from '../types/attachment';
 import { conversationEngine } from './conversationEngine';
 import { workspaceEngine } from './workspaceEngine';
 import { agentEngine } from './agentEngine';
 import { promptIntelligenceEngine } from './promptIntelligenceEngine';
 import { storageService } from './storageService';
+import { universalAttachmentService } from './universalAttachmentService';
+import { linkPreviewService } from './linkPreviewService';
 
 const STORAGE_KEYS = {
   drafts: 'angel_composer_drafts_v1',
@@ -56,6 +59,7 @@ export class UniversalComposerService {
       context.conversationId,
       context.studioId,
       context.projectId,
+      context.workspaceId,
       context.agentId,
       context.learningSubject,
     ].filter(Boolean);
@@ -113,12 +117,48 @@ export class UniversalComposerService {
   public async submit(
     context: ComposerContext,
     text: string,
-    attachedFile?: { name: string; size: number; content?: string } | null
+    attachedFileOrFiles?: { name: string; size: number; content?: string } | AttachmentRecord[] | null
   ): Promise<ComposerSubmissionResult> {
     const key = this.getContextKey(context);
     const trimmedText = text.trim();
 
-    // 1. Validation: Agent tasks require an explicit agent & non-empty description
+    // 1. Check for unsafe URLs
+    const { unsafeUrls } = linkPreviewService.detectUrls(trimmedText);
+    if (unsafeUrls.length > 0) {
+      const err = `Unsafe URL scheme detected (${unsafeUrls.join(', ')}). Submission rejected for security.`;
+      this.errorsMap.set(key, err);
+      return { success: false, error: err, summaryText: err };
+    }
+
+    // 2. Resolve attachments (staged + passed)
+    const attachmentsToCommit: AttachmentRecord[] = [];
+    if (Array.isArray(attachedFileOrFiles)) {
+      attachmentsToCommit.push(...attachedFileOrFiles);
+    } else if (attachedFileOrFiles && attachedFileOrFiles.name) {
+      const stagedRes = await universalAttachmentService.stageAttachment(context, {
+        name: attachedFileOrFiles.name,
+        size: attachedFileOrFiles.size,
+        content: attachedFileOrFiles.content || '',
+      });
+      if (!stagedRes.success) {
+        this.errorsMap.set(key, stagedRes.error || 'Failed to attach file');
+        return { success: false, error: stagedRes.error, summaryText: stagedRes.error || 'Attachment error' };
+      }
+    }
+
+    // Get any staged attachments and commit
+    const staged = universalAttachmentService.getStagedAttachments(context);
+    if (staged.length > 0) {
+      const committed = await universalAttachmentService.commitAttachments(context);
+      attachmentsToCommit.push(...committed);
+    }
+
+    // Deduplicate committed attachments by id
+    const uniqueAttachments = Array.from(
+      new Map(attachmentsToCommit.map((a) => [a.id, a])).values()
+    );
+
+    // 3. Validation: Agent tasks require an explicit agent & non-empty description
     if (context.type === 'agent_task') {
       if (!context.agentId) {
         const err = 'Agent task assignment requires a selected agent ID.';
@@ -131,14 +171,14 @@ export class UniversalComposerService {
         return { success: false, error: err, summaryText: err };
       }
     } else {
-      if (!trimmedText && !attachedFile) {
+      if (!trimmedText && uniqueAttachments.length === 0) {
         const err = 'Message content or attached file is required.';
         this.errorsMap.set(key, err);
         return { success: false, error: err, summaryText: err };
       }
     }
 
-    // 2. Prevent duplicate submission while in progress
+    // 4. Prevent duplicate submission while in progress
     if (this.submittingMap.get(key)) {
       const err = 'Submission already in progress for this context.';
       this.errorsMap.set(key, err);
@@ -150,14 +190,17 @@ export class UniversalComposerService {
 
     const mode = this.getMode(context);
     let fullContent = trimmedText;
-    const attachments: string[] = [];
+    const attachmentNames = uniqueAttachments.map((a) => a.name);
 
-    if (attachedFile) {
-      attachments.push(attachedFile.name);
-      fullContent = trimmedText
-        ? `${trimmedText}\n[Attached File: ${attachedFile.name}]`
-        : `[Attached File: ${attachedFile.name}]`;
+    if (uniqueAttachments.length > 0) {
+      const attSummary = uniqueAttachments
+        .map((a) => `[Attachment: ${a.name} (${universalAttachmentService.formatFileSize(a.size)})]`)
+        .join('\n');
+      fullContent = trimmedText ? `${trimmedText}\n${attSummary}` : attSummary;
     }
+
+    // Extract link previews
+    const linkPreviews: LinkPreview[] = await linkPreviewService.getPreviewsForText(trimmedText);
 
     try {
       let result: ComposerSubmissionResult;
@@ -175,7 +218,9 @@ export class UniversalComposerService {
             fullContent,
             'user',
             mode,
-            attachments
+            attachmentNames,
+            uniqueAttachments,
+            linkPreviews
           );
 
           const aiMsg = await conversationEngine.generateAssistantResponse(threadId);
@@ -184,6 +229,8 @@ export class UniversalComposerService {
             success: true,
             messageId: aiMsg.id,
             summaryText: `Submitted message to General Conversation (${threadId}).`,
+            attachments: uniqueAttachments,
+            linkPreviews,
           };
           break;
         }
@@ -202,7 +249,9 @@ export class UniversalComposerService {
             fullContent,
             'user',
             mode,
-            attachments
+            attachmentNames,
+            uniqueAttachments,
+            linkPreviews
           );
 
           const aiMsg = await conversationEngine.generateAssistantResponse(threadId);
@@ -211,19 +260,17 @@ export class UniversalComposerService {
             success: true,
             messageId: aiMsg.id,
             summaryText: `Submitted message to Studio Conversation (${studioId}).`,
+            attachments: uniqueAttachments,
+            linkPreviews,
           };
           break;
         }
 
         case 'workspace': {
           const projId = context.projectId || 'proj_default';
-          if (attachedFile) {
-            workspaceEngine.addFileToProject(
-              projId,
-              attachedFile.name,
-              attachedFile.content || `File content for ${attachedFile.name}`,
-              'document'
-            );
+          for (const att of uniqueAttachments) {
+            const content = att.extractedText || `Attached file: ${att.name}`;
+            workspaceEngine.addFileToProject(projId, att.name, content, 'document');
           }
 
           // Register instruction in project workspace
@@ -231,7 +278,9 @@ export class UniversalComposerService {
 
           result = {
             success: true,
-            summaryText: `Associated instruction with workspace project '${projId}'.`,
+            summaryText: `Associated instruction and ${uniqueAttachments.length} file(s) with workspace project '${projId}'.`,
+            attachments: uniqueAttachments,
+            linkPreviews,
           };
           break;
         }
@@ -246,6 +295,8 @@ export class UniversalComposerService {
           result = {
             success: true,
             summaryText: `Passed context for adaptive preset '${presetId}' into Prompt Intelligence Engine (Detected: ${intent.detectedTask}).`,
+            attachments: uniqueAttachments,
+            linkPreviews,
           };
           break;
         }
@@ -260,7 +311,11 @@ export class UniversalComposerService {
             return { success: false, error: err, summaryText: err };
           }
 
-          const execResult = await agentEngine.executeTask(agentId, trimmedText);
+          const taskDescriptionWithFiles = uniqueAttachments.length > 0
+            ? `${trimmedText}\nFiles: ${uniqueAttachments.map((a) => a.name).join(', ')}`
+            : trimmedText;
+
+          const execResult = await agentEngine.executeTask(agentId, taskDescriptionWithFiles);
 
           if (!execResult.success) {
             const err = execResult.error || 'Agent task execution failed';
@@ -276,6 +331,8 @@ export class UniversalComposerService {
             success: true,
             taskId: `task_${Date.now()}`,
             summaryText: `Agent '${agent.name}' successfully executed task: "${trimmedText}".`,
+            attachments: uniqueAttachments,
+            linkPreviews,
           };
           break;
         }
@@ -293,7 +350,9 @@ export class UniversalComposerService {
             fullContent,
             'user',
             mode,
-            attachments
+            attachmentNames,
+            uniqueAttachments,
+            linkPreviews
           );
 
           const aiMsg = await conversationEngine.generateAssistantResponse(thread.id);
@@ -302,6 +361,8 @@ export class UniversalComposerService {
             success: true,
             messageId: aiMsg.id,
             summaryText: `Submitted learning query for subject '${learningSubject}'.`,
+            attachments: uniqueAttachments,
+            linkPreviews,
           };
           break;
         }
@@ -313,6 +374,8 @@ export class UniversalComposerService {
             success: true,
             messageId: aiMsg.id,
             summaryText: `Submitted fallback message to General Conversation.`,
+            attachments: uniqueAttachments,
+            linkPreviews,
           };
         }
       }

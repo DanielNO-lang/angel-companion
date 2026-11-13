@@ -12,6 +12,7 @@ import { capabilityRegistry } from './capabilityRegistry';
 import { capabilityRouter } from './capabilityRouter';
 import { executionPlanEngine } from './executionPlanEngine';
 import { personalityAdapter } from './personalityAdapter';
+import { conversationalIntelligence } from './conversationalIntelligence';
 
 export class PromptIntelligenceEngine {
   /**
@@ -172,6 +173,20 @@ export class PromptIntelligenceEngine {
       }
       permissionLevelRequired = 'device_control';
     }
+    // Mode-specific routing when explicit mode is active
+    else if (context.mode === 'Deep Research') {
+      intent = 'research_investigation';
+      detectedTask = 'Deep Research Investigation & Synthesis';
+      selectedCapIds.push('cap_research_synthesis');
+    } else if (context.mode === 'Code Analysis') {
+      intent = 'coding_development';
+      detectedTask = 'Structural Code Analysis & Architecture';
+      selectedCapIds.push('cap_code_generator');
+    } else if (context.mode === 'Creative Brainstorm') {
+      intent = 'creative_media';
+      detectedTask = 'Creative Visual & Conceptual Brainstorm';
+      selectedCapIds.push('cap_creative_image_gen');
+    }
     // General Questions / Explanations
     else {
       intent = 'question_explanation';
@@ -214,6 +229,17 @@ export class PromptIntelligenceEngine {
       if (studioCfg) {
         systemPrefix = studioCfg.systemPromptPrefix;
         defaultConstraints.push(...studioCfg.defaultConstraints);
+      }
+    }
+
+    if (context.mode) {
+      defaultConstraints.push(`Active Mode: ${context.mode}`);
+      if (context.mode === 'Deep Research') {
+        systemPrefix += ' Prioritize structured investigation, conceptual taxonomy, and literature synthesis.';
+      } else if (context.mode === 'Code Analysis') {
+        systemPrefix += ' Prioritize architectural patterns, AST analysis, and TypeScript interface contracts.';
+      } else if (context.mode === 'Creative Brainstorm') {
+        systemPrefix += ' Prioritize creative visual concepts, aesthetic styling directions, and spatial drafting.';
       }
     }
 
@@ -279,99 +305,9 @@ export class PromptIntelligenceEngine {
       executionResults.push(res);
     }
 
-    // Build synthesized natural companion response
-    let responseText = '';
-
-    if (parsedIntent.intent === 'greeting') {
-      const historyLen = context.conversationHistory?.length || 0;
-      const lowerMsg = userMessage.trim().toLowerCase();
-
-      if (lowerMsg.includes('good morning')) {
-        responseText = historyLen > 4 ? `Good morning! How's your morning going so far?` : `Good morning! How's your morning going?`;
-      } else if (lowerMsg.includes('thank')) {
-        responseText = `You're welcome!`;
-      } else if (lowerMsg.includes('how are you')) {
-        responseText = `I'm doing well. How are you?`;
-      } else {
-        responseText = historyLen > 4 ? `Hey! What's on your mind?` : `Hey! How's it going?`;
-      }
-    } else if (parsedIntent.intent === 'coding_development') {
-      const codeRes = executionResults.find((r) => r.capabilityId === 'cap_code_generator');
-      if (codeRes?.success) {
-        responseText = context.scope === 'general'
-          ? `Here is the implementation you requested for **${parsedIntent.detectedTask}**:\n\n\`\`\`typescript\n${codeRes.outputData.codeSnippet}\n\`\`\`\nLet me know if you would like me to explain any part of this logic or adapt it further!`
-          : `I have processed your development request for **${parsedIntent.detectedTask}**.\n\n\`\`\`typescript\n${codeRes.outputData.codeSnippet}\n\`\`\``;
-      } else {
-        responseText = `I've analyzed your coding request: "${userMessage}". Let's dive in!`;
-      }
-    } else if (parsedIntent.intent === 'research_investigation') {
-      const resData = executionResults.find((r) => r.capabilityId === 'cap_research_synthesis');
-      if (resData?.success) {
-        responseText = `### Research Synthesis: ${resData.outputData.topic}\n\n**Methodology:** ${resData.outputData.methodology}\n\n**Key Findings:**\n- ${resData.outputData.findings.join('\n- ')}\n\n*Sources: ${resData.outputData.citations.join(', ')}*`;
-      } else {
-        responseText = `I've looked into this for you regarding "${userMessage}". Here is what stands out most clearly.`;
-      }
-    } else if (parsedIntent.intent === 'creative_media') {
-      const imgRes = executionResults.find((r) => r.capabilityId === 'cap_creative_image_gen');
-      if (imgRes?.success) {
-        responseText = `### Creative Visual Concept\n\n**Prompt:** "${imgRes.outputData.promptText}"\n**Art Direction:** ${imgRes.outputData.visualStyle}\n**Aspect Ratio:** ${imgRes.outputData.aspectRatio}\n\n\`\`\`xml\n${imgRes.outputData.svgDraft}\n\`\`\``;
-      } else {
-        responseText = `Here is a creative concept tailored for: "${userMessage}".`;
-      }
-    } else if (parsedIntent.intent === 'learning_education') {
-      const lower = userMessage.toLowerCase();
-      if (lower.includes('photosynthesis')) {
-        responseText = `Photosynthesis is the biochemical process by which plants, algae, and some bacteria convert sunlight, water, and carbon dioxide into oxygen and energy in the form of glucose. The overall chemical reaction is: 6CO2 + 6H2O + light energy -> C6H12O6 + 6O2.`;
-      } else if (lower.includes('25% of 200') || lower.includes('25 % of 200') || (lower.includes('25%') && lower.includes('200'))) {
-        responseText = `50 (Calculation: 200 × 0.25 = 50).`;
-      } else {
-        const eduRes = executionResults.find((r) => r.capabilityId === 'cap_education_lesson_plan');
-        if (eduRes?.success) {
-          responseText = context.scope === 'general'
-            ? `Here is a clear, structured breakdown for **${eduRes.outputData.subject}** (${eduRes.outputData.targetLevel}):\n\n**Key Concepts:**\n- ${eduRes.outputData.modules.join('\n- ')}\n\n**Review Points:**\n- ${eduRes.outputData.quizQuestions.join('\n- ')}`
-            : `### Lesson Plan: ${eduRes.outputData.subject} (${eduRes.outputData.targetLevel})\n\n**Curriculum Modules:**\n- ${eduRes.outputData.modules.join('\n- ')}\n\n**Assessment:**\n- ${eduRes.outputData.quizQuestions.join('\n- ')}`;
-        } else {
-          responseText = `I've prepared an explanation for "${userMessage}". Let me know which aspect you'd like to explore in more depth!`;
-        }
-      }
-    } else if (parsedIntent.intent === 'professional_intelligence') {
-      const profRes = executionResults.find((r) => r.capabilityId === 'cap_prof_intel_workflow');
-      if (profRes?.success) {
-        responseText = `### Executive Briefing: ${profRes.outputData.topic}\n\n${profRes.outputData.executiveSummary}`;
-      } else {
-        responseText = `Here is my assessment regarding "${userMessage}".`;
-      }
-    } else if (parsedIntent.intent === 'personal_organization') {
-      const planRes = executionResults.find((r) => r.capabilityId === 'cap_personal_planner');
-      if (planRes?.success) {
-        const blocks = planRes.outputData.scheduleBlocks.map((b: any) => `**${b.time}**: ${b.activity}`).join('\n');
-        responseText = `### Personal Schedule: ${planRes.outputData.goal}\n\n${blocks}`;
-      } else {
-        responseText = `I've organized a plan for "${userMessage}". Let me know if you want to adjust any timing!`;
-      }
-    } else if (parsedIntent.intent === 'device_environment') {
-      const awaitRes = executionResults.find((r) => r.awaitingIntegrationReason);
-      if (awaitRes) {
-        responseText = `### Device Protocol Specification\n\n${awaitRes.summaryText}\n\n*Integration Status:* ${awaitRes.awaitingIntegrationReason}`;
-      } else {
-        responseText = `Device action reviewed for: "${userMessage}".`;
-      }
-    } else {
-      const lower = userMessage.toLowerCase();
-      if (lower.includes('photosynthesis')) {
-        responseText = `Photosynthesis is the biochemical process by which plants, algae, and some bacteria convert sunlight, water, and carbon dioxide into oxygen and energy in the form of glucose. The overall chemical reaction is: 6CO2 + 6H2O + light energy -> C6H12O6 + 6O2.`;
-      } else if (lower.includes('25% of 200') || lower.includes('25 % of 200') || (lower.includes('25%') && lower.includes('200'))) {
-        responseText = `50 (Calculation: 200 × 0.25 = 50).`;
-      } else if (lower.includes('weather')) {
-        if (lower.includes('city') || lower.includes('in ')) {
-          responseText = `Live weather lookup is not currently connected to an external weather API. Once weather service integration is connected, I can retrieve live conditions for your requested location.`;
-        } else {
-          responseText = `Which city or location would you like checked for weather?`;
-        }
-      } else {
-        responseText = `Here is the information regarding "${userMessage}": This topic involves key concepts and principles that can be explored through structured analysis. Let me know if you would like a detailed breakdown or specific examples!`;
-      }
-    }
+    // Build synthesized natural companion response via conversational intelligence engine
+    const convResult = await conversationalIntelligence.generateResponse(userMessage, context);
+    let responseText = convResult.response;
 
     // Studio recommendation only for specialized academic research or complex workflows
     if (context.scope === 'general' && routeResult.recommendedStudioId && routeResult.recommendedStudioReason && (userMessage.toLowerCase().includes('quantum') || userMessage.toLowerCase().includes('arxiv') || userMessage.toLowerCase().includes('literature'))) {

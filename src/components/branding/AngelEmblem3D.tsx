@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { EmblemSkeleton } from '../ui/Skeleton';
 
 interface AngelEmblem3DProps {
   size?: number;
@@ -19,6 +20,7 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [hasWebGlError, setHasWebGlError] = useState(false);
+  const [isFirstFrameReady, setIsFirstFrameReady] = useState(false);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -34,6 +36,7 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
       });
     } catch {
       setHasWebGlError(true);
+      setIsFirstFrameReady(true);
       return;
     }
 
@@ -110,13 +113,20 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
 
     scene.add(emblemGroup);
 
-    // Animation Loop with performance.now() timing
-    let animationFrameId: number;
+    // Animation Loop with performance.now() timing, reduced-motion, and FPS capping
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+    let animationFrameId = 0;
     let lastTime = performance.now();
+    let lastRenderTime = 0;
+    const minFrameIntervalMs = 1000 / 32;
     let targetTiltX = 0;
     let targetTiltY = 0;
     let currentTiltX = 0;
     let currentTiltY = 0;
+    let frameSignaled = false;
 
     const handleMouseMove = (e: MouseEvent | PointerEvent) => {
       if (!tiltOnHover && !pointerTracking) return;
@@ -149,35 +159,49 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
       container.addEventListener('mouseleave', handleMouseLeave);
     }
 
-    const animate = () => {
-      animationFrameId = requestAnimationFrame(animate);
+    const animate = (nowArg?: number) => {
+      if (!prefersReducedMotion) {
+        animationFrameId = requestAnimationFrame(animate);
+      }
 
-      const now = performance.now();
+      const now = typeof nowArg === 'number' ? nowArg : performance.now();
+      if (frameSignaled && !prefersReducedMotion && now - lastRenderTime < minFrameIntervalMs) {
+        return;
+      }
+      lastRenderTime = now;
+
       const delta = Math.min((now - lastTime) * 0.001, 0.1);
       const elapsed = now * 0.001;
       lastTime = now;
 
-      // Dynamic multi-axis organic motion (horizontal, vertical, diagonal tumbling)
-      const baseSpeed = (Math.PI * 2 / rotationSpeed);
-      emblemGroup.rotation.y += baseSpeed * delta;
-      emblemGroup.rotation.x += Math.sin(elapsed * 0.85) * 0.7 * baseSpeed * delta;
-      emblemGroup.rotation.z += Math.cos(elapsed * 0.65) * 0.5 * baseSpeed * delta;
+      if (!prefersReducedMotion) {
+        // Dynamic multi-axis organic motion (horizontal, vertical, diagonal tumbling)
+        const baseSpeed = (Math.PI * 2 / rotationSpeed);
+        emblemGroup.rotation.y += baseSpeed * delta;
+        emblemGroup.rotation.x += Math.sin(elapsed * 0.85) * 0.7 * baseSpeed * delta;
+        emblemGroup.rotation.z += Math.cos(elapsed * 0.65) * 0.5 * baseSpeed * delta;
 
-      // Smooth interactive mouse tilt interpolation
-      currentTiltX += (targetTiltX - currentTiltX) * 0.1;
-      currentTiltY += (targetTiltY - currentTiltY) * 0.1;
+        // Smooth interactive mouse tilt interpolation
+        currentTiltX += (targetTiltX - currentTiltX) * 0.1;
+        currentTiltY += (targetTiltY - currentTiltY) * 0.1;
 
-      emblemMesh.rotation.x = currentTiltX;
-      emblemMesh.rotation.z = currentTiltY * 0.5;
+        emblemMesh.rotation.x = currentTiltX;
+        emblemMesh.rotation.z = currentTiltY * 0.5;
 
-      // Pulsing environmental lights reflecting electric blue & violet specular hues
-      blueLight.intensity = 3.2 + Math.sin(elapsed * 2.2) * 1.2;
-      violetLight.intensity = 3.2 + Math.cos(elapsed * 2.2) * 1.2;
+        // Pulsing environmental lights reflecting electric blue & violet specular hues
+        blueLight.intensity = 3.2 + Math.sin(elapsed * 2.2) * 1.2;
+        violetLight.intensity = 3.2 + Math.cos(elapsed * 2.2) * 1.2;
+      }
 
       renderer.render(scene, camera);
+
+      if (!frameSignaled) {
+        frameSignaled = true;
+        setIsFirstFrameReady(true);
+      }
     };
 
-    animate();
+    animate(performance.now());
 
     return () => {
       cancelAnimationFrame(animationFrameId);
@@ -213,9 +237,20 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
 
   return (
     <div
-      ref={mountRef}
       className={`relative inline-flex items-center justify-center shrink-0 select-none ${className}`}
       style={{ width: size, height: size }}
-    />
+    >
+      {!isFirstFrameReady && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <EmblemSkeleton size={size} />
+        </div>
+      )}
+      <div
+        ref={mountRef}
+        className={`w-full h-full flex items-center justify-center transition-opacity duration-300 ${
+          isFirstFrameReady ? 'opacity-100' : 'opacity-0'
+        }`}
+      />
+    </div>
   );
 };

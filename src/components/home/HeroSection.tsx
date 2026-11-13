@@ -1,7 +1,11 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, Suspense } from 'react';
 import { MessageSquare, Briefcase, CheckCircle2, Shuffle } from 'lucide-react';
-import { AngelEmblem3D } from '../branding/AngelEmblem3D';
 import { CompanionOrbState } from '../../types/angel';
+import { EmblemSkeleton } from '../ui/Skeleton';
+
+const AngelEmblem3D = React.lazy(() =>
+  import('../branding/AngelEmblem3D').then((m) => ({ default: m.AngelEmblem3D }))
+);
 
 interface HeroSectionProps {
   orbState: CompanionOrbState;
@@ -149,12 +153,14 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
             ? 'opacity-70 scale-95 drop-shadow-[0_0_15px_rgba(99,102,241,0.3)]'
             : 'group-hover:scale-105 drop-shadow-[0_0_25px_rgba(56,189,248,0.5)]'
         }`}>
-          <AngelEmblem3D 
-            size={typeof window !== 'undefined' && window.innerWidth < 640 ? 150 : 210} 
-            rotationSpeed={isDragging ? 4 : orbState === 'sleeping' ? 48 : 12} 
-            tiltOnHover={true}
-            pointerTracking={true}
-          />
+          <Suspense fallback={<EmblemSkeleton size={typeof window !== 'undefined' && window.innerWidth < 640 ? 150 : 210} />}>
+            <AngelEmblem3D 
+              size={typeof window !== 'undefined' && window.innerWidth < 640 ? 150 : 210} 
+              rotationSpeed={isDragging ? 4 : orbState === 'sleeping' ? 48 : 12} 
+              tiltOnHover={true}
+              pointerTracking={true}
+            />
+          </Suspense>
         </div>
       </div>
 

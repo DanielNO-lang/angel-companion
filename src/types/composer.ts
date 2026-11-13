@@ -10,6 +10,7 @@ export type ComposerContextType =
 
 export type ComposerMode =
   | 'Standard Intelligent'
+  | 'Think'
   | 'Deep Research'
   | 'Code Analysis'
   | 'Creative Brainstorm';
@@ -19,6 +20,7 @@ export interface ComposerContext {
   conversationId?: string;
   studioId?: StudioId;
   projectId?: string;
+  workspaceId?: string;
   agentId?: string;
   learningSubject?: string;
   mode?: ComposerMode;
@@ -27,9 +29,13 @@ export interface ComposerContext {
   title?: string;
 }
 
+import { AttachmentRecord, LinkPreview } from './attachment';
+
 export interface ComposerSubmissionPayload {
   text: string;
   attachedFile?: { name: string; size: number; content?: string } | null;
+  attachedFiles?: AttachmentRecord[];
+  linkPreviews?: LinkPreview[];
   context: ComposerContext;
   timestamp: string;
   mode: ComposerMode;
@@ -42,4 +48,6 @@ export interface ComposerSubmissionResult {
   summaryText: string;
   error?: string;
   awaitingIntegrationReason?: string;
+  attachments?: AttachmentRecord[];
+  linkPreviews?: LinkPreview[];
 }

@@ -146,61 +146,84 @@ export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
 
     scene.add(orbGroup);
 
-    // Render loop and state animation logic
-    let animationFrameId: number;
+    // Render loop and state animation logic with reduced-motion and FPS cap
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    let animationFrameId = 0;
     const clock = new THREE.Clock();
+    let lastRenderTime = 0;
+    const minFrameIntervalMs = 1000 / 30;
+    let firstFrameRendered = false;
 
-    const animate = () => {
-      animationFrameId = requestAnimationFrame(animate);
+    const animate = (nowArg?: number) => {
+      if (!prefersReducedMotion) {
+        animationFrameId = requestAnimationFrame(animate);
+      }
+      const now = typeof nowArg === 'number' ? nowArg : performance.now();
+      if (firstFrameRendered && !prefersReducedMotion && now - lastRenderTime < minFrameIntervalMs) {
+        return;
+      }
+      lastRenderTime = now;
+
       const elapsed = clock.getElapsedTime();
 
-      // Base Floating Motion
-      orbGroup.position.y = Math.sin(elapsed * 1.2) * 0.12;
+      if (!prefersReducedMotion) {
+        // Base Floating Motion
+        orbGroup.position.y = Math.sin(elapsed * 1.2) * 0.12;
+      }
 
       // State-Driven Behavior
       if (state === 'idle') {
         coreMat.emissive.setHex(0x38bdf8);
         coreLight.color.setHex(0x38bdf8);
-        ringMesh.rotation.z += 0.01;
-        particleSystem.rotation.y += 0.005;
-        coreMesh.scale.setScalar(1.0 + Math.sin(elapsed * 2) * 0.03);
+        if (!prefersReducedMotion) {
+          ringMesh.rotation.z += 0.015;
+          particleSystem.rotation.y += 0.008;
+          coreMesh.scale.setScalar(1.0 + Math.sin(elapsed * 2) * 0.03);
+        }
       } else if (state === 'listening') {
-        // Cyan-blue rhythmic light pulse
         coreMat.emissive.setHex(0x06b6d4);
         coreLight.color.setHex(0x06b6d4);
-        ringMesh.rotation.z += 0.02;
-        particleSystem.rotation.y += 0.01;
-        const pulse = 1.0 + Math.sin(elapsed * 6) * 0.12;
-        coreMesh.scale.setScalar(pulse);
+        if (!prefersReducedMotion) {
+          ringMesh.rotation.z += 0.03;
+          particleSystem.rotation.y += 0.015;
+          const pulse = 1.0 + Math.sin(elapsed * 6) * 0.12;
+          coreMesh.scale.setScalar(pulse);
+        }
       } else if (state === 'thinking') {
-        // High speed energy rotation
         coreMat.emissive.setHex(0xa855f7);
         coreLight.color.setHex(0xa855f7);
-        ringMesh.rotation.z += 0.06;
-        ringMesh.rotation.y += 0.03;
-        particleSystem.rotation.y += 0.04;
-        coreMesh.scale.setScalar(1.0 + Math.sin(elapsed * 10) * 0.08);
+        if (!prefersReducedMotion) {
+          ringMesh.rotation.z += 0.08;
+          ringMesh.rotation.y += 0.04;
+          particleSystem.rotation.y += 0.05;
+          coreMesh.scale.setScalar(1.0 + Math.sin(elapsed * 10) * 0.08);
+        }
       } else if (state === 'speaking') {
-        // Audio output pulse
         coreMat.emissive.setHex(0xec4899);
         coreLight.color.setHex(0xec4899);
-        ringMesh.rotation.z += 0.025;
-        particleSystem.rotation.y += 0.015;
-        const wave = 1.0 + Math.abs(Math.sin(elapsed * 8)) * 0.18;
-        coreMesh.scale.setScalar(wave);
+        if (!prefersReducedMotion) {
+          ringMesh.rotation.z += 0.035;
+          particleSystem.rotation.y += 0.02;
+          const wave = 1.0 + Math.abs(Math.sin(elapsed * 8)) * 0.18;
+          coreMesh.scale.setScalar(wave);
+        }
       } else if (state === 'attention') {
-        // Distinctive amber alert signal
         coreMat.emissive.setHex(0xf59e0b);
         coreLight.color.setHex(0xf59e0b);
-        ringMesh.rotation.z += 0.04;
-        const alertPulse = 1.0 + Math.sin(elapsed * 12) * 0.15;
-        coreMesh.scale.setScalar(alertPulse);
+        if (!prefersReducedMotion) {
+          ringMesh.rotation.z += 0.05;
+          const alertPulse = 1.0 + Math.sin(elapsed * 12) * 0.15;
+          coreMesh.scale.setScalar(alertPulse);
+        }
       }
 
       renderer.render(scene, camera);
+      firstFrameRendered = true;
     };
 
-    animate();
+    animate(performance.now());
 
     return () => {
       cancelAnimationFrame(animationFrameId);

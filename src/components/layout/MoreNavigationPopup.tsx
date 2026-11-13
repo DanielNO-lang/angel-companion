@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { 
   Activity,
   Folder,
+  BookOpen,
   Wrench,
   AppWindow, 
   Smartphone, 
@@ -46,6 +47,7 @@ export const MoreNavigationPopup: React.FC<MoreNavigationPopupProps> = ({
   const items: { id: MoreSubNavItem; label: string; icon: React.FC<{ className?: string }> }[] = [
     { id: 'activities', label: 'Activities', icon: Activity },
     { id: 'workspace', label: 'Workspace', icon: Folder },
+    { id: 'library', label: 'Library', icon: BookOpen },
     { id: 'tools', label: 'Tools', icon: Wrench },
     { id: 'apps', label: 'Apps', icon: AppWindow },
     { id: 'devices', label: 'Devices', icon: Smartphone },

@@ -1,0 +1,1419 @@
+# MASTER DESIGN AND IMPLEMENTATION DIRECTIVE
+## ANGEL COMPANION: PUBLIC LANDING EXPERIENCE, AUTHENTICATION EXPERIENCE AND RESPONSIVE 3D DESIGN SYSTEM
+
+You are working on **Angel Companion**, an advanced Universal Personal AI Companion.
+
+Your assignment is to design and implement a premium, immersive, fully responsive public-facing experience consisting of:
+
+1. The public landing page.
+2. The sign-in page.
+3. The sign-up page.
+4. The email verification experience.
+5. The forgotten-password and password-recovery experience.
+
+These pages must feel like natural extensions of the existing Angel Companion application.
+
+This is not a request to design another generic AI website.
+
+This is not an opportunity to invent a new visual identity for Angel.
+
+**You must first understand the existing Angel workspace, then build the new experiences using its existing visual language, motion identity, brand assets, atmospheric environment, components and design philosophy.**
+
+The existing workspace is the single source of truth.
+
+---
+
+# PART 1: UNDERSTAND THE EXISTING ANGEL WORKSPACE BEFORE DESIGNING
+
+Before making any changes, thoroughly inspect the existing application and source code.
+
+Do not immediately start generating a new design.
+
+Study the following:
+
+- Existing homepage and authenticated workspace.
+- Current dark-mode implementation.
+- Current light-mode implementation.
+- Cosmic or galactic background environment.
+- Existing animated background elements.
+- Existing moving Angel emblem and logo.
+- Existing 3D companion orb.
+- Angel's existing typography, colours, gradients, lighting, shadows and glassmorphism.
+- Sidebar and navigation structure.
+- Home dashboard.
+- New Conversation.
+- Adaptive Workspace.
+- Agents.
+- Studios.
+- Workspace.
+- Tools.
+- Activities.
+- Knowledge Library and other existing storage areas.
+- Existing mobile navigation and responsive behaviour.
+- Current authentication implementation.
+- Existing branding and design assets.
+- Existing animation and motion components.
+
+Inspect the actual implementation, not just the names of components.
+
+Pay particular attention to existing components and assets such as:
+
+- AngelEmblem3D.
+- AngelEmblem.
+- CompanionOrb.
+- CosmicEnvironment.
+- CosmicBackground.
+- Existing Angel branding assets and logo variations.
+- Existing approved home reference.
+- Existing mobile screenshots.
+- Existing desktop screenshots.
+
+Use the actual project components wherever appropriate.
+
+Do not create another Angel logo if the existing animated logo can be reused.
+
+Do not substitute the existing motion logo with a static image.
+
+Do not replace the existing companion orb with an unrelated illustration.
+
+Do not create an unrelated colour palette.
+
+Do not introduce a completely different design system.
+
+The new pages must look as though they were created by the same design team that created the current Angel workspace.
+
+Before implementing, provide a brief audit of the existing design system and explain how the new pages will inherit its identity.
+
+## Critical design protection
+
+The authenticated Angel workspace is already an established design.
+
+**DO NOT REDESIGN, RESTRUCTURE, REARRANGE, RECOLOUR OR REPLACE THE EXISTING WORKSPACE.**
+
+Do not change:
+
+- Its current layout.
+- Its sidebar.
+- Its navigation.
+- Its existing home composition.
+- Its approved visual structure.
+- Its current galactic environment.
+- Its existing motion identity.
+- Its existing mobile workspace design.
+
+The only permitted changes to the existing workspace are essential integration changes required to connect the new public and authentication experiences to the existing application.
+
+Create the new pages around the existing workspace, not the other way around.
+
+---
+
+# PART 2: THE DESIGN PHILOSOPHY
+
+Angel is not supposed to look like another chatbot.
+
+Angel is a Universal Personal AI Companion.
+
+The public experience must communicate that Angel brings together intelligence, conversation, productivity, creativity, knowledge, tools, personal organisation and adaptive digital experiences.
+
+The design should communicate:
+
+- Intelligence.
+- Continuity.
+- Companionship.
+- Adaptability.
+- Creativity.
+- Personalisation.
+- Connected experiences.
+- Control.
+- Trust.
+- A unified digital environment.
+
+The visual language should be futuristic, immersive, elegant, premium, atmospheric and technologically advanced.
+
+Avoid generic SaaS website templates.
+
+Avoid ordinary corporate website sections.
+
+Avoid flat, lifeless cards.
+
+Avoid excessive gradients without purpose.
+
+Avoid unrelated stock photographs.
+
+Avoid cartoon illustrations.
+
+Avoid static, oversized generic AI robot illustrations.
+
+Avoid clutter.
+
+Every major visual element should contribute to Angel's identity.
+
+---
+
+# PART 3: ANGEL BRANDING AND THE ANIMATED LOGO
+
+The existing Angel logo is central to the identity of the entire experience.
+
+Use the existing animated Angel emblem and its established movement behaviour.
+
+The emblem should retain its recognisable 3D form, materials, rotation, lighting, reflections and aura.
+
+Where appropriate, use the existing AngelEmblem3D component and its actual animation settings.
+
+Do not replace the existing logo with an ordinary infinity icon or a newly invented symbol.
+
+## Logo presentation
+
+The animated emblem should appear in:
+
+- The landing-page navigation.
+- The landing-page hero.
+- The landing-page brand/story section.
+- The footer.
+- The sign-in experience.
+- The sign-up experience.
+- The password-recovery experience.
+- The email-verification experience.
+- Mobile navigation and mobile authentication screens.
+
+The hero can feature a larger animated version of the emblem.
+
+The authentication pages should include a prominent animated emblem in a separate visual area beside the form on desktop.
+
+On mobile, the emblem should have a compact but impressive presentation above or beside the form.
+
+## What the Angel symbol represents
+
+Create a meaningful brand explanation using the actual form and design language of the existing emblem.
+
+Its visual storytelling should communicate:
+
+- Connection.
+- Continuity.
+- Interconnected capabilities.
+- Balance.
+- Intelligence.
+- A companion that brings different experiences together.
+
+If the repository already contains an established explanation of the emblem's symbolism, use that explanation as the primary source.
+
+Do not invent historical or official brand origins.
+
+Make this section visually compelling, using the actual emblem in motion and carefully animated visual elements that explain the meaning.
+
+---
+
+# PART 4: PUBLIC LANDING PAGE
+
+Create an outstanding public landing page that introduces Angel to someone who has never used it.
+
+The first impression should immediately communicate that Angel is a different kind of AI companion.
+
+The visitor should understand:
+
+1. What Angel is.
+2. What Angel can do.
+3. What makes Angel different.
+4. What the actual workspace looks like.
+5. How its different capabilities work together.
+6. How to create an account and enter the private companion environment.
+
+The page must use the existing Angel galactic design language.
+
+## A. Landing-page navigation
+
+Create a refined navigation bar containing:
+
+- Animated Angel logo.
+- Home.
+- Capabilities.
+- Experience.
+- About Angel.
+- Privacy.
+- Sign In.
+- Get Started.
+
+Use smooth scrolling or meaningful navigation to the appropriate sections.
+
+Keep navigation elegant and unobtrusive.
+
+The mobile navigation must be purpose-designed, not merely a compressed desktop menu.
+
+## B. Hero section
+
+This is the most important visual section.
+
+Create a large immersive hero using the existing galactic environment and current dark-mode backdrop.
+
+Use the actual animated Angel emblem and/or existing companion orb as the centrepiece.
+
+The hero should have a sense of depth.
+
+Use appropriate elements from the existing environment:
+
+- Cosmic atmosphere.
+- Stars.
+- Nebulae.
+- Existing orbital effects.
+- Ambient lighting.
+- Existing spatial objects, where suitable.
+- Moving elements and layered depth.
+- Subtle 3D camera movement or parallax.
+
+Do not invent a new unrelated background.
+
+The hero should contain compelling, truthful text explaining Angel.
+
+Suggested headline direction:
+
+"More Than AI. Your Personal Companion."
+
+Alternative:
+
+"An Intelligence That Moves With Your World."
+
+Supporting text should explain that Angel brings conversation, creativity, organisation, knowledge and digital assistance into one evolving companion environment.
+
+Include two prominent calls to action:
+
+**Get Started**
+
+**Explore Angel**
+
+The Get Started button must lead to registration.
+
+Explore Angel should take visitors into the capabilities and product-experience sections.
+
+Include a small animated visual indicator encouraging visitors to explore further.
+
+## C. What Angel can do: Core capabilities
+
+Create a major visual storytelling section presenting Angel's actual core capabilities.
+
+Do not simply display six ordinary rectangular feature cards.
+
+Design an immersive collection of 3D feature objects, interactive visual panels or spatially arranged capability elements that match the existing workspace.
+
+Each capability must have:
+
+- A meaningful heading.
+- A genuine explanation.
+- An appropriate visual element.
+- A relevant screenshot from the actual Angel workspace, where available.
+- Subtle 3D depth.
+- A meaningful animation or interaction.
+- A clear explanation of its relationship with the wider Angel environment.
+
+Cover the following capabilities.
+
+### 1. Intelligent Conversations
+
+Explain Angel's conversational intelligence.
+
+Show the actual New Conversation interface.
+
+Describe its ability to understand questions, follow context, explore ideas, assist with research and support everyday thinking.
+
+Use an actual screenshot of Angel's conversation interface.
+
+### 2. Adaptive Workspace
+
+Explain the Adaptive Workspace as an environment that organises and adapts work according to the user's needs.
+
+Use the actual Adaptive Workspace interface as its visual proof.
+
+Show how it differs from ordinary conversation.
+
+### 3. Agents
+
+Explain the role of specialised agents and how agents can support different tasks and workflows.
+
+Show the existing Agents interface.
+
+Only describe capabilities that actually exist or are clearly labelled as being developed.
+
+### 4. Studios
+
+Explain how Studios provide specialised environments for different kinds of work.
+
+Use genuine screenshots of existing Studios.
+
+Show relevant examples such as research, development and other available studio environments.
+
+### 5. Workspace and Projects
+
+Explain how users can organise projects and related work.
+
+Use genuine visual evidence from the existing Workspace interface.
+
+Explain how the workspace relates to conversations, adaptive work and specialised environments.
+
+### 6. Tools and Integrations
+
+Explain Angel's tools and its intended ability to work across different connected services.
+
+Use the actual Tools interface.
+
+Clearly differentiate available integrations from planned or unconfigured integrations.
+
+### 7. Memory and Personalisation
+
+Explain Angel's memory and personalisation vision.
+
+Distinguish between functionality already implemented and functionality still under development.
+
+Use genuine visual evidence from existing memory or knowledge components.
+
+Do not claim that a fully implemented persistent memory system exists unless the code and working functionality prove it.
+
+### 8. Knowledge Library
+
+Explain how Angel's Library can organise, retain, retrieve and use information.
+
+Use the actual Library interface or a real screenshot of the relevant application section.
+
+Only describe implemented functionality as available.
+
+### 9. Voice, Vision and Multimodal Interaction
+
+Explain Angel's existing and developing voice and visual interaction capabilities.
+
+Use the existing composer controls, voice interface, camera/screen-share experience or other actual interface elements.
+
+Do not advertise functionality that is not connected and working.
+
+## D. REAL PRODUCT SCREENSHOTS: EXTREMELY IMPORTANT
+
+This section must contain real pictures of Angel.
+
+Do not create fabricated screenshots.
+
+Do not ask an image generator to invent what the application looks like.
+
+Inspect the running application and existing image assets.
+
+Find and use the best genuine screenshots for:
+
+- Home.
+- New Conversation.
+- Adaptive Workspace.
+- Agents.
+- Studios.
+- Workspace.
+- Tools.
+- Knowledge Library.
+- Mobile navigation.
+- Mobile conversations.
+- Mobile home.
+
+Use the repository's actual existing screenshots as starting points.
+
+Examples of known existing references include:
+
+- ANGEL_HOME_APPROVED_REFERENCE_1a3ba18e.png.
+- test-mobile-home.png.
+- test-mobile-drawer-clean.png.
+- audit-desktop-conversation.png.
+- audit-desktop-home.png.
+- audit-desktop-studios.png.
+- Existing assets under public/assets/aistudio.
+- Existing assets under public/assets/brand.
+
+Inspect the actual assets and select the appropriate ones.
+
+Do not assume a screenshot is current without checking it.
+
+Where necessary, run the application at desktop and mobile viewport sizes and capture genuine screenshots of the real interfaces.
+
+The landing page should make these screenshots feel like premium product presentations.
+
+For example:
+
+- A floating, illuminated screenshot panel.
+- A 3D device frame displaying the actual mobile workspace.
+- A desktop monitor showing the real Angel dashboard.
+- A carousel of real Angel screens.
+- Layered screenshot transitions.
+- A subtle perspective effect as the visitor scrolls.
+
+The screenshots must remain legible.
+
+Never sacrifice screenshot readability for excessive visual effects.
+
+## E. Mobile product showcase
+
+Create a dedicated section demonstrating how Angel works across different devices.
+
+This is not optional.
+
+Show actual Angel mobile experiences.
+
+Use realistic phone frames containing genuine Angel mobile screenshots.
+
+The section should demonstrate:
+
+- Mobile home.
+- Mobile conversation.
+- Mobile navigation.
+- Mobile Adaptive Workspace, where available.
+- Mobile Studios, where available.
+- Mobile account experience.
+
+Use subtle motion:
+
+- Device movement.
+- Perspective rotations.
+- Floating transitions.
+- Screenshot changes.
+- Ambient lighting.
+
+The mobile presentation should be integrated into the website naturally.
+
+Do not merely place a desktop screenshot inside a phone frame.
+
+## F. How Angel works together
+
+Create a visually engaging explanation of the relationship between Angel's major environments.
+
+Show how:
+
+- Conversations.
+- Adaptive Workspace.
+- Agents.
+- Studios.
+- Workspace.
+- Tools.
+- Library.
+- Memory.
+
+Relate to one another without pretending they are identical.
+
+Make their distinctions clear.
+
+Use an animated interconnected visual diagram or 3D spatial arrangement.
+
+The visual metaphor should reinforce that Angel brings different digital experiences together under one companion.
+
+## G. What makes Angel different?
+
+Create a thoughtful section explaining the difference between Angel and an ordinary chatbot.
+
+Possible themes include:
+
+- More than isolated conversations.
+- A connected environment for thinking and working.
+- Personalised experiences.
+- Multiple specialised work environments.
+- The combination of conversation, tools and knowledge.
+- A companion that grows as capabilities are implemented.
+
+Use meaningful visual storytelling rather than generic marketing claims.
+
+## H. Privacy, trust and security
+
+Create a dedicated section explaining:
+
+- Private accounts.
+- Authentication.
+- User-specific conversations.
+- Data protection.
+- User control.
+
+Only make claims supported by the actual implementation.
+
+Do not claim end-to-end encryption, zero data retention or other advanced security properties unless they have been implemented and verified.
+
+## I. Closing section
+
+Return to the main Angel identity.
+
+Use the animated logo and existing atmospheric background.
+
+Create a strong final invitation.
+
+Suggested headline:
+
+"Your World. Your Intelligence. Your Angel."
+
+Include Get Started and Sign In actions.
+
+## J. Footer
+
+Include:
+
+- Animated Angel logo.
+- About Angel.
+- Core capabilities.
+- Privacy.
+- Terms.
+- Contact or support, if available.
+- Copyright information.
+
+---
+
+# PART 5: SIGN-IN EXPERIENCE
+
+Create a dedicated sign-in page.
+
+Do not use a small popup as the primary authentication experience.
+
+The page must look and feel like Angel.
+
+## Desktop composition
+
+Use a two-part composition.
+
+### Visual side
+
+Create an immersive visual environment using the existing dark galactic background and the current moving Angel logo.
+
+This side should contain:
+
+- A large animated Angel emblem.
+- Existing emblem rotation and motion behaviour.
+- A softly floating companion orb.
+- Animated orbital elements.
+- Ambient lighting.
+- Layered 3D depth.
+- Tasteful movement.
+- A short welcoming message.
+
+Use the current Angel branding.
+
+The logo must be the actual animated Angel logo used in the workspace.
+
+Do not create another logo.
+
+The visual area should have enough space for the animated emblem to feel substantial.
+
+### Authentication side
+
+Create a clean, elegant glass-like sign-in form.
+
+Fields:
+
+- Email address.
+- Password.
+- Show/hide password.
+- Remember-me option, only if its behaviour is actually implemented.
+- Forgot password.
+- Sign In button.
+- Link to Create Account.
+
+Use appropriate validation and accessible error messaging.
+
+The form must remain the visual priority.
+
+Do not let animated elements obstruct interaction.
+
+## Sign-in motion
+
+The visual side should include:
+
+- Slow emblem rotation.
+- Animated reflections.
+- Orbital rings.
+- Controlled light pulses.
+- Background particles.
+- Subtle parallax.
+
+The motion should be elegant, not distracting.
+
+## Mobile sign-in
+
+Create a genuine mobile layout.
+
+Do not simply stack the entire desktop screen without adjustment.
+
+On mobile:
+
+- Keep the form immediately accessible.
+- Show a compact animated Angel emblem at the top.
+- Use a reduced background animation.
+- Maintain clear typography.
+- Use touch-friendly input sizes.
+- Keep the primary button prominent.
+- Avoid unnecessary vertical scrolling.
+- Ensure the keyboard does not make the form unusable.
+
+---
+
+# PART 6: SIGN-UP EXPERIENCE
+
+The registration page must have the same visual quality as the sign-in page.
+
+Use the same animated Angel branding, existing cosmic backdrop and 3D visual language.
+
+Fields:
+
+- Full name.
+- Email address.
+- Password.
+- Confirm password.
+- Show/hide password.
+- Terms and privacy acknowledgement.
+
+The form must provide:
+
+- Required-field validation.
+- Email validation.
+- Password strength feedback.
+- Password confirmation validation.
+- Clear loading state.
+- Clear error messages.
+- Successful registration feedback.
+
+Do not create fake account registration.
+
+Connect to the existing Supabase authentication service.
+
+After registration, handle email confirmation correctly according to the actual Supabase configuration.
+
+Provide a dedicated account-created and email-verification state.
+
+Do not automatically claim registration was successful unless Supabase confirms it.
+
+## Desktop registration
+
+Use the same split composition as sign-in, but adapt the composition to accommodate the larger form.
+
+The animated Angel logo should remain present and visible.
+
+## Mobile registration
+
+Create a dedicated responsive form layout.
+
+Make the fields comfortable to use.
+
+The experience should be visually consistent with the mobile Angel workspace.
+
+---
+
+# PART 7: EMAIL VERIFICATION AND PASSWORD RECOVERY
+
+Create dedicated experiences for:
+
+1. Email verification.
+2. Resending a verification email.
+3. Changing the email address where supported.
+4. Requesting a password reset.
+5. Completing a password reset.
+
+Use the actual Supabase authentication flow.
+
+Handle expired links and invalid tokens gracefully.
+
+Use the animated Angel logo and existing design language.
+
+Keep these experiences visually consistent with sign-in and registration.
+
+---
+
+# PART 8: LIGHT MODE
+
+The current dark mode and its galactic backdrop are the primary design foundation.
+
+However, all new pages must also support the existing Angel light-mode direction.
+
+Do not make light mode a simple colour inversion.
+
+Inspect the existing light-mode implementation and build on it.
+
+Use the existing cloudy-day concept:
+
+- Bright atmospheric sky.
+- Soft moving clouds.
+- Natural sunlight.
+- Gentle ambient lighting.
+- Beautiful white or translucent glass surfaces.
+- Subtle blue and violet highlights.
+- The same animated 3D Angel emblem.
+- The same companion orb identity.
+
+The light-mode landing page should feel like Angel during a beautifully lit day.
+
+The light-mode authentication pages should retain the same depth and sophistication as dark mode.
+
+Theme switching must remain consistent across the landing page, authentication pages and authenticated workspace.
+
+Persist the chosen theme according to the existing application design.
+
+---
+
+# PART 9: 3D AND ANIMATION REQUIREMENTS
+
+The entire entry experience must carry the existing Angel motion identity.
+
+Use existing components and animation systems first.
+
+Do not duplicate or recreate existing animation components unnecessarily.
+
+Use 3D design where it improves the experience:
+
+- Animated emblem.
+- Companion orb.
+- Orbital rings.
+- Floating spatial elements.
+- Depth and perspective.
+- Layered screenshot panels.
+- Device mockups containing genuine screenshots.
+- Animated capability diagrams.
+
+Use scroll-triggered transitions carefully.
+
+Provide meaningful hover and touch feedback.
+
+Use smooth animations that work on desktop and mobile.
+
+Consider performance, low-powered mobile devices and reduced-motion preferences.
+
+Do not introduce animations that cause excessive CPU/GPU consumption.
+
+The application must remain fast and responsive.
+
+---
+
+# PART 10: CONTENT AND COPYWRITING
+
+Write clear, sophisticated and meaningful copy.
+
+Do not fill sections with generic AI marketing language.
+
+Explain actual Angel capabilities in language ordinary visitors can understand.
+
+The visitor should leave with a clear understanding of:
+
+- What Angel is.
+- What they can do with Angel.
+- How Angel's different environments work.
+- What is already available.
+- What is being developed.
+- Why they may want an Angel account.
+
+Use concise headings and well-written descriptions.
+
+Avoid exaggerated promises.
+
+Do not claim that Angel is conscious, possesses human emotions or can autonomously control every device.
+
+Distinguish existing functions from future ambitions.
+
+---
+
+# PART 11: RESPONSIVE DESIGN REQUIREMENTS
+
+Every page must be designed and validated at:
+
+- Large desktop.
+- Standard desktop.
+- Laptop.
+- Tablet.
+- Mobile portrait.
+- Mobile landscape.
+
+The mobile version is not an afterthought.
+
+It must have its own considered composition.
+
+The overall visual identity must remain recognisable across every screen size.
+
+Check:
+
+- Navigation.
+- Typography.
+- Hero layout.
+- 3D emblem size.
+- Orb placement.
+- Feature panels.
+- Screenshot carousels.
+- Forms.
+- Buttons.
+- Scroll behaviour.
+- Background effects.
+- Touch interactions.
+
+No horizontal overflow.
+
+No clipped authentication forms.
+
+No overlapping buttons.
+
+No unreadable text.
+
+No broken layouts when the mobile keyboard opens.
+
+---
+
+# PART 12: FUNCTIONAL REQUIREMENTS
+
+The implementation must connect to the application's real services.
+
+Use the existing:
+
+- Supabase authentication.
+- Session restoration.
+- Session verification.
+- Sign-in.
+- Sign-up.
+- Sign-out.
+- Password recovery.
+- Email confirmation.
+- Existing route and state management.
+
+Do not create a second authentication system.
+
+Do not introduce a fake signed-in user.
+
+Do not create hard-coded user identities.
+
+Do not display fake subscription information.
+
+Do not add demo conversations.
+
+Do not simulate successful authentication.
+
+## Guest and authenticated states
+
+Guest visitors should see the public landing page.
+
+Guest visitors can navigate the public information sections.
+
+Guest visitors can open the sign-in and sign-up experiences.
+
+After a successful Supabase authentication flow, the user should enter the existing authenticated Angel workspace.
+
+On sign-out, the user must return to the public entry experience.
+
+The existing workspace must remain protected from unauthenticated access.
+
+Session restoration must be verified before showing the private workspace.
+
+Handle expired and invalid sessions correctly.
+
+Never expose Gemini API keys or other server secrets in the frontend.
+
+Do not disable Netlify's current team protection as part of this task.
+
+Public visitor access will be configured separately after the public routes and private authentication guard have been verified.
+
+---
+
+# PART 13: IMPLEMENTATION WORKFLOW
+
+Do not make random changes across the application.
+
+Follow this order.
+
+### Stage 1: Existing application audit
+
+Inspect the existing workspace, current components, assets, design tokens, animation system and authentication architecture.
+
+Identify reusable components.
+
+Identify missing functionality.
+
+Write a short implementation plan.
+
+### Stage 2: Design architecture
+
+Define the page structure and responsive layouts for:
+
+- Landing.
+- Sign-in.
+- Sign-up.
+- Email verification.
+- Password recovery.
+
+Explain how they inherit Angel's existing design system.
+
+### Stage 3: Implement landing page
+
+Build the complete landing experience using the existing branding, environment and motion components.
+
+Use genuine workspace screenshots for the capability sections.
+
+### Stage 4: Implement authentication pages
+
+Build the dedicated sign-in, sign-up and recovery experiences.
+
+Connect the existing Supabase authentication system.
+
+### Stage 5: Responsive implementation
+
+Complete desktop, tablet and mobile layouts.
+
+Implement dark mode and light mode.
+
+### Stage 6: Motion and visual polish
+
+Implement the 3D elements and animations while preserving performance.
+
+### Stage 7: Functional integration
+
+Connect page navigation, form actions, session restoration and authenticated workspace access.
+
+### Stage 8: Testing
+
+Run:
+
+- TypeScript validation.
+- Lint checks.
+- Automated tests.
+- Production build.
+- Authentication flow tests.
+- Responsive layout checks.
+- Visual regression checks where available.
+
+Test the full flow:
+
+Landing → Sign Up → Email Verification → Sign In → Existing Angel Workspace → Sign Out → Landing.
+
+Also test:
+
+Landing → Sign In → Forgot Password → Recovery Email → New Password → Sign In.
+
+Test invalid credentials, expired sessions, incomplete forms and authentication errors.
+
+Do not claim that any flow works without testing it.
+
+### Stage 9: Final report
+
+Report:
+
+- Files created.
+- Files modified.
+- Components reused.
+- Real screenshots used.
+- New animations implemented.
+- Authentication functions connected.
+- Tests passed.
+- Tests failed.
+- Remaining issues.
+- Required manual configuration.
+
+Do not deploy to production until validation is complete and the changes have been reviewed.
+
+---
+
+# PART 14: NON-NEGOTIABLE RULES
+
+1. The existing Angel workspace is the visual source of truth.
+2. Do not redesign the authenticated workspace.
+3. Do not replace the existing galactic environment.
+4. Do not replace the existing animated Angel logo.
+5. Do not use a generic AI website template.
+6. Do not invent screenshots of Angel.
+7. Use genuine screenshots of the actual workspace for product presentations.
+8. Preserve the existing mobile design language.
+9. Build genuinely responsive desktop and mobile layouts.
+10. Support the current dark and light theme architecture.
+11. Include meaningful 3D and animation design.
+12. Reuse existing components wherever possible.
+13. Keep authentication connected to the actual Supabase service.
+14. Do not introduce fake users, fake subscriptions or fake functions.
+15. Do not expose private API keys.
+16. Do not modify the database schema unless necessary and reviewed.
+17. Do not change the deployment configuration without justification.
+18. Do not remove Netlify team protection.
+19. Do not introduce breaking changes to the authenticated workspace.
+20. Do not consider the task complete merely because the pages look attractive.
+
+---
+
+# PART 15: MULTI-PROVIDER AUTHENTICATION, GOOGLE SIGN-IN AND EXTERNAL ACCOUNT LINKING
+
+This is an essential part of the Angel Companion account experience.
+
+Angel must support more than traditional email-and-password authentication.
+
+Users should have convenient, secure options to register, sign in and connect compatible external accounts.
+
+**"Continue with Google" must be a prominent, first-class authentication option on both the sign-in and sign-up experiences.**
+
+However, do not merely add attractive provider buttons that do nothing.
+
+Every provider button must be connected to a genuine, configured OAuth authentication flow.
+
+Use the existing Supabase Auth infrastructure. Do not create a separate authentication system.
+
+## A. Authentication methods to support
+
+Build an extensible authentication provider architecture that can accommodate the following methods.
+
+### Primary authentication methods
+
+1. Email and password.
+2. Continue with Google.
+3. Continue with Apple.
+4. Continue with Microsoft.
+5. Continue with GitHub.
+6. Continue with Discord.
+7. Email magic link or passwordless email authentication, where appropriate and supported by the current configuration.
+
+### Additional supported social providers
+
+Design the provider architecture so additional supported Supabase authentication providers can be enabled without redesigning the authentication pages.
+
+Potential providers include:
+
+- Facebook.
+- GitLab.
+- LinkedIn.
+- Bitbucket.
+- Slack.
+- Notion.
+- Spotify.
+- Twitch.
+- Zoom.
+- Other supported OAuth/OIDC providers.
+
+The provider architecture should also allow compatible custom OAuth/OIDC identity providers where appropriate.
+
+Do not automatically enable every provider.
+
+Prioritise Google, Apple, Microsoft and GitHub, with other providers available through a configurable provider registry.
+
+Google should be the first social authentication option presented to users.
+
+## B. Authentication page presentation
+
+The sign-in page should present the available authentication choices elegantly.
+
+Recommended composition:
+
+**Continue with Google**
+
+**Continue with Apple**
+
+**Continue with Microsoft**
+
+**Continue with GitHub**
+
+Then provide a refined separator:
+
+"Or continue with email"
+
+The email-and-password form follows.
+
+Only display other providers once they are actually configured and enabled in Supabase.
+
+Use authentic provider branding and approved icons.
+
+Do not invent provider logos.
+
+Do not show disabled or unconfigured providers as though they work.
+
+The sign-up page should provide equivalent account creation options.
+
+Users choosing Google, Apple or another supported OAuth provider should be able to create their Angel account through that provider's verified authentication flow.
+
+Maintain the existing Angel visual identity around these buttons. Do not allow third-party branding to overwhelm the Angel interface.
+
+## C. Google authentication implementation
+
+Google authentication is the first social provider to prioritise.
+
+Use the current Supabase JavaScript client and supported OAuth flow.
+
+The application should use the actual provider authentication process and return users to the correct Angel callback destination.
+
+Handle:
+
+- OAuth initiation.
+- Redirect to Google.
+- Google account selection.
+- User consent where required.
+- OAuth callback.
+- PKCE/state verification as appropriate to the existing Supabase configuration.
+- Session establishment.
+- Session persistence.
+- User identity retrieval.
+- Redirect into the existing Angel workspace.
+- OAuth errors.
+- Cancelled authentication.
+- Expired or invalid callback state.
+- Duplicate or already-linked identities.
+
+The existing authentication state must remain the single source of truth.
+
+Do not create a second frontend session store for Google authentication.
+
+After successful authentication, use the existing session-management and conversation-engine integration.
+
+## D. Supabase provider configuration
+
+Before attempting to make an OAuth provider operational, inspect the existing Supabase project and authentication configuration.
+
+Determine:
+
+- Which social providers are enabled.
+- Which provider credentials are configured.
+- Which redirect URLs are registered.
+- Whether the production and development callback URLs are correct.
+- Whether the provider is ready for testing.
+- Whether any additional configuration is required.
+
+For Google, identify the required Google Cloud OAuth configuration.
+
+This will normally include:
+
+- Google OAuth client ID.
+- Google OAuth client secret.
+- Correct authorised redirect URI.
+- Appropriate OAuth consent configuration.
+- Supabase callback URL.
+- Angel production redirect URL.
+- Development and testing redirect URLs as needed.
+
+Configure provider credentials through the appropriate Supabase authentication provider settings.
+
+Never expose OAuth client secrets in frontend source code.
+
+Never commit provider secrets to GitHub.
+
+Never place provider client secrets in Vite environment variables.
+
+Use the appropriate secure provider configuration and secret-management mechanism.
+
+If manual configuration is required, provide exact instructions showing:
+
+1. Where to obtain the required credentials.
+2. Where to configure them in Google Cloud.
+3. Where to enter them in Supabase.
+4. Which callback URLs to register.
+5. How to test the connection.
+6. How to confirm that the provider is enabled.
+
+Do not claim Google sign-in is live until an actual OAuth login succeeds.
+
+## E. Account identity linking
+
+Angel should allow users to connect multiple supported authentication identities to one Angel account.
+
+For example, a user might initially register with email and password and later connect:
+
+- Google.
+- Apple.
+- Microsoft.
+- GitHub.
+
+A user who registers with Google should be able to add another supported sign-in method later.
+
+These identities should belong to the same Angel user account where the supported and secure Supabase identity-linking flow allows it.
+
+Use Supabase Auth identity-linking capabilities.
+
+Inspect the current Supabase project configuration and documentation before implementing manual identity linking.
+
+Where supported and enabled, use Supabase's official identity-linking methods rather than building a custom matching system.
+
+Do not automatically merge two accounts simply because they have similar names or matching unverified email addresses.
+
+Never perform unsafe account merging.
+
+Handle existing users, verified email addresses, duplicate identities and authentication conflicts carefully.
+
+If an identity cannot be linked safely, explain the issue and provide the appropriate account-recovery or support path.
+
+## F. Manage connected login accounts
+
+Provide an account-security area inside Angel's existing account/settings experience.
+
+It should be possible for an authenticated user to see the sign-in identities connected to their Angel account.
+
+For example:
+
+- Email and password: Connected.
+- Google: Connected.
+- Apple: Not connected.
+- Microsoft: Connected.
+- GitHub: Not connected.
+
+Display the provider name, authentic logo and connection status.
+
+Provide appropriate actions:
+
+- Connect account.
+- Disconnect account, where supported.
+- Manage sign-in methods.
+- Change password, where supported.
+- Review account security.
+
+Before disconnecting an identity, ensure that the user has another valid authentication method available.
+
+Never allow a user to accidentally remove their only means of accessing their Angel account.
+
+Any unlink operation must follow the current Supabase identity-linking rules and restrictions.
+
+## G. Distinguish authentication from connecting external applications
+
+This distinction is extremely important.
+
+**Signing into Angel with Google is not the same as connecting Google services to Angel.**
+
+Google sign-in verifies the user's identity and authenticates them into Angel.
+
+Connecting Google Drive, Google Calendar, Gmail or other Google services is a separate integration workflow requiring additional permissions.
+
+Do not automatically request broad access to Google services during ordinary sign-in.
+
+Do not assume that a Google sign-in token authorises Angel to read a user's Drive, Calendar, Gmail or other private resources.
+
+When a user wants to connect an external application or service, create a separate integration and consent flow.
+
+Examples:
+
+- Connect Google Drive.
+- Connect Google Calendar.
+- Connect Gmail.
+- Connect Microsoft OneDrive.
+- Connect Microsoft Outlook.
+- Connect GitHub.
+- Connect other supported applications.
+
+Each integration must:
+
+1. Explain what the connection enables.
+2. Clearly state which permissions are requested.
+3. Request only the scopes necessary for the chosen functionality.
+4. Obtain explicit user consent.
+5. Handle access-token expiration and refresh securely.
+6. Allow the user to disconnect the service.
+7. Avoid requesting unnecessary permissions.
+8. Store sensitive integration credentials only in an appropriate secure server-side system.
+9. Never expose refresh tokens or provider secrets in frontend code or localStorage.
+
+Provider authentication identities and connected application integrations must be represented separately in Angel's architecture and account interface.
+
+Do not confuse the two.
+
+## H. OAuth callback and redirect architecture
+
+Create a reliable callback architecture that supports:
+
+- Local development.
+- Preview deployments where authorised.
+- Production deployment.
+- Successful authentication.
+- Cancelled authentication.
+- Provider errors.
+- Expired OAuth state.
+- Password recovery callbacks.
+- Account-linking callbacks.
+
+Ensure redirect URLs are explicitly allowed in the Supabase project.
+
+Prevent open redirects.
+
+Never accept arbitrary redirect destinations from untrusted query parameters.
+
+Return users to the correct page in Angel after authentication.
+
+Ensure the OAuth callback does not accidentally send an authenticated user back to the public landing page without establishing the application session.
+
+## I. Authentication user experience
+
+All provider buttons must follow Angel's existing design language.
+
+They must have:
+
+- Proper spacing.
+- Authentic provider icons.
+- Appropriate loading indicators.
+- Disabled states during authentication.
+- Clear error feedback.
+- Keyboard accessibility.
+- Touch-friendly sizing.
+- Responsive desktop and mobile layouts.
+
+Use the same galactic dark background and existing animated Angel emblem.
+
+Use the same cloudy light-mode environment when light mode is active.
+
+On mobile, provider buttons must remain easy to tap and must not crowd the email/password form.
+
+The authentication experience must feel like Angel, not a third-party login template.
+
+## J. Social authentication testing
+
+Test each configured provider individually.
+
+For every enabled provider, test:
+
+1. New-user registration.
+2. Existing-user sign-in.
+3. OAuth callback.
+4. Session persistence.
+5. Session restoration after refresh.
+6. Sign-out.
+7. Re-authentication.
+8. Provider cancellation.
+9. Provider error handling.
+10. Account linking, where enabled.
+11. Account unlinking, where supported.
+12. Account identity visibility in Angel.
+
+Use dedicated test accounts.
+
+Do not use the owner's personal account as the only test account.
+
+Do not mark a provider as working merely because its button renders.
+
+## K. Provider implementation report
+
+At the end of the implementation, produce a provider readiness report.
+
+Use this format:
+
+| Provider | UI implemented | Supabase configured | OAuth tested | Account linking tested | Status |
+| Google | Yes/No | Yes/No | Yes/No | Yes/No | Ready/Blocked |
+| Apple | Yes/No | Yes/No | Yes/No | Yes/No | Ready/Blocked |
+| Microsoft | Yes/No | Yes/No | Yes/No | Yes/No | Ready/Blocked |
+| GitHub | Yes/No | Yes/No | Yes/No | Yes/No | Ready/Blocked |
+| Discord | Yes/No | Yes/No | Yes/No | Yes/No | Ready/Blocked |
+| Other providers | Yes/No | Yes/No | Yes/No | Yes/No | Ready/Blocked |
+
+For each provider that is not ready, explain:
+
+- Missing client ID.
+- Missing client secret.
+- Missing callback URL.
+- Provider dashboard setup required.
+- Supabase configuration required.
+- Any unsupported functionality or known limitation.
+
+List every manual action required from the project owner.
+
+Never invent credentials or claim provider activation without evidence.
+
+---
+
+# FINAL DESIGN EXPECTATION
+
+Imagine that someone visits Angel for the first time.
+
+They should feel that they have entered the outer environment of the same intelligent, living digital companion they will later experience inside the workspace.
+
+The landing page introduces Angel's world.
+
+The animated logo introduces Angel's identity.
+
+The capability sections reveal Angel's breadth.
+
+The real screenshots prove what the product looks like.
+
+The authentication experience welcomes the user into that world.
+
+The different sign-in options make entering Angel convenient.
+
+The ability to connect other supported identities gives users flexibility in how they access their companion.
+
+The authenticated workspace remains the centre of the experience.
+
+Everything should feel connected.
+
+Everything should feel intentional.
+
+Everything should feel like Angel.
+
+**Do not build another website and put the Angel logo on it. Build the front entrance to Angel itself.**

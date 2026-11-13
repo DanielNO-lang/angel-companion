@@ -1,7 +1,9 @@
 import { ChatMessage, StudioId } from '../types/angel';
 import { storageService, STORAGE_KEYS } from './storageService';
+import { GoogleGenAI } from '@google/genai';
+import { promptIntelligenceEngine } from './promptIntelligenceEngine';
 import { memoryEngine } from './memoryEngine';
-import { companionData } from './companionData';
+import { geminiModelService, extractIntelligentTitle } from './geminiModelService';
 
 export type ConversationScope = 'general' | 'studio';
 
@@ -13,6 +15,7 @@ export interface ConversationThread {
   createdAt: string;
   updatedAt: string;
   isArchived: boolean;
+  isCustomTitle?: boolean;
   messages: ChatMessage[];
   metadata?: {
     tags?: string[];
@@ -23,13 +26,54 @@ export interface ConversationThread {
 
 const DEFAULT_CONVERSATIONS: ConversationThread[] = [
   {
-    id: `conv_general_${Date.now()}`,
-    title: 'New Conversation',
+    id: 'conv_general_1',
+    title: 'General Assistance & Brainstorming',
     scope: 'general',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: new Date(Date.now() - 3600000).toISOString(),
+    updatedAt: new Date(Date.now() - 1800000).toISOString(),
     isArchived: false,
-    messages: [],
+    messages: [
+      {
+        id: 'msg_1',
+        sender: 'angel',
+        content: 'Hello! I am Angel, your universal personal companion. Ask me general questions, brainstorm ideas, or ask for everyday assistance.',
+        timestamp: '1h ago',
+      },
+    ],
+  },
+  {
+    id: 'conv_studio_res_1',
+    title: 'Research Paper Synthesis Session',
+    scope: 'studio',
+    studioId: 'research-studio',
+    createdAt: new Date(Date.now() - 86400000).toISOString(),
+    updatedAt: new Date(Date.now() - 43200000).toISOString(),
+    isArchived: false,
+    messages: [
+      {
+        id: 'msg_2',
+        sender: 'angel',
+        content: 'Research Studio conversation active. Ready to synthesize academic literature, parse datasets, and extract citations.',
+        timestamp: '12h ago',
+      },
+    ],
+  },
+  {
+    id: 'conv_studio_dev_1',
+    title: 'Full-Stack TypeScript Refactoring',
+    scope: 'studio',
+    studioId: 'development-studio',
+    createdAt: new Date(Date.now() - 172800000).toISOString(),
+    updatedAt: new Date(Date.now() - 86400000).toISOString(),
+    isArchived: false,
+    messages: [
+      {
+        id: 'msg_3',
+        sender: 'angel',
+        content: 'Development Studio conversation active. Ready to analyze AST code syntax, generate TypeScript modules, and debug APIs.',
+        timestamp: '1d ago',
+      },
+    ],
   },
 ];
 
@@ -37,10 +81,7 @@ export class ConversationEngine {
   private threads: ConversationThread[];
   private activeGeneralId: string;
   private activeStudioIds: Record<string, string> = {};
-  private accessToken: string | null = null;
-  private cloudSyncRunning = false;
-  private cloudSyncQueued = false;
-  private cloudHydrationToken: string | null = null;
+  private aiClient: GoogleGenAI | null = null;
 
   constructor() {
     // 1. Load threads with safe migration fallback
@@ -50,13 +91,12 @@ export class ConversationEngine {
     );
 
     // Safe Data Migration: ensure all records have valid scope property
-    const demoSeedIds = new Set(['conv_general_1', 'conv_studio_res_1', 'conv_studio_dev_1']);
-    this.threads = loaded
-      .filter((t) => !demoSeedIds.has(t.id))
-      .map((t) => {
-        if (!t.scope) return { ...t, scope: 'general' as const };
-        return t;
-      });
+    this.threads = loaded.map((t) => {
+      if (!t.scope) {
+        return { ...t, scope: 'general' as const };
+      }
+      return t;
+    });
 
     // 2. Load active conversation tracking IDs
     this.activeGeneralId = storageService.load<string>(
@@ -69,30 +109,21 @@ export class ConversationEngine {
       {}
     );
 
-
+    // 3. Initialize Gemini SDK client safely
+    const apiKey = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.GEMINI_API_KEY : process.env.GEMINI_API_KEY;
+    if (apiKey && apiKey !== 'MY_GEMINI_API_KEY') {
+      try {
+        this.aiClient = new GoogleGenAI({ apiKey });
+      } catch (err) {
+        console.warn('[ConversationEngine] Gemini API SDK setup deferred:', err);
+      }
+    }
   }
 
   private persist() {
     storageService.save(STORAGE_KEYS.conversations, this.threads);
     storageService.save(STORAGE_KEYS.activeConversationId, this.activeGeneralId);
     storageService.save('angel_active_studio_convs_v1', this.activeStudioIds);
-    if (this.accessToken) void this.syncCloud();
-  }
-
-  private async syncCloud(): Promise<void> {
-    if (!this.accessToken) return;
-    if (this.cloudSyncRunning) { this.cloudSyncQueued = true; return; }
-    this.cloudSyncRunning = true;
-    try {
-      do {
-        this.cloudSyncQueued = false;
-        await companionData.syncThreads(this.accessToken, this.threads);
-      } while (this.cloudSyncQueued);
-    } catch (error) {
-      console.warn('[ConversationEngine] Cloud sync deferred:', error);
-    } finally {
-      this.cloudSyncRunning = false;
-    }
   }
 
   // Scoped Thread Retrieval
@@ -150,6 +181,10 @@ export class ConversationEngine {
       ? `General Conversation ${this.getThreads('general', undefined, true).length + 1}`
       : `${this.formatStudioName(studioId || 'research-studio')} Session ${this.getThreads('studio', studioId, true).length + 1}`;
 
+    const defaultGreeting = scope === 'general'
+      ? 'Hello! I am Angel. Ask me anything, discuss ideas, or request everyday assistance.'
+      : `Welcome to ${this.formatStudioName(studioId || 'research-studio')}. I am specialized for this environment and ready to assist your workflows.`;
+
     const newThread: ConversationThread = {
       id: `conv_${scope}_${Date.now()}`,
       title: title || defaultTitle,
@@ -158,7 +193,14 @@ export class ConversationEngine {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isArchived: false,
-      messages: [],
+      messages: [
+        {
+          id: `msg_init_${Date.now()}`,
+          sender: 'angel',
+          content: defaultGreeting,
+          timestamp: 'Just now',
+        },
+      ],
     };
 
     this.threads.unshift(newThread);
@@ -203,6 +245,7 @@ export class ConversationEngine {
     const thread = this.threads.find((t) => t.id === id);
     if (thread && newTitle.trim()) {
       thread.title = newTitle.trim();
+      thread.isCustomTitle = true;
       thread.updatedAt = new Date().toISOString();
       this.persist();
       return true;
@@ -247,7 +290,9 @@ export class ConversationEngine {
     content: string,
     sender: 'user' | 'angel' | 'system' = 'user',
     mode?: string,
-    attachments?: string[]
+    attachments?: string[],
+    attachmentDetails?: import('../types/attachment').AttachmentRecord[],
+    linkPreviews?: import('../types/attachment').LinkPreview[]
   ): Promise<ChatMessage> {
     const thread = this.threads.find((t) => t.id === threadId) || this.getActiveThread('general');
 
@@ -258,13 +303,22 @@ export class ConversationEngine {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       mode,
       attachments,
+      attachmentDetails,
+      linkPreviews,
     };
 
     thread.messages.push(userMessage);
     thread.updatedAt = new Date().toISOString();
 
-    if (thread.messages.length === 2 && (thread.title.startsWith('Conversation') || thread.title.startsWith('General Conversation'))) {
-      thread.title = content.length > 28 ? `${content.slice(0, 28)}...` : content;
+    if (!thread.isCustomTitle && thread.messages.length === 2 && (thread.title.startsWith('Conversation') || thread.title.startsWith('General Conversation') || thread.title.includes('Session'))) {
+      const generated = extractIntelligentTitle(content);
+      thread.title = generated;
+      geminiModelService.generateTitle(content).then((serverTitle) => {
+        if (serverTitle && !thread.isCustomTitle && thread.title !== serverTitle) {
+          thread.title = serverTitle;
+          this.persist();
+        }
+      }).catch(() => {});
     }
 
     if (sender === 'user' && content.toLowerCase().includes('remember')) {
@@ -282,87 +336,38 @@ export class ConversationEngine {
     return userMessage;
   }
 
-  setAccessToken(token: string | null): void {
-    this.accessToken = token;
-    if (!token) { this.cloudHydrationToken = null; return; }
-    if (this.cloudHydrationToken === token) return;
-    this.cloudHydrationToken = token;
-    void this.restoreCloud(token);
-  }
-
-  private async restoreCloud(token: string): Promise<void> {
-    try {
-      const cloudThreads = await companionData.loadThreads(token);
-      const localById = new Map(this.threads.map((thread) => [thread.id, thread]));
-      const restored = cloudThreads.map((cloud) => {
-        const local = localById.get(cloud.id);
-        if (!local) return cloud;
-        const messageMap = new Map<string, ChatMessage>();
-        [...cloud.messages, ...local.messages].forEach((message) => messageMap.set(message.id, message));
-        return {
-          ...cloud,
-          ...local,
-          messages: Array.from(messageMap.values()),
-          updatedAt: local.updatedAt > cloud.updatedAt ? local.updatedAt : cloud.updatedAt,
-        };
-      });
-      const cloudIds = new Set(cloudThreads.map((thread) => thread.id));
-      const localOnly = this.threads.filter((thread) => !cloudIds.has(thread.id));
-      this.threads = [...restored, ...localOnly].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  async retryLastTurn(threadId: string): Promise<ChatMessage | null> {
+    const thread = this.threads.find((t) => t.id === threadId) || this.getActiveThread('general');
+    if (thread.messages.length > 0 && thread.messages[thread.messages.length - 1].sender === 'angel') {
+      thread.messages.pop();
       this.persist();
-    } catch (error) {
-      console.warn('[ConversationEngine] Cloud restore deferred:', error);
-      void this.syncCloud();
     }
+    return this.generateAssistantResponse(thread.id);
   }
 
   async generateAssistantResponse(threadId: string): Promise<ChatMessage> {
     const thread = this.threads.find((t) => t.id === threadId) || this.getActiveThread('general');
     const lastUserMsg = [...thread.messages].reverse().find((m) => m.sender === 'user');
     const promptText = lastUserMsg?.content || 'Hello';
+
     let responseText = '';
 
     try {
-      if (!this.accessToken) {
-        throw new Error('Sign in to start a private conversation with Angel.');
-      }
-
       const memoryContext = memoryEngine.retrieveContextForPrompt(promptText, thread.scope, thread.studioId);
-      const history = thread.messages
-        .filter((m) => m.sender === 'user' || m.sender === 'angel')
-        .slice(-24)
-        .map((m) => ({
-          role: m.sender === 'angel' ? 'assistant' : 'user',
-          content: m.content,
-        }));
 
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${this.accessToken}`,
-        },
-        body: JSON.stringify({
-          messages: history,
-          systemInstruction: [
-            'You are Angel, a thoughtful, natural, capable personal AI companion.',
-            'Speak naturally and directly. Use the conversation history to maintain continuity.',
-            'Be honest about uncertainty and never claim to have performed actions you did not perform.',
-            lastUserMsg?.mode ? `Selected response mode: ${lastUserMsg.mode}. Respect this mode while remaining truthful about available tools.` : '',
-            thread.scope === 'studio' ? `Current workspace: ${this.formatStudioName(thread.studioId)}.` : '',
-            memoryContext ? `Relevant user memory, supplied for context only:\n${memoryContext}` : '',
-          ].filter(Boolean).join('\n\n'),
-        }),
+      const processed = await promptIntelligenceEngine.processPrompt(promptText, {
+        scope: thread.scope,
+        studioId: thread.studioId,
+        conversationHistory: thread.messages,
+        mode: lastUserMsg?.mode,
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || 'Angel could not respond. Please try again.');
-      if (typeof payload.reply !== 'string' || !payload.reply.trim()) {
-        throw new Error('Angel returned an empty response. Please try again.');
-      }
-      responseText = payload.reply.trim();
-    } catch (err) {
-      console.warn('[ConversationEngine] Gemini request failed:', err);
-      responseText = err instanceof Error ? err.message : 'Angel could not reach her conversation model. Please try again.';
+      // Memory context is kept private and used by reasoning/model context internally without raw string leakage
+      responseText = processed.responseMessage;
+    } catch (err: any) {
+      console.warn('[ConversationEngine] Prompt Intelligence Engine processing error:', err);
+      responseText = thread.scope === 'studio'
+        ? `[${this.formatStudioName(thread.studioId)} Local Engine] Encountered an error processing this request: ${err?.message || 'Processing failed'}. Integration with an external model is pending.`
+        : `I was unable to process that request locally. External model provider connection is pending. Please verify your connection or try a different request.`;
     }
 
     const assistantMessage: ChatMessage = {
@@ -371,9 +376,11 @@ export class ConversationEngine {
       content: responseText,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
+
     thread.messages.push(assistantMessage);
     thread.updatedAt = new Date().toISOString();
     this.persist();
+
     return assistantMessage;
   }
 

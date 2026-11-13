@@ -16,7 +16,133 @@
     <link rel="apple-touch-icon" href="/favicon.png" />
   </head>
   <body class="bg-[#070815] text-slate-100 antialiased selection:bg-indigo-500/30 selection:text-indigo-200 overflow-x-hidden">
-    <div id="root"></div>
+    <div id="root">
+      <style>
+        @keyframes angelBootShimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        .angel-boot-shell {
+          height: 100vh;
+          width: 100vw;
+          display: flex;
+          background: radial-gradient(circle at 50% 35%, #09102b 0%, #070815 55%, #03040b 100%);
+          overflow: hidden;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .angel-boot-sk {
+          background-color: rgba(30, 41, 59, 0.42);
+          background-image: linear-gradient(110deg, rgba(30,41,59,0.35) 25%, rgba(99,102,241,0.16) 45%, rgba(56,189,248,0.18) 50%, rgba(99,102,241,0.16) 55%, rgba(30,41,59,0.35) 75%);
+          background-size: 200% 100%;
+          animation: angelBootShimmer 1.8s ease-in-out infinite;
+          border-radius: 16px;
+        }
+        .angel-boot-sidebar {
+          display: none;
+          width: 256px;
+          flex-shrink: 0;
+          padding: 16px;
+          background: rgba(7, 9, 24, 0.65);
+          border-right: 1px solid rgba(99, 102, 241, 0.12);
+          flex-direction: column;
+          justify-content: space-between;
+        }
+        @media (min-width: 768px) {
+          .angel-boot-sidebar { display: flex; }
+        }
+        .angel-boot-main {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          min-width: 0;
+        }
+        .angel-boot-header {
+          height: 56px;
+          padding: 0 24px;
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 10px;
+        }
+        .angel-boot-content {
+          flex: 1;
+          max-width: 1280px;
+          width: 100%;
+          margin: 0 auto;
+          padding: 16px 24px 48px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 22px;
+        }
+        .angel-boot-cards {
+          width: 100%;
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 14px;
+        }
+        .angel-boot-panels {
+          width: 100%;
+          display: grid;
+          grid-template-columns: repeat(1, minmax(0, 1fr));
+          gap: 16px;
+        }
+        @media (min-width: 1024px) {
+          .angel-boot-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+          .angel-boot-panels { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        }
+      </style>
+      <div class="angel-boot-shell" role="status" aria-label="Loading Angel">
+        <aside class="angel-boot-sidebar">
+          <div style="display:flex;flex-direction:column;gap:20px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="angel-boot-sk" style="width:100px;height:24px;"></div>
+              <div class="angel-boot-sk" style="width:28px;height:28px;border-radius:10px;"></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div class="angel-boot-sk" style="width:100%;height:40px;"></div>
+              <div class="angel-boot-sk" style="width:100%;height:40px;"></div>
+              <div class="angel-boot-sk" style="width:100%;height:40px;"></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;padding-top:8px;">
+              <div class="angel-boot-sk" style="width:100%;height:34px;"></div>
+              <div class="angel-boot-sk" style="width:100%;height:34px;"></div>
+              <div class="angel-boot-sk" style="width:100%;height:34px;"></div>
+            </div>
+          </div>
+          <div class="angel-boot-sk" style="width:100%;height:52px;"></div>
+        </aside>
+        <div class="angel-boot-main">
+          <div class="angel-boot-header">
+            <div class="angel-boot-sk" style="width:92px;height:30px;border-radius:9999px;"></div>
+            <div class="angel-boot-sk" style="width:32px;height:32px;border-radius:9999px;"></div>
+            <div class="angel-boot-sk" style="width:32px;height:32px;border-radius:9999px;"></div>
+          </div>
+          <div class="angel-boot-content">
+            <div class="angel-boot-sk" style="width:168px;height:168px;border-radius:9999px;margin-top:8px;"></div>
+            <div class="angel-boot-sk" style="width:280px;height:40px;"></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
+              <div class="angel-boot-sk" style="width:110px;height:32px;border-radius:9999px;"></div>
+              <div class="angel-boot-sk" style="width:110px;height:32px;border-radius:9999px;"></div>
+              <div class="angel-boot-sk" style="width:110px;height:32px;border-radius:9999px;"></div>
+              <div class="angel-boot-sk" style="width:120px;height:32px;border-radius:9999px;"></div>
+            </div>
+            <div class="angel-boot-sk" style="width:100%;max-width:896px;height:56px;border-radius:9999px;"></div>
+            <div class="angel-boot-cards">
+              <div class="angel-boot-sk" style="height:130px;border-radius:24px;"></div>
+              <div class="angel-boot-sk" style="height:130px;border-radius:24px;"></div>
+              <div class="angel-boot-sk" style="height:130px;border-radius:24px;"></div>
+              <div class="angel-boot-sk" style="height:130px;border-radius:24px;"></div>
+            </div>
+            <div class="angel-boot-panels">
+              <div class="angel-boot-sk" style="height:190px;border-radius:24px;"></div>
+              <div class="angel-boot-sk" style="height:190px;border-radius:24px;"></div>
+              <div class="angel-boot-sk" style="height:190px;border-radius:24px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,37 +1,148 @@
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { getRememberMePreference } from './authValidation';
+
 /**
- * ANGEL PERSISTENCE INTEGRATION BOUNDARY: SUPABASE
- * 
- * Target persistence engine for production deployment.
- * Complies strictly with project guidelines:
- * 1. Does NOT hardcode placeholder credentials.
- * 2. Checks for VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY safely.
- * 3. Provides in-memory / localStorage fallback when unconfigured.
- * 4. Documents complete PostgreSQL schema definitions with Row-Level Security (RLS).
+ * ANGEL PERSISTENCE & AUTHENTICATION BOUNDARY: SUPABASE
+ *
+ * Complies strictly with project security guidelines:
+ * 1. Does NOT hardcode placeholder credentials or OAuth secrets.
+ * 2. Checks VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY safely.
+ * 3. Provides explicit unconfigured status without simulating signed-in users.
+ * 4. Respects Remember-Me persistence choice across localStorage / sessionStorage.
  */
 
 export interface SupabaseConfigState {
   isConfigured: boolean;
   supabaseUrl: string | null;
   statusMessage: string;
+  missingVariables: string[];
+}
+
+function readEnvVar(name: string): string | null {
+  try {
+    const viteEnv = (import.meta as unknown as { env?: Record<string, string | undefined> })?.env;
+    const raw = viteEnv?.[name];
+    if (raw && raw.trim().length > 0 && !raw.startsWith('MY_')) {
+      return raw.trim();
+    }
+  } catch {
+    // Ignore outside Vite
+  }
+  if (typeof process !== 'undefined' && process.env?.[name]) {
+    const raw = process.env[name]?.trim();
+    if (raw && !raw.startsWith('MY_')) return raw;
+  }
+  return null;
 }
 
 export const getSupabaseConfigState = (): SupabaseConfigState => {
-  const url = import.meta.env.VITE_SUPABASE_URL || null;
-  const key = import.meta.env.VITE_SUPABASE_ANON_KEY || null;
+  const url = readEnvVar('VITE_SUPABASE_URL');
+  const key = readEnvVar('VITE_SUPABASE_ANON_KEY');
+  const missingVariables: string[] = [];
+
+  if (!url) missingVariables.push('VITE_SUPABASE_URL');
+  if (!key) missingVariables.push('VITE_SUPABASE_ANON_KEY');
 
   if (url && key) {
-    return {
-      isConfigured: true,
-      supabaseUrl: url,
-      statusMessage: 'Supabase client connected and configured.',
-    };
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+        return {
+          isConfigured: true,
+          supabaseUrl: url,
+          statusMessage: 'Supabase client connected and configured.',
+          missingVariables: [],
+        };
+      }
+    } catch {
+      return {
+        isConfigured: false,
+        supabaseUrl: null,
+        statusMessage: 'VITE_SUPABASE_URL is not a valid URL.',
+        missingVariables: ['VITE_SUPABASE_URL'],
+      };
+    }
   }
 
   return {
     isConfigured: false,
     supabaseUrl: null,
-    statusMessage: 'Supabase boundary active in Local State Fallback mode. Awaiting VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY in environment settings.',
+    statusMessage:
+      'Supabase authentication is not configured in this environment. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable live sign-in, registration, verification, and OAuth.',
+    missingVariables,
   };
+};
+
+/**
+ * Dynamic storage adapter honoring user Remember-Me choice.
+ * Reads from either localStorage or sessionStorage, and writes to the active tier.
+ */
+const adaptiveAuthStorage = {
+  getItem(key: string): string | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      const remember = getRememberMePreference();
+      if (remember) {
+        return window.localStorage.getItem(key) ?? window.sessionStorage.getItem(key);
+      }
+      return window.sessionStorage.getItem(key) ?? window.localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem(key: string, value: string): void {
+    if (typeof window === 'undefined') return;
+    try {
+      const remember = getRememberMePreference();
+      if (remember) {
+        window.localStorage.setItem(key, value);
+        window.sessionStorage.removeItem(key);
+      } else {
+        window.sessionStorage.setItem(key, value);
+        window.localStorage.removeItem(key);
+      }
+    } catch {
+      // Ignore quota errors
+    }
+  },
+  removeItem(key: string): void {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.removeItem(key);
+      window.sessionStorage.removeItem(key);
+    } catch {
+      // Ignore storage errors
+    }
+  },
+};
+
+let cachedClient: SupabaseClient | null = null;
+let cachedUrl: string | null = null;
+
+export const getSupabaseClient = (): SupabaseClient | null => {
+  const config = getSupabaseConfigState();
+  const key = readEnvVar('VITE_SUPABASE_ANON_KEY');
+
+  if (!config.isConfigured || !config.supabaseUrl || !key) {
+    return null;
+  }
+
+  if (cachedClient && cachedUrl === config.supabaseUrl) {
+    return cachedClient;
+  }
+
+  cachedUrl = config.supabaseUrl;
+  cachedClient = createClient(config.supabaseUrl, key, {
+    auth: {
+      flowType: 'pkce',
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false,
+      storage: adaptiveAuthStorage,
+    },
+  });
+
+  return cachedClient;
 };
 
 /**
@@ -48,7 +159,6 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   email TEXT UNIQUE NOT NULL,
   full_name TEXT,
   avatar_url TEXT,
-  tier TEXT DEFAULT 'Pro',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

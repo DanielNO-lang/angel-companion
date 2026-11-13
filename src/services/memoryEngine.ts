@@ -1,5 +1,6 @@
 import { StudioId } from '../types/angel';
 import { storageService } from './storageService';
+import { libraryService, LibraryItem } from './libraryService';
 
 export type MemoryCategory = 'personal' | 'conversation' | 'project' | 'studio' | 'task' | 'knowledge' | 'temporary';
 export type MemoryScope = 'general' | 'studio' | 'project';
@@ -208,57 +209,90 @@ export class MemoryEngine {
     }) || null;
   }
 
-  // --- KNOWLEDGE LIBRARY OPERATIONS ---
+  // --- KNOWLEDGE LIBRARY OPERATIONS (COMPATIBILITY ADAPTER DELEGATING TO LIBRARY SERVICE) ---
 
   saveKnowledge(item: Omit<KnowledgeItem, 'id' | 'createdAt' | 'updatedAt'>): KnowledgeItem {
-    const newItem: KnowledgeItem = {
-      ...item,
-      id: `know_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+    const libItem = libraryService.addItem({
+      type: 'knowledge',
+      name: item.title,
+      description: item.category || 'Knowledge Record',
+      content: item.content,
+      tags: item.tags || [],
+      collection: item.category || 'General Knowledge',
+      studioId: item.studioId,
+      projectId: item.projectId,
+    });
+
+    return {
+      id: libItem.id,
+      title: libItem.name,
+      content: libItem.content,
+      category: item.category || 'General Knowledge',
+      tags: libItem.tags,
+      studioId: libItem.studioId,
+      projectId: libItem.projectId,
+      createdAt: libItem.createdAt,
+      updatedAt: libItem.updatedAt,
     };
-    this.knowledgeLibrary.unshift(newItem);
-    if (!this.persist()) {
-      this.knowledgeLibrary.shift();
-      throw new Error('Failed to persist knowledge item to local storage.');
-    }
-    return newItem;
   }
 
   getKnowledgeList(studioId?: StudioId): KnowledgeItem[] {
-    if (!studioId) return this.knowledgeLibrary;
-    return this.knowledgeLibrary.filter((k) => !k.studioId || k.studioId === studioId);
+    const items = libraryService.getItems(undefined, studioId);
+    return items.map((i) => ({
+      id: i.id,
+      title: i.name,
+      content: i.content,
+      category: i.collection || i.type,
+      tags: i.tags,
+      studioId: i.studioId,
+      projectId: i.projectId,
+      createdAt: i.createdAt,
+      updatedAt: i.updatedAt,
+    }));
   }
 
   updateKnowledge(id: string, updates: Partial<KnowledgeItem>): KnowledgeItem | null {
-    const item = this.knowledgeLibrary.find((k) => k.id === id);
-    if (!item) return null;
-    Object.assign(item, updates, { updatedAt: new Date().toISOString() });
-    if (!this.persist()) {
-      throw new Error(`Failed to persist updates for knowledge item '${id}'.`);
-    }
-    return item;
+    const libUpdates: Partial<LibraryItem> = {};
+    if (updates.title) libUpdates.name = updates.title;
+    if (updates.content) libUpdates.content = updates.content;
+    if (updates.tags) libUpdates.tags = updates.tags;
+    if (updates.studioId !== undefined) libUpdates.studioId = updates.studioId;
+    if (updates.projectId !== undefined) libUpdates.projectId = updates.projectId;
+    if (updates.category) libUpdates.collection = updates.category;
+
+    const updated = libraryService.updateItem(id, libUpdates);
+    if (!updated) return null;
+
+    return {
+      id: updated.id,
+      title: updated.name,
+      content: updated.content,
+      category: updated.collection || updated.type,
+      tags: updated.tags,
+      studioId: updated.studioId,
+      projectId: updated.projectId,
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt,
+    };
   }
 
   deleteKnowledge(id: string): boolean {
-    const len = this.knowledgeLibrary.length;
-    this.knowledgeLibrary = this.knowledgeLibrary.filter((k) => k.id !== id);
-    if (this.knowledgeLibrary.length < len) {
-      if (!this.persist()) {
-        throw new Error(`Failed to persist deletion of knowledge item '${id}'.`);
-      }
-      return true;
-    }
-    return false;
+    return libraryService.deleteItem(id);
   }
 
   searchKnowledge(query: string, studioId?: StudioId): KnowledgeItem[] {
-    if (!query.trim()) return [];
-    const q = query.toLowerCase();
-    return this.knowledgeLibrary.filter((k) => {
-      if (studioId && k.studioId && k.studioId !== studioId) return false;
-      return k.title.toLowerCase().includes(q) || k.content.toLowerCase().includes(q) || k.tags.some(t => t.toLowerCase().includes(q));
-    });
+    const items = libraryService.searchItems(query, undefined, studioId);
+    return items.map((i) => ({
+      id: i.id,
+      title: i.name,
+      content: i.content,
+      category: i.collection || i.type,
+      tags: i.tags,
+      studioId: i.studioId,
+      projectId: i.projectId,
+      createdAt: i.createdAt,
+      updatedAt: i.updatedAt,
+    }));
   }
 
   // --- INTELLIGENT CONTEXT RETRIEVAL FOR PROMPT ENGINE ---

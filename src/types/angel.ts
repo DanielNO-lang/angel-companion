@@ -5,6 +5,7 @@ export type PrimaryNavItem =
   | 'activities'
   | 'agents'
   | 'workspace'
+  | 'library'
   | 'studios'
   | 'tools'
   | 'more'
@@ -17,6 +18,7 @@ export type PrimaryNavItem =
 export type MoreSubNavItem =
   | 'activities'
   | 'workspace'
+  | 'library'
   | 'tools'
   | 'apps'
   | 'devices'
@@ -56,12 +58,16 @@ export interface StudioInfo {
   tools: string[];
 }
 
+import { AttachmentRecord, LinkPreview } from './attachment';
+
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'angel' | 'system';
   content: string;
   timestamp: string;
   attachments?: string[];
+  attachmentDetails?: AttachmentRecord[];
+  linkPreviews?: LinkPreview[];
   mode?: string;
 }
 

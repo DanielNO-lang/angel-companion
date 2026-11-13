@@ -1,17 +1,36 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { useAngelState } from './hooks/useAngelState';
 import { CosmicEnvironment } from './components/background/CosmicEnvironment';
+import { CloudySkyEnvironment } from './components/background/CloudySkyEnvironment';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
 import { MoreNavigationPopup } from './components/layout/MoreNavigationPopup';
 import { CommandPalette } from './components/layout/CommandPalette';
 import { NotificationDrawer } from './components/layout/NotificationDrawer';
-import { AuthModal } from './components/modals/AuthModal';
-import { PublicEntryPage } from './components/auth/PublicEntryPage';
 import { FeatureStatusModal } from './components/modals/FeatureStatusModal';
 import { SupabaseBoundaryModal } from './components/modals/SupabaseBoundaryModal';
 import { SystemDetailsModal } from './components/modals/SystemDetailsModal';
 import { MediaStreamOverlays } from './components/media/MediaStreamOverlays';
+import { AppShellSkeleton, PageSkeleton } from './components/ui/Skeleton';
+
+// Public Landing & Dedicated Authentication Pages
+import { LandingPage } from './components/landing/LandingPage';
+import { SignInPage } from './components/auth/SignInPage';
+import { SignUpPage } from './components/auth/SignUpPage';
+import { EmailVerificationPage } from './components/auth/EmailVerificationPage';
+import { PasswordRecoveryPage } from './components/auth/PasswordRecoveryPage';
+import { AuthLayout } from './components/auth/AuthLayout';
+
+// Auth & Routing Services
+import { authService, type AuthStateSnapshot } from './services/authService';
+import {
+  canAccessWorkspace,
+  getPathForRoute,
+  parseAppRoute,
+  parseAuthCallbackParams,
+  sanitizeRedirectPath,
+  type AppRoute,
+} from './services/authValidation';
 
 // Home View Components
 import { HeroSection } from './components/home/HeroSection';
@@ -21,30 +40,90 @@ import { ActivityPanel } from './components/home/ActivityPanel';
 import { QuickAccessPanel } from './components/home/QuickAccessPanel';
 import { SystemStatusPanel } from './components/home/SystemStatusPanel';
 
-// Real Functioning Destination Pages
-import { NewConversationPage } from './components/pages/NewConversationPage';
-import { AdaptiveWorkspacePage } from './components/pages/AdaptiveWorkspacePage';
-import { ActivitiesPage } from './components/pages/ActivitiesPage';
-import { AgentsPage } from './components/pages/AgentsPage';
-import { WorkspacePage } from './components/pages/WorkspacePage';
-import { StudiosPage } from './components/pages/StudiosPage';
-import { ToolsPage } from './components/pages/ToolsPage';
-import { SettingsPage } from './components/pages/SettingsPage';
-import { HelpPage } from './components/pages/HelpPage';
-import { SystemStatusPage } from './components/pages/SystemStatusPage';
-import { AccountPage } from './components/pages/AccountPage';
-import { IncognitoChatPage } from './components/pages/IncognitoChatPage';
+// Direct & Lazy-Loaded Destination Pages
+import { LibraryPage } from './components/pages/LibraryPage';
+const NewConversationPage = React.lazy(() =>
+  import('./components/pages/NewConversationPage').then((m) => ({ default: m.NewConversationPage }))
+);
+const AdaptiveWorkspacePage = React.lazy(() =>
+  import('./components/pages/AdaptiveWorkspacePage').then((m) => ({ default: m.AdaptiveWorkspacePage }))
+);
+const ActivitiesPage = React.lazy(() =>
+  import('./components/pages/ActivitiesPage').then((m) => ({ default: m.ActivitiesPage }))
+);
+const AgentsPage = React.lazy(() =>
+  import('./components/pages/AgentsPage').then((m) => ({ default: m.AgentsPage }))
+);
+const WorkspacePage = React.lazy(() =>
+  import('./components/pages/WorkspacePage').then((m) => ({ default: m.WorkspacePage }))
+);
+const StudiosPage = React.lazy(() =>
+  import('./components/pages/StudiosPage').then((m) => ({ default: m.StudiosPage }))
+);
+const ToolsPage = React.lazy(() =>
+  import('./components/pages/ToolsPage').then((m) => ({ default: m.ToolsPage }))
+);
+const SettingsPage = React.lazy(() =>
+  import('./components/pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))
+);
+const HelpPage = React.lazy(() =>
+  import('./components/pages/HelpPage').then((m) => ({ default: m.HelpPage }))
+);
+const SystemStatusPage = React.lazy(() =>
+  import('./components/pages/SystemStatusPage').then((m) => ({ default: m.SystemStatusPage }))
+);
+const AccountPage = React.lazy(() =>
+  import('./components/pages/AccountPage').then((m) => ({ default: m.AccountPage }))
+);
+const IncognitoChatPage = React.lazy(() =>
+  import('./components/pages/IncognitoChatPage').then((m) => ({ default: m.IncognitoChatPage }))
+);
 import { studiosEngine } from './services/studiosEngine';
 import { conversationEngine } from './services/conversationEngine';
 import { voiceEngine } from './services/voiceEngine';
-import { companionAuth } from './services/companionAuth';
+import { geminiModelService } from './services/geminiModelService';
 
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 
 export default function App() {
-  const [authModalOpen, setAuthModalOpen] = React.useState(false);
-  const [currentUser, setCurrentUser] = React.useState<{ email: string; name: string } | null>(null);
-  const [authReady, setAuthReady] = React.useState(false);
+  const [authSnapshot, setAuthSnapshot] = React.useState<AuthStateSnapshot>(() => authService.getSnapshot());
+  const [currentRoute, setCurrentRoute] = React.useState<AppRoute>(() =>
+    typeof window !== 'undefined' ? parseAppRoute(window.location.pathname) : 'landing'
+  );
+  const [pendingVerifyEmail, setPendingVerifyEmail] = React.useState<string>('');
+  const [authNotice, setAuthNotice] = React.useState<string | null>(null);
+  const [verifyError, setVerifyError] = React.useState<string | null>(null);
+  const [verifySuccess, setVerifySuccess] = React.useState(false);
+  const [recoveryError, setRecoveryError] = React.useState<string | null>(null);
+  const [callbackProcessing, setCallbackProcessing] = React.useState(false);
+
+  const navigateRoute = React.useCallback(
+    (route: AppRoute, options?: { email?: string; notice?: string | null; replace?: boolean }) => {
+      if (options?.email !== undefined) setPendingVerifyEmail(options.email);
+      setAuthNotice(options?.notice ?? null);
+      if (route !== 'verify-email') {
+        setVerifyError(null);
+        setVerifySuccess(false);
+      }
+      if (route !== 'reset-password') {
+        setRecoveryError(null);
+      }
+
+      setCurrentRoute(route);
+      if (typeof window !== 'undefined') {
+        const targetPath = getPathForRoute(route);
+        if (window.location.pathname !== targetPath) {
+          if (options?.replace) {
+            window.history.replaceState({}, '', targetPath);
+          } else {
+            window.history.pushState({}, '', targetPath);
+          }
+        }
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    },
+    []
+  );
 
   const {
     activeTab,
@@ -89,7 +168,7 @@ export default function App() {
   };
 
   const handleLeaveMore = () => {
-    if (isMorePinned) return; // When clicked, it stays open permanently until clicked elsewhere!
+    if (isMorePinned) return;
     clearMoreTimer();
     moreLeaveTimerRef.current = setTimeout(() => {
       setMorePopupOpen(false);
@@ -121,6 +200,7 @@ export default function App() {
     prompt: string;
     detail: string;
   }) => {
+    if (!canAccessWorkspace(authSnapshot.status)) return;
     const activeThread = conversationEngine.getActiveThread('general');
     handleNavClick('new-conversation');
     await conversationEngine.addMessage(activeThread.id, data.prompt, 'user');
@@ -139,37 +219,114 @@ export default function App() {
     }, 600);
   };
 
+  const [isAppReady, setIsAppReady] = React.useState(false);
+
+  // Sync browser back/forward navigation cleanly
   React.useEffect(() => {
-    let mounted = true;
-    companionAuth.getSession().then((session) => {
-      if (!mounted) return;
-      conversationEngine.setAccessToken(session?.access_token || null);
-      if (session) setCurrentUser({
-        email: session.user.email || '',
-        name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
-      });
-      else setCurrentUser(null);
-      setAuthReady(true);
-    }).catch(() => {
-      if (mounted) {
-        conversationEngine.setAccessToken(null);
-        setCurrentUser(null);
-        setAuthReady(true);
-      }
-    });
-    return () => { mounted = false; clearMoreTimer(); };
+    const onPopState = () => {
+      setCurrentRoute(parseAppRoute(window.location.pathname));
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  if (!authReady) {
-    return <div className="flex min-h-screen items-center justify-center bg-[#050713] text-sm text-cyan-100">Connecting to Angel securely…</div>;
-  }
+  // Subscribe to single-source-of-truth Supabase authentication + handle initial callback / restoration
+  React.useEffect(() => {
+    let active = true;
+    const unsubscribe = authService.subscribe((next) => {
+      if (active) setAuthSnapshot(next);
+    });
 
-  if (!currentUser) {
-    return <PublicEntryPage onAuthenticated={(user) => {
-      conversationEngine.setAccessToken(user.accessToken);
-      setCurrentUser({ email: user.email, name: user.name });
-    }} />;
-  }
+    const bootstrapApp = async () => {
+      const search = typeof window !== 'undefined' ? window.location.search : '';
+      const hash = typeof window !== 'undefined' ? window.location.hash : '';
+      const initialRoute = typeof window !== 'undefined' ? parseAppRoute(window.location.pathname) : 'landing';
+      const parsedCallback = parseAuthCallbackParams(search, hash);
+
+      if (parsedCallback.hasCallbackParams || initialRoute === 'auth-callback') {
+        if (active) setCallbackProcessing(true);
+        const cbResult = await authService.processAuthCallback(search, hash);
+        if (!active) return;
+        setCallbackProcessing(false);
+
+        if (cbResult.outcome === 'authenticated') {
+          const safeNext = sanitizeRedirectPath(cbResult.parsed.nextPath, '/app');
+          setCurrentRoute(parseAppRoute(safeNext));
+          window.history.replaceState({}, '', safeNext);
+        } else if (cbResult.outcome === 'recovery') {
+          setCurrentRoute('reset-password');
+          window.history.replaceState({}, '', '/reset-password');
+        } else if (cbResult.outcome === 'verified') {
+          setVerifySuccess(true);
+          setCurrentRoute('verify-email');
+          window.history.replaceState({}, '', '/verify-email');
+        } else {
+          if (cbResult.parsed.type === 'recovery' || initialRoute === 'reset-password') {
+            setRecoveryError(cbResult.message);
+            setCurrentRoute('reset-password');
+            window.history.replaceState({}, '', '/reset-password');
+          } else if (cbResult.parsed.type === 'signup' || cbResult.parsed.isExpiredOrInvalid) {
+            setVerifyError(cbResult.message);
+            setCurrentRoute('verify-email');
+            window.history.replaceState({}, '', '/verify-email');
+          } else {
+            setAuthNotice(cbResult.message);
+            setCurrentRoute('signin');
+            window.history.replaceState({}, '', '/signin');
+          }
+        }
+      } else {
+        const restored = await authService.restoreVerifiedSession();
+        if (active && restored.status === 'authenticated') {
+          if (initialRoute === 'signin' || initialRoute === 'signup') {
+            setCurrentRoute('app');
+            window.history.replaceState({}, '', '/app');
+          }
+        }
+      }
+
+      const minHydrationDelay = new Promise<void>((resolve) => setTimeout(resolve, 220));
+      const maxCapDelay = new Promise<void>((resolve) => setTimeout(resolve, 500));
+      const fontsReady =
+        typeof document !== 'undefined' && document.fonts?.ready
+          ? document.fonts.ready.then(() => undefined).catch(() => undefined)
+          : Promise.resolve();
+      const statusCheck = geminiModelService.checkStatus().then(() => undefined).catch(() => undefined);
+
+      await Promise.race([Promise.all([minHydrationDelay, fontsReady, statusCheck]), maxCapDelay]);
+      if (active) setIsAppReady(true);
+    };
+
+    bootstrapApp();
+
+    return () => {
+      active = false;
+      unsubscribe();
+      clearMoreTimer();
+    };
+  }, []);
+
+  // Strict Route Guard enforcing verified Supabase session before allowing workspace rendering
+  const isAuthenticated = canAccessWorkspace(authSnapshot.status);
+
+  React.useEffect(() => {
+    if (!isAppReady || callbackProcessing || authSnapshot.status === 'loading') return;
+
+    if (!isAuthenticated && currentRoute === 'app') {
+      navigateRoute('signin', {
+        replace: true,
+        notice: 'Please sign in with a verified account to access your private Angel workspace.',
+      });
+    } else if (isAuthenticated && (currentRoute === 'signin' || currentRoute === 'signup')) {
+      navigateRoute('app', { replace: true });
+    }
+  }, [isAppReady, callbackProcessing, authSnapshot.status, isAuthenticated, currentRoute, navigateRoute]);
+
+  const handleSignOut = async () => {
+    await authService.signOut();
+    setActiveTab('home');
+    navigateRoute('landing', { replace: true });
+  };
 
   const renderActivePage = () => {
     switch (activeTab) {
@@ -255,6 +412,9 @@ export default function App() {
       case 'workspace':
         return <WorkspacePage />;
 
+      case 'library':
+        return <LibraryPage />;
+
       case 'studios':
         return <StudiosPage />;
 
@@ -271,21 +431,21 @@ export default function App() {
               <ArrowLeft className="w-4 h-4" />
               <span>Return to Home Reference</span>
             </button>
-            {activeTab === 'settings' && <SettingsPage theme={theme} onToggleTheme={toggleTheme} />}
+            {activeTab === 'settings' && (
+              <SettingsPage
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                onOpenAccountSecurity={() => setActiveTab('account')}
+              />
+            )}
             {activeTab === 'help' && <HelpPage />}
             {activeTab === 'system-status' && <SystemStatusPage />}
             {activeTab === 'account' && (
               <AccountPage
-                user={currentUser}
-                onSignIn={() => setAuthModalOpen(true)}
-                onSignOut={async () => {
-                  try {
-                    await companionAuth.signOut();
-                  } finally {
-                    conversationEngine.setAccessToken(null);
-                    setCurrentUser(null);
-                  }
-                }}
+                user={authSnapshot.user}
+                identities={authSnapshot.identities}
+                onSignOut={handleSignOut}
+                onNavigateToTools={() => setActiveTab('tools')}
               />
             )}
           </div>
@@ -293,175 +453,256 @@ export default function App() {
     }
   };
 
+  const getPageSkeletonVariant = (): 'default' | 'chat' | 'grid' | 'workspace' => {
+    if (activeTab === 'new-conversation' || activeTab === 'incognito-chat') return 'chat';
+    if (activeTab === 'adaptive-workspace' || activeTab === 'workspace') return 'workspace';
+    if (activeTab === 'studios' || activeTab === 'agents' || activeTab === 'tools') return 'grid';
+    return 'default';
+  };
+
   const isIncognitoMode = (activeTab as string) === 'incognito-chat';
+  const showWorkspace = isAppReady && isAuthenticated && currentRoute === 'app';
 
   return (
-    <div className={`h-screen w-screen relative flex flex-col md:flex-row bg-[#070815] text-slate-100 font-sans antialiased overflow-hidden theme-transition ${theme === 'light' ? 'theme-light' : ''}`}>
-      {/* Reconstructed Multi-Layer Cosmic Background Environment */}
-      <CosmicEnvironment onSelectSpaceObject={handleSelectSpaceObject} />
-
-      {/* Floating HUD Telemetry Intercept Toast */}
-      {cosmicToast && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-[#090d24]/95 border border-cyan-400/50 text-cyan-200 text-xs font-semibold shadow-[0_0_30px_rgba(56,189,248,0.6)] backdrop-blur-2xl flex items-center gap-2.5 animate-in fade-in zoom-in-95">
-          <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
-          <span>{cosmicToast}</span>
-        </div>
+    <div
+      className={`${
+        showWorkspace ? 'h-screen overflow-hidden flex flex-col md:flex-row' : 'min-h-screen overflow-x-hidden flex flex-col'
+      } w-screen relative font-sans antialiased theme-transition ${
+        theme === 'light' ? 'theme-light bg-[#e0f2fe] text-slate-900' : 'bg-[#070815] text-slate-100'
+      }`}
+    >
+      {/* Shared Atmospheric Environment: Cosmic Dark Void vs Cloudy-Day Light Sky */}
+      {theme === 'light' ? (
+        <CloudySkyEnvironment />
+      ) : (
+        <CosmicEnvironment onSelectSpaceObject={showWorkspace ? handleSelectSpaceObject : undefined} />
       )}
 
-      {/* Primary Sidebar - Hidden in Incognito/Private Mode */}
-      {!isIncognitoMode && (
-        <Sidebar
-          activeTab={activeTab}
-          onNavClick={(item) => {
-            handleCloseAllMore();
-            handleNavClick(item);
-          }}
-          onSecondaryNavClick={(secondaryId) => {
-            handleCloseAllMore();
-            handleNavClick(secondaryId as any);
-          }}
-          onToggleMore={handleToggleMore}
-          onHoverMore={handleHoverMore}
-          onLeaveMore={handleLeaveMore}
-          onCloseMore={handleCloseAllMore}
-          morePopupOpen={morePopupOpen}
-          isMorePinned={isMorePinned}
-          onOpenSearch={() => {
-            handleCloseAllMore();
-            setActiveModal('search');
-          }}
-          isMobileOpen={mobileMenuOpen}
-          onCloseMobile={() => setMobileMenuOpen(false)}
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-          currentUser={currentUser}
-          onSignIn={() => setAuthModalOpen(true)}
-          onSignOut={async () => {
-            try {
-              await companionAuth.signOut();
-            } finally {
-              conversationEngine.setAccessToken(null);
-              setCurrentUser(null);
-            }
-          }}
-        />
-      )}
-
-      {/* Anchored 'More' Sub-Navigation Popup */}
-      {!isIncognitoMode && (
-        <MoreNavigationPopup
-          isOpen={morePopupOpen}
-          onClose={handleCloseAllMore}
-          onMouseEnter={handleHoverMore}
-          onMouseLeave={handleLeaveMore}
-          onSelectSubItem={(subItem) => {
-            handleCloseAllMore();
-            if (subItem === 'activities' || subItem === 'workspace' || subItem === 'tools') {
-              handleNavClick(subItem);
-            } else {
-              openFeatureDetails(subItem);
-            }
-          }}
-        />
-      )}
-
-      {/* Main Content Area with Independent Scroll */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto overflow-x-hidden relative z-10 scrollbar-thin scrollbar-thumb-slate-800">
-        {/* Top Header Bar - Hidden in Incognito Mode */}
-        {!isIncognitoMode && (
-          <Header
-            activeTab={activeTab}
-            activeThreadTitle={conversationEngine.getActiveThread('general').title}
-            onResetConversation={() => {
-              conversationEngine.createThread('general');
-              handleNavClick('new-conversation');
-            }}
-            onClearMessages={() => {
-              const active = conversationEngine.getActiveThread('general');
-              active.messages = [];
-              conversationEngine.renameThread(active.id, 'New Conversation');
-              handleNavClick('new-conversation');
-            }}
-            onExportConversation={() => {
-              const active = conversationEngine.getActiveThread('general');
-              const md = conversationEngine.exportThreadMarkdown(active.id);
-              const blob = new Blob([md], { type: 'text/markdown' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `${active.title.replace(/\s+/g, '_')}.md`;
-              a.click();
-            }}
-            onOpenMobileMenu={() => setMobileMenuOpen(true)}
-            onOpenNotifications={() => setActiveModal('notifications')}
-            unreadCount={unreadNotificationCount}
+      {!isAppReady || callbackProcessing || authSnapshot.status === 'loading' ? (
+        callbackProcessing ? (
+          <AuthLayout
+            title="Completing verification"
+            subtitle="Validating your authentication callback with Supabase."
+            visualHeading="Verifying Your Identity"
+            visualDescription="Establishing your verified session before entering Angel."
             theme={theme}
             onToggleTheme={toggleTheme}
-            onOpenAuthModal={() => setAuthModalOpen(true)}
-            isIncognitoActive={activeTab === 'incognito-chat'}
-            onOpenIncognitoChat={() => handleNavClick('incognito-chat')}
+            onNavigate={(r) => navigateRoute(r)}
+          >
+            <div className="py-10 flex flex-col items-center justify-center gap-3 text-xs">
+              <Loader2 className="w-7 h-7 animate-spin text-cyan-400" />
+              <span className="font-semibold">Verifying security state and tokens...</span>
+            </div>
+          </AuthLayout>
+        ) : currentRoute === 'app' ? (
+          <AppShellSkeleton collapsedSidebar={sidebarCollapsed} />
+        ) : (
+          <div className="relative z-10 min-h-screen w-full flex flex-col items-center justify-center gap-3 px-6">
+            <Loader2 className="w-7 h-7 animate-spin text-cyan-400" />
+            <span className="text-xs font-semibold tracking-wider uppercase opacity-70">
+              Loading Angel Companion
+            </span>
+          </div>
+        )
+      ) : !showWorkspace ? (
+        /* PUBLIC ENTRY & DEDICATED AUTHENTICATION ROUTES */
+        <>
+          {currentRoute === 'signin' ? (
+            <SignInPage
+              theme={theme}
+              onToggleTheme={toggleTheme}
+              onNavigate={(r, opts) => navigateRoute(r, opts)}
+              initialNotice={authNotice}
+            />
+          ) : currentRoute === 'signup' ? (
+            <SignUpPage
+              theme={theme}
+              onToggleTheme={toggleTheme}
+              onNavigate={(r, opts) => navigateRoute(r, opts)}
+            />
+          ) : currentRoute === 'verify-email' ? (
+            <EmailVerificationPage
+              theme={theme}
+              onToggleTheme={toggleTheme}
+              onNavigate={(r) => navigateRoute(r)}
+              pendingEmail={pendingVerifyEmail}
+              initialError={verifyError}
+              verifiedSuccess={verifySuccess}
+            />
+          ) : currentRoute === 'forgot-password' ? (
+            <PasswordRecoveryPage
+              mode="request"
+              theme={theme}
+              onToggleTheme={toggleTheme}
+              onNavigate={(r) => navigateRoute(r)}
+            />
+          ) : currentRoute === 'reset-password' ? (
+            <PasswordRecoveryPage
+              mode="complete"
+              theme={theme}
+              onToggleTheme={toggleTheme}
+              onNavigate={(r) => navigateRoute(r)}
+              initialError={recoveryError}
+            />
+          ) : (
+            <LandingPage
+              theme={theme}
+              onToggleTheme={toggleTheme}
+              onNavigate={(r) => navigateRoute(r)}
+            />
+          )}
+        </>
+      ) : (
+        /* AUTHENTICATED EXISTING ANGEL WORKSPACE (PRESERVED VISUAL SOURCE OF TRUTH) */
+        <>
+          {/* Floating HUD Telemetry Intercept Toast */}
+          {cosmicToast && (
+            <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-[#090d24]/95 border border-cyan-400/50 text-cyan-200 text-xs font-semibold shadow-[0_0_30px_rgba(56,189,248,0.6)] backdrop-blur-2xl flex items-center gap-2.5 animate-in fade-in zoom-in-95">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
+              <span>{cosmicToast}</span>
+            </div>
+          )}
+
+          {/* Primary Sidebar - Hidden in Incognito/Private Mode */}
+          {!isIncognitoMode && (
+            <Sidebar
+              activeTab={activeTab}
+              onNavClick={(item) => {
+                handleCloseAllMore();
+                handleNavClick(item);
+              }}
+              onSecondaryNavClick={(secondaryId) => {
+                handleCloseAllMore();
+                handleNavClick(secondaryId as any);
+              }}
+              onToggleMore={handleToggleMore}
+              onHoverMore={handleHoverMore}
+              onLeaveMore={handleLeaveMore}
+              onCloseMore={handleCloseAllMore}
+              morePopupOpen={morePopupOpen}
+              isMorePinned={isMorePinned}
+              onOpenSearch={() => {
+                handleCloseAllMore();
+                setActiveModal('search');
+              }}
+              isMobileOpen={mobileMenuOpen}
+              onCloseMobile={() => setMobileMenuOpen(false)}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+              user={authSnapshot.user}
+              onSignOut={handleSignOut}
+            />
+          )}
+
+          {/* Anchored 'More' Sub-Navigation Popup */}
+          {!isIncognitoMode && (
+            <MoreNavigationPopup
+              isOpen={morePopupOpen}
+              onClose={handleCloseAllMore}
+              onMouseEnter={handleHoverMore}
+              onMouseLeave={handleLeaveMore}
+              onSelectSubItem={(subItem) => {
+                handleCloseAllMore();
+                if (subItem === 'activities' || subItem === 'workspace' || subItem === 'library' || subItem === 'tools') {
+                  handleNavClick(subItem);
+                } else {
+                  openFeatureDetails(subItem);
+                }
+              }}
+            />
+          )}
+
+          {/* Main Content Area with Independent Scroll */}
+          <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto overflow-x-hidden relative z-10 scrollbar-thin scrollbar-thumb-slate-800">
+            {/* Top Header Bar - Hidden in Incognito Mode */}
+            {!isIncognitoMode && (
+              <Header
+                activeTab={activeTab}
+                activeThreadTitle={conversationEngine.getActiveThread('general').title}
+                onResetConversation={() => {
+                  conversationEngine.createThread('general');
+                  handleNavClick('new-conversation');
+                }}
+                onClearMessages={() => {
+                  const active = conversationEngine.getActiveThread('general');
+                  active.messages = [];
+                  conversationEngine.renameThread(active.id, 'New Conversation');
+                  handleNavClick('new-conversation');
+                }}
+                onExportConversation={() => {
+                  const active = conversationEngine.getActiveThread('general');
+                  const md = conversationEngine.exportThreadMarkdown(active.id);
+                  const blob = new Blob([md], { type: 'text/markdown' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `${active.title.replace(/\s+/g, '_')}.md`;
+                  a.click();
+                }}
+                onOpenMobileMenu={() => setMobileMenuOpen(true)}
+                onOpenNotifications={() => setActiveModal('notifications')}
+                unreadCount={unreadNotificationCount}
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                onOpenAuthModal={() => navigateRoute('signin')}
+                isIncognitoActive={activeTab === 'incognito-chat'}
+                onOpenIncognitoChat={() => handleNavClick('incognito-chat')}
+              />
+            )}
+
+            {/* Dynamic Route Content */}
+            <main className={
+              isIncognitoMode
+                ? 'flex-1 p-0 w-full min-h-screen flex flex-col'
+                : activeTab === 'new-conversation'
+                  ? 'flex-1 p-0 w-full flex flex-col min-h-0'
+                  : 'flex-1 px-3 sm:px-6 md:px-8 pb-12 max-w-7xl w-full mx-auto'
+            }>
+              <Suspense fallback={<PageSkeleton variant={getPageSkeletonVariant()} />}>
+                {renderActivePage()}
+              </Suspense>
+            </main>
+          </div>
+
+          {/* Global Command Palette (Cmd+K) */}
+          <CommandPalette
+            isOpen={activeModal === 'search'}
+            onClose={() => setActiveModal(null)}
+            onSelectNav={(item) => handleNavClick(item)}
           />
-        )}
 
-        {/* Dynamic Route Content */}
-        <main className={
-          isIncognitoMode 
-            ? 'flex-1 p-0 w-full min-h-screen flex flex-col' 
-            : activeTab === 'new-conversation'
-              ? 'flex-1 p-0 w-full flex flex-col min-h-0'
-              : 'flex-1 px-3 sm:px-6 md:px-8 pb-12 max-w-7xl w-full mx-auto'
-        }>
-          {renderActivePage()}
-        </main>
-      </div>
+          {/* Global Notifications Drawer with Delete Mode */}
+          <NotificationDrawer
+            isOpen={activeModal === 'notifications'}
+            onClose={() => setActiveModal(null)}
+            notifications={notifications}
+            onMarkAllRead={markNotificationsRead}
+            onDeleteNotifications={deleteNotifications}
+          />
 
-      {/* Global Command Palette (Cmd+K) */}
-      <CommandPalette
-        isOpen={activeModal === 'search'}
-        onClose={() => setActiveModal(null)}
-        onSelectNav={(item) => handleNavClick(item)}
-      />
+          {/* Feature Readiness Inspector Modal */}
+          <FeatureStatusModal
+            isOpen={activeModal === 'feature_info'}
+            onClose={() => setActiveModal(null)}
+            feature={modalFeature}
+          />
 
-      {/* Global Notifications Drawer with Delete Mode */}
-      <NotificationDrawer
-        isOpen={activeModal === 'notifications'}
-        onClose={() => setActiveModal(null)}
-        notifications={notifications}
-        onMarkAllRead={markNotificationsRead}
-        onDeleteNotifications={deleteNotifications}
-      />
+          {/* Supabase Persistence Boundary Modal */}
+          <SupabaseBoundaryModal
+            isOpen={activeModal === 'supabase_info'}
+            onClose={() => setActiveModal(null)}
+          />
 
-      {/* Auth Modal for Email/Password Sign Up & Sign In */}
-      <AuthModal
-        isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
-        onAuthSuccess={(user) => {
-          conversationEngine.setAccessToken(user.accessToken);
-          setCurrentUser({ email: user.email, name: user.name });
-        }}
-      />
+          {/* System Status Details Modal */}
+          <SystemDetailsModal
+            isOpen={activeModal === 'system_details'}
+            onClose={() => setActiveModal(null)}
+          />
 
-      {/* Feature Readiness Inspector Modal */}
-      <FeatureStatusModal
-        isOpen={activeModal === 'feature_info'}
-        onClose={() => setActiveModal(null)}
-        feature={modalFeature}
-      />
-
-      {/* Supabase Persistence Boundary Modal */}
-      <SupabaseBoundaryModal
-        isOpen={activeModal === 'supabase_info'}
-        onClose={() => setActiveModal(null)}
-      />
-
-      {/* System Status Details Modal */}
-      <SystemDetailsModal
-        isOpen={activeModal === 'system_details'}
-        onClose={() => setActiveModal(null)}
-      />
-
-      {/* Global Live Camera Preview & Screen Share Overlays */}
-      <MediaStreamOverlays />
+          {/* Global Live Camera Preview & Screen Share Overlays */}
+          <MediaStreamOverlays />
+        </>
+      )}
     </div>
   );
 }

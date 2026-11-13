@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { PrimaryNavItem, CompanionOrbState, ActivityRecord, NotificationItem, FeatureMeta } from '../types/angel';
 import { ANGEL_FEATURE_REGISTRY } from '../services/featureStatus';
 import { conversationEngine } from '../services/conversationEngine';
+import { getStoredThemeMode, saveStoredThemeMode } from '../services/authValidation';
 
 export function useAngelState() {
   const [activeTab, setActiveTab] = useState<PrimaryNavItem>('home');
@@ -20,8 +21,19 @@ export function useAngelState() {
   const [activeModal, setActiveModal] = useState<'feature_info' | 'supabase_info' | 'system_details' | 'search' | 'notifications' | null>(null);
   const [modalFeature, setModalFeature] = useState<FeatureMeta | null>(null);
 
-  // Theme
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  // Theme (persisted across landing, auth, and workspace)
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => getStoredThemeMode());
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      if (theme === 'light') {
+        document.body.classList.add('theme-light');
+      } else {
+        document.body.classList.remove('theme-light');
+      }
+    }
+    saveStoredThemeMode(theme);
+  }, [theme]);
 
   // Search Query
   const [searchQuery, setSearchQuery] = useState('');
@@ -43,13 +55,7 @@ export function useAngelState() {
   const unreadNotificationCount = notifications.filter((n) => !n.read).length;
 
   const toggleTheme = () => {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(nextTheme);
-    if (nextTheme === 'light') {
-      document.body.classList.add('theme-light');
-    } else {
-      document.body.classList.remove('theme-light');
-    }
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
   const openFeatureDetails = (featureKey: string) => {

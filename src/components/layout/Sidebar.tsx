@@ -14,12 +14,12 @@ import {
   ChevronsRight,
   X,
   LogOut,
-  LogIn,
   CheckCircle2,
   Quote,
   Activity
 } from 'lucide-react';
 import { conversationEngine } from '../../services/conversationEngine';
+import type { AuthUser } from '../../services/authService';
 import { PrimaryNavItem, SecondaryNavItem } from '../../types/angel';
 import { AngelEmblem3D } from '../branding/AngelEmblem3D';
 
@@ -38,9 +38,8 @@ interface SidebarProps {
   onCloseMobile: () => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  currentUser: { email: string; name: string } | null;
-  onSignIn: () => void;
-  onSignOut: () => void | Promise<void>;
+  user?: AuthUser | null;
+  onSignOut?: () => void;
 }
 
 const COSMIC_QUOTES = [
@@ -68,12 +67,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   collapsed,
   onToggleCollapse,
-  currentUser,
-  onSignIn,
+  user = null,
   onSignOut,
 }) => {
   const [showAccountMenu, setShowAccountMenu] = useState(false);
-  const [authToast, setAuthToast] = useState<string | null>(null);
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [isHoverExpanded, setIsHoverExpanded] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
@@ -140,17 +137,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'studios', label: 'Studios', icon: Clapperboard },
   ];
 
-  const recentConversations = conversationEngine.getThreads('general').slice(0, 5);
+  const recentConversations = [
+    { id: 'project-planning', title: 'Project Planning' },
+    { id: 'research-analysis', title: 'Research Analysis' },
+    { id: 'personal-assistant', title: 'Personal Assistant' },
+  ];
 
-  const handleToggleAuth = async () => {
+  const handleLogoutClick = () => {
     setShowAccountMenu(false);
-    if (currentUser) {
-      await onSignOut();
-      setAuthToast('You have been signed out.');
-    } else {
-      onSignIn();
+    if (onSignOut) {
+      onSignOut();
     }
-    setTimeout(() => setAuthToast(null), 3000);
   };
 
   // Whether sidebar is visually showing full expanded view
@@ -169,12 +166,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const sidebarContent = (
     <div className="flex flex-col h-full select-none relative z-10">
-      {/* Toast alert for auth/profile actions */}
-      {authToast && (
-        <div className="absolute top-14 left-2 right-2 z-50 p-2 rounded-xl bg-slate-950 border border-blue-400 text-xs text-blue-200 text-center font-semibold shadow-2xl animate-in fade-in">
-          {authToast}
-        </div>
-      )}
 
       {/* Header with 3D Chrome Angel Trefoil Knot & Quick Controls */}
       <div className={`flex items-center ${isExpandedView ? 'justify-between px-3' : 'justify-center px-1'} pt-3.5 pb-2 mb-1 shrink-0`}>
@@ -329,7 +320,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={thread.id}
               onClick={() => {
-                conversationEngine.setActiveThread(thread.id);
+                const activeThread = conversationEngine.getActiveThread('general');
+                conversationEngine.renameThread(activeThread.id, thread.title);
                 handleNavAction('new-conversation');
               }}
               className="w-full flex items-center gap-3 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-300 hover:text-cyan-300 bg-transparent transition-colors truncate group text-left"
@@ -365,18 +357,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {showAccountMenu && (
           <div className={`absolute ${isExpandedView ? 'left-2 right-2' : 'left-14 w-56'} bottom-16 z-50 p-2.5 rounded-2xl bg-[#090d24]/95 text-slate-100 shadow-[0_10px_35px_rgba(0,0,0,0.85)] backdrop-blur-2xl animate-in zoom-in-95 duration-150`}>
             {/* User Profile Header */}
-            <div className="flex items-center gap-2.5 pb-2 border-b border-slate-800/80 mb-2 px-1">
+            <button
+              type="button"
+              onClick={() => {
+                setShowAccountMenu(false);
+                onSecondaryNavClick('account');
+              }}
+              className="w-full flex items-center gap-2.5 pb-2 border-b border-slate-800/80 mb-2 px-1 text-left hover:opacity-90 cursor-pointer"
+            >
               <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-md">
-                {currentUser?.name.split(/\\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase() || 'A'}
+                {user?.initials || 'AN'}
               </div>
               <div className="min-w-0">
-                <div className="text-xs font-bold text-white truncate">{currentUser?.name || 'Guest session'}</div>
-                <div className="text-[10px] text-blue-300 truncate">{currentUser?.email || 'Not signed in'}</div>
+                <div className="text-xs font-bold text-white truncate">{user?.fullName || 'Angel Account'}</div>
+                <div className="text-[10px] text-blue-300 truncate">{user?.email || 'Authenticated Session'}</div>
               </div>
-            </div>
+            </button>
 
-            {/* Menu Items: Settings, System Status, Help */}
+            {/* Menu Items: Account, Settings, System Status, Help */}
             <div className="space-y-0.5">
+              <button
+                onClick={() => {
+                  setShowAccountMenu(false);
+                  onSecondaryNavClick('account');
+                }}
+                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-slate-300 hover:text-cyan-300 bg-transparent transition-colors text-left"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Account & Identities</span>
+              </button>
+
               <button
                 onClick={() => {
                   setShowAccountMenu(false);
@@ -412,22 +422,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               <div className="h-px bg-slate-800/80 my-1" />
 
-              {/* Logout / Login Action */}
+              {/* Real Logout Action */}
               <button
-                onClick={handleToggleAuth}
+                onClick={handleLogoutClick}
                 className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-rose-300 hover:text-white bg-transparent transition-colors text-left"
               >
-                {currentUser ? (
-                  <>
-                    <LogOut className="w-3.5 h-3.5 text-rose-400" />
-                    <span>Log Out</span>
-                  </>
-                ) : (
-                  <>
-                    <LogIn className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="text-emerald-300">Sign In</span>
-                  </>
-                )}
+                <LogOut className="w-3.5 h-3.5 text-rose-400" />
+                <span>Log Out</span>
               </button>
             </div>
           </div>
@@ -441,14 +442,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <div className="flex items-center justify-center gap-2.5 min-w-0 shrink-0">
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-[0_0_10px_rgba(59,130,246,0.5)] overflow-hidden">
-              {currentUser?.name.split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase() || 'A'}
+              {user?.initials || 'AN'}
             </div>
             {isExpandedView && (
               <div className="text-left min-w-0">
-                <div className="text-xs font-semibold text-white truncate">{currentUser?.name || 'Guest'}</div>
+                <div className="text-xs font-semibold text-white truncate">{user?.fullName || 'Angel Account'}</div>
                 <div className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
                   <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" />
-                  <span>{currentUser ? 'Signed in' : 'Guest'}</span>
+                  <span>{user?.emailVerified ? 'Verified' : 'Signed In'}</span>
                 </div>
               </div>
             )}

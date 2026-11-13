@@ -18,6 +18,7 @@ export interface WorkspaceProject {
   id: string;
   name: string;
   description: string;
+  studioId?: import('../types/angel').StudioId;
   createdAt: string;
   updatedAt: string;
   files: WorkspaceFile[];
@@ -164,6 +165,53 @@ export class WorkspaceEngine {
     });
 
     return results;
+  }
+
+  renameProject(projectId: string, newName: string, newDescription?: string): boolean {
+    const proj = this.projects.find((p) => p.id === projectId);
+    if (proj && newName.trim()) {
+      proj.name = newName.trim();
+      if (newDescription !== undefined) proj.description = newDescription.trim();
+      proj.updatedAt = new Date().toISOString();
+      this.persist();
+      return true;
+    }
+    return false;
+  }
+
+  renameFile(fileId: string, newName: string): boolean {
+    for (const proj of this.projects) {
+      const file = proj.files.find((f) => f.id === fileId);
+      if (file && newName.trim()) {
+        file.name = newName.trim();
+        file.updatedAt = new Date().toISOString();
+        proj.updatedAt = new Date().toISOString();
+        this.persist();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  associateStudioWithProject(projectId: string, studioId?: import('../types/angel').StudioId): boolean {
+    const proj = this.projects.find((p) => p.id === projectId);
+    if (proj) {
+      proj.studioId = studioId;
+      proj.updatedAt = new Date().toISOString();
+      this.persist();
+      return true;
+    }
+    return false;
+  }
+
+  deleteProject(projectId: string): boolean {
+    const initialLen = this.projects.length;
+    this.projects = this.projects.filter((p) => p.id !== projectId);
+    if (this.projects.length < initialLen) {
+      this.persist();
+      return true;
+    }
+    return false;
   }
 
   addInstructionToProject(projectId: string, instructionText: string): WorkspaceFile | null {

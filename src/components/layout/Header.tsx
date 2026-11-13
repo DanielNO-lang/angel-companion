@@ -103,11 +103,11 @@ export const Header: React.FC<HeaderProps> = ({
         ) : (
           /* STANDARD HOME TOP OPTIONS */
           <>
-            {/* Plan Badge */}
+            {/* Verified Account Session Badge */}
             <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-[#090d24]/40 backdrop-blur-md text-[11px] sm:text-xs font-medium text-slate-200 border-0 shadow-[0_0_12px_rgba(99,102,241,0.2)]">
-              <span className="bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-400 bg-clip-text text-transparent font-bold">Plan</span>
+              <span className="bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-400 bg-clip-text text-transparent font-bold">Account</span>
               <span className="text-slate-500">•</span>
-              <span className="text-slate-300 font-medium">Pro</span>
+              <span className="text-slate-300 font-medium">Verified</span>
             </div>
 
             {/* Theme Toggle */}

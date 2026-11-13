@@ -15,6 +15,7 @@ import { studiosEngine, StudioState, APPROVED_EIGHT_STUDIOS } from './studiosEng
 import { agentEngine, AgentDefinition } from './agentEngine';
 import { permissionsEngine, PermissionRecord } from './permissionsEngine';
 import { eventBus } from './AngelEventBus';
+import { authService } from './authService';
 import { PrimaryNavItem, CompanionOrbState, StudioId, UserPreferences, NotificationItem } from '../types/angel';
 import { TaskRecord } from './activityEngine';
 
@@ -50,12 +51,13 @@ export class CentralStore {
   private listeners: Set<() => void> = new Set();
 
   private constructor() {
+    const authSnap = authService.getSnapshot();
     const defaultSession: UserSessionState = {
-      userId: 'usr_john_doe',
-      name: 'John Doe',
-      email: 'danielokohnwachukwu22@gmail.com',
-      tier: 'Premium Pro Plan',
-      isAuthenticated: true,
+      userId: authSnap.user?.id || '',
+      name: authSnap.user?.fullName || 'Guest',
+      email: authSnap.user?.email || '',
+      tier: authSnap.status === 'authenticated' ? 'Verified Account' : 'Unauthenticated',
+      isAuthenticated: authSnap.status === 'authenticated',
     };
 
     const activeConv = ConversationService.getActiveThread();
@@ -87,7 +89,17 @@ export class CentralStore {
       orbState: 'idle',
     };
 
-    // Listen to event bus for auto-synchronizing store
+    // Listen to event bus and auth service for auto-synchronizing store
+    authService.subscribe((snap) => {
+      this.state.userSession = {
+        userId: snap.user?.id || '',
+        name: snap.user?.fullName || 'Guest',
+        email: snap.user?.email || '',
+        tier: snap.status === 'authenticated' ? 'Verified Account' : 'Unauthenticated',
+        isAuthenticated: snap.status === 'authenticated',
+      };
+      this.notify();
+    });
     eventBus.subscribe('conversation:updated', () => this.syncState());
     eventBus.subscribe('conversation:created', () => this.syncState());
     eventBus.subscribe('message:received', () => this.syncState());

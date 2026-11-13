@@ -49,6 +49,8 @@ export interface PromptContext {
   conversationHistory?: ChatMessage[];
   projectContext?: Record<string, any>;
   userPreferences?: UserPreferences;
+  mode?: string;
+  workspaceId?: string;
 }
 
 export interface ParsedPromptIntent {
