@@ -166,6 +166,8 @@ async function runCoreEngineTests() {
     console.log('ALL CORE APPLICATION ENGINE TESTS PASSED SUCCESSFULLY! ✅\n');
   } else {
     console.error('SOME ENGINE TESTS FAILED. INSPECT LOGS ABOVE. ❌\n');
+  } else {
+    process.exitCode = 1;
   }
 }
 
