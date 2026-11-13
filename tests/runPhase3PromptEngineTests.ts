@@ -202,7 +202,7 @@ async function runPhase3PromptEngineTests() {
     });
   };
 
-  let aiReply;
+  let aiReply: Awaited<ReturnType<typeof conversationEngine.generateAssistantResponse>> | undefined;
   try {
     conversationEngine.setAccessToken('phase3-test-access-token');
     aiReply = await conversationEngine.generateAssistantResponse(genThread.id);
