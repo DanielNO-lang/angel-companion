@@ -25,6 +25,15 @@ export interface ConversationThread {
 
 const DEFAULT_CONVERSATIONS: ConversationThread[] = [];
 
+let generatedIdSequence = 0;
+
+function createUniqueId(prefix: string): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return `${prefix}_${uuid}`;
+  generatedIdSequence += 1;
+  return `${prefix}_${Date.now()}_${generatedIdSequence}`;
+}
+
 export class ConversationEngine {
   private threads: ConversationThread[] = [];
   private activeGeneralId = '';
@@ -202,7 +211,7 @@ export class ConversationEngine {
 
 
     const newThread: ConversationThread = {
-      id: `conv_${scope}_${Date.now()}`,
+      id: createUniqueId(`conv_${scope}`),
       title: title || defaultTitle,
       scope,
       studioId: scope === 'studio' ? (studioId || 'research-studio') : undefined,
@@ -240,7 +249,7 @@ export class ConversationEngine {
     };
 
     studioThread.messages.push({
-      id: `msg_handoff_${Date.now()}`,
+      id: createUniqueId('msg_handoff'),
       sender: 'system',
       content: `Context transferred from General Conversation ("${sourceThread.title}"). Ready to execute in ${this.formatStudioName(targetStudioId)}.`,
       timestamp: 'Just now',
@@ -306,7 +315,7 @@ export class ConversationEngine {
     const thread = this.threads.find((t) => t.id === threadId) || this.getActiveThread('general');
 
     const userMessage: ChatMessage = {
-      id: `msg_${Date.now()}`,
+      id: createUniqueId('msg'),
       sender,
       content,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -422,7 +431,7 @@ export class ConversationEngine {
     }
 
     const assistantMessage: ChatMessage = {
-      id: `msg_ai_${Date.now()}`,
+      id: createUniqueId('msg_ai'),
       sender: 'angel',
       content: responseText,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
