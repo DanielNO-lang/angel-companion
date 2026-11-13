@@ -1,0 +1,25 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/chat"
+  to = "/.netlify/functions/chat"
+  status = 200
+
+[[redirects]]
+  from = "/api/model/status"
+  to = "/.netlify/functions/model-status"
+  status = 200
+
+[[redirects]]
+  from = "/api/title"
+  to = "/.netlify/functions/title"
+  status = 200
+
+# Keep client-side public/auth routes and authenticated workspace routes refreshable.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
