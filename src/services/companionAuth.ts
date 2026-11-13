@@ -52,6 +52,13 @@ export const companionAuth = {
     return persistSession(payload);
   },
 
+  async resetPassword(email: string): Promise<void> {
+    await authRequest("recover", {
+      email,
+      redirect_to: window.location.origin,
+    });
+  },
+
   async signUp(email: string, password: string, fullName: string): Promise<CompanionSession | null> {
     const payload = await authRequest("signup", {
       email, password, data: { full_name: fullName },
