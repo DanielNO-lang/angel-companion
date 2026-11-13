@@ -45,19 +45,26 @@ export const SignInPage: React.FC<SignInPageProps> = ({
     if (!validation.valid) return;
 
     setIsSubmitting(true);
-    const result = await authService.signInWithEmailPassword(email, password, rememberMe);
-    setIsSubmitting(false);
+    try {
+      const result = await authService.signInWithEmailPassword(email, password, rememberMe);
 
-    if (!result.ok) {
-      if (result.code === 'CONFIRMATION_REQUIRED') {
-        onNavigate('verify-email', { email });
+      if (!result.ok) {
+        if (result.code === 'CONFIRMATION_REQUIRED') {
+          onNavigate('verify-email', { email });
+          return;
+        }
+        setFormError(result.message);
         return;
       }
-      setFormError(result.message);
-      return;
-    }
 
-    onNavigate('app');
+      onNavigate('app');
+    } catch (error) {
+      setFormError(error instanceof Error
+        ? error.message
+        : 'Sign-in could not reach Supabase. Check your connection and try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleMagicLink = async (e: React.FormEvent) => {
@@ -72,14 +79,20 @@ export const SignInPage: React.FC<SignInPageProps> = ({
     setFieldErrors({});
 
     setIsSubmitting(true);
-    const result = await authService.signInWithMagicLink(email);
-    setIsSubmitting(false);
-
-    if (!result.ok) {
-      setFormError(result.message);
-      return;
+    try {
+      const result = await authService.signInWithMagicLink(email);
+      if (!result.ok) {
+        setFormError(result.message);
+        return;
+      }
+      setSuccessMessage(result.message);
+    } catch (error) {
+      setFormError(error instanceof Error
+        ? error.message
+        : 'The sign-in link could not be sent. Check your connection and try again.');
+    } finally {
+      setIsSubmitting(false);
     }
-    setSuccessMessage(result.message);
   };
 
   const inputBaseClass = isLight
