@@ -260,7 +260,17 @@ export default function App() {
             {activeTab === 'settings' && <SettingsPage theme={theme} onToggleTheme={toggleTheme} />}
             {activeTab === 'help' && <HelpPage />}
             {activeTab === 'system-status' && <SystemStatusPage />}
-            {activeTab === 'account' && <AccountPage />}
+            {activeTab === 'account' && (
+              <AccountPage
+                user={currentUser}
+                onSignIn={() => setAuthModalOpen(true)}
+                onSignOut={() => {
+                  companionAuth.signOut();
+                  conversationEngine.setAccessToken(null);
+                  setCurrentUser(null);
+                }}
+              />
+            )}
           </div>
         );
     }
