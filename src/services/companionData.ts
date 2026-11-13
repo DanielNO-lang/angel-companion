@@ -43,7 +43,7 @@ export const companionData = {
     id: string;
     title: string;
     scope: 'general' | 'studio';
-    studioId?: string;
+    studioId?: StudioId;
     createdAt: string;
     updatedAt: string;
     isArchived: boolean;
