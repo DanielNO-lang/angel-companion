@@ -7,6 +7,7 @@ import { MoreNavigationPopup } from './components/layout/MoreNavigationPopup';
 import { CommandPalette } from './components/layout/CommandPalette';
 import { NotificationDrawer } from './components/layout/NotificationDrawer';
 import { AuthModal } from './components/modals/AuthModal';
+import { PublicEntryPage } from './components/auth/PublicEntryPage';
 import { FeatureStatusModal } from './components/modals/FeatureStatusModal';
 import { SupabaseBoundaryModal } from './components/modals/SupabaseBoundaryModal';
 import { SystemDetailsModal } from './components/modals/SystemDetailsModal';
@@ -43,6 +44,7 @@ import { ArrowLeft } from 'lucide-react';
 export default function App() {
   const [authModalOpen, setAuthModalOpen] = React.useState(false);
   const [currentUser, setCurrentUser] = React.useState<{ email: string; name: string } | null>(null);
+  const [authReady, setAuthReady] = React.useState(false);
 
   const {
     activeTab,
@@ -147,9 +149,27 @@ export default function App() {
         name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
       });
       else setCurrentUser(null);
+      setAuthReady(true);
+    }).catch(() => {
+      if (mounted) {
+        conversationEngine.setAccessToken(null);
+        setCurrentUser(null);
+        setAuthReady(true);
+      }
     });
     return () => { mounted = false; clearMoreTimer(); };
   }, []);
+
+  if (!authReady) {
+    return <div className="flex min-h-screen items-center justify-center bg-[#050713] text-sm text-cyan-100">Connecting to Angel securely…</div>;
+  }
+
+  if (!currentUser) {
+    return <PublicEntryPage onAuthenticated={(user) => {
+      conversationEngine.setAccessToken(user.accessToken);
+      setCurrentUser({ email: user.email, name: user.name });
+    }} />;
+  }
 
   const renderActivePage = () => {
     switch (activeTab) {
