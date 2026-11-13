@@ -140,11 +140,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'studios', label: 'Studios', icon: Clapperboard },
   ];
 
-  const recentConversations = [
-    { id: 'project-planning', title: 'Project Planning' },
-    { id: 'research-analysis', title: 'Research Analysis' },
-    { id: 'personal-assistant', title: 'Personal Assistant' },
-  ];
+  const recentConversations = conversationEngine.getThreads('general').slice(0, 5);
 
   const handleToggleAuth = async () => {
     setShowAccountMenu(false);
@@ -333,8 +329,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={thread.id}
               onClick={() => {
-                const activeThread = conversationEngine.getActiveThread('general');
-                conversationEngine.renameThread(activeThread.id, thread.title);
+                conversationEngine.setActiveThread(thread.id);
                 handleNavAction('new-conversation');
               }}
               className="w-full flex items-center gap-3 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-300 hover:text-cyan-300 bg-transparent transition-colors truncate group text-left"
@@ -375,8 +370,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {currentUser?.name.split(/\\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase() || 'A'}
               </div>
               <div className="min-w-0">
-                <div className="text-xs font-bold text-white truncate">John Doe</div>
-                <div className="text-[10px] text-blue-300 truncate">danielokohnwachukwu22@gmail.com</div>
+                <div className="text-xs font-bold text-white truncate">{currentUser?.name || 'Guest session'}</div>
+                <div className="text-[10px] text-blue-300 truncate">{currentUser?.email || 'Not signed in'}</div>
               </div>
             </div>
 
@@ -446,7 +441,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <div className="flex items-center justify-center gap-2.5 min-w-0 shrink-0">
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-[0_0_10px_rgba(59,130,246,0.5)] overflow-hidden">
-              JD
+              {currentUser?.name.split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase() || 'A'}
             </div>
             {isExpandedView && (
               <div className="text-left min-w-0">
