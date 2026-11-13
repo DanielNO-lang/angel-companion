@@ -215,6 +215,8 @@ async function runPhase3PromptEngineTests() {
     console.log('ALL PHASE 3 PROMPT INTELLIGENCE SCENARIOS PASSED! ✅\n');
   } else {
     console.error('SOME PHASE 3 PROMPT INTELLIGENCE SCENARIOS FAILED. INSPECT LOGS ABOVE. ❌\n');
+  } else {
+    process.exitCode = 1;
   }
 }
 
