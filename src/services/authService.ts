@@ -272,7 +272,7 @@ class AuthService {
       return {
         ok: false,
         code: 'UNCONFIGURED',
-        message: 'Supabase authentication is not configured yet. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+        message: 'Supabase authentication is not configured yet. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.',
       };
     }
 
@@ -329,7 +329,7 @@ class AuthService {
       return {
         ok: false,
         code: 'UNCONFIGURED',
-        message: 'Supabase authentication is not configured yet. Registration requires VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+        message: 'Supabase authentication is not configured yet. Registration requires VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.',
       };
     }
 
