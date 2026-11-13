@@ -103,7 +103,8 @@ export class GeminiModelService {
     history: ChatMessage[],
     newMessage: string,
     mode?: string,
-    systemInstruction?: string
+    systemInstruction?: string,
+    accessToken?: string
   ): Promise<ModelChatResponse> {
     if (typeof window === 'undefined') {
       // In server or test runtime
@@ -162,7 +163,11 @@ export class GeminiModelService {
       };
     }
 
-    // Browser runtime calls backend API
+    // Browser runtime calls the authenticated server-side API. Never send Gemini credentials from the browser.
+    if (!accessToken) {
+      return { success: false, error: 'Sign in to use Angel conversations.', status: 'unauthenticated' };
+    }
+
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 8000);
@@ -174,9 +179,12 @@ export class GeminiModelService {
 
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({
-          messages: messagesPayload,
+          messages: messagesPayload.map((message) => ({
+            role: message.sender === 'angel' ? 'assistant' : 'user',
+            content: message.content,
+          })),
           mode,
           systemInstruction,
         }),
@@ -189,7 +197,7 @@ export class GeminiModelService {
         const data = await res.json();
         return {
           success: true,
-          text: data.text,
+          text: data.reply || data.text,
           modelUsed: data.modelUsed,
           thinkingLevel: data.thinkingLevel,
         };
@@ -210,15 +218,15 @@ export class GeminiModelService {
     }
   }
 
-  public async generateTitle(firstMessage: string): Promise<string> {
-    if (typeof window !== 'undefined') {
+  public async generateTitle(firstMessage: string, accessToken?: string): Promise<string> {
+    if (typeof window !== 'undefined' && accessToken) {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3000);
 
         const res = await fetch('/api/title', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', authorization: `Bearer ${accessToken}` },
           body: JSON.stringify({ message: firstMessage }),
           signal: controller.signal,
         });
