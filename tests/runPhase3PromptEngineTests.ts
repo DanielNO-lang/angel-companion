@@ -212,10 +212,9 @@ async function runPhase3PromptEngineTests() {
 
   console.log(`\n=== TEST SUITE RESULTS: ${passedTests} / ${totalTests} PASSED ===`);
   if (passedTests === totalTests) {
-    console.log('ALL PHASE 3 PROMPT INTELLIGENCE SCENARIOS PASSED! ✅\n');
+    console.log('ALL PHASE 3 PROMPT INTELLIGENCE SCENARIOS PASSED! ✅\\n');
   } else {
-    console.error('SOME PHASE 3 PROMPT INTELLIGENCE SCENARIOS FAILED. INSPECT LOGS ABOVE. ❌\n');
-  } else {
+    console.error('SOME PHASE 3 PROMPT INTELLIGENCE SCENARIOS FAILED. INSPECT LOGS ABOVE. ❌\\n');
     process.exitCode = 1;
   }
 }
