@@ -42,13 +42,7 @@ import { ArrowLeft } from 'lucide-react';
 
 export default function App() {
   const [authModalOpen, setAuthModalOpen] = React.useState(false);
-  const [currentUser, setCurrentUser] = React.useState<{ email: string; name: string } | null>(() => {
-    const saved = companionAuth.getStoredSession();
-    return saved?.user ? {
-      email: saved.user.email || '',
-      name: saved.user.user_metadata?.full_name || saved.user.email?.split('@')[0] || 'User',
-    } : null;
-  });
+  const [currentUser, setCurrentUser] = React.useState<{ email: string; name: string } | null>(null);
 
   const {
     activeTab,
@@ -264,8 +258,8 @@ export default function App() {
               <AccountPage
                 user={currentUser}
                 onSignIn={() => setAuthModalOpen(true)}
-                onSignOut={() => {
-                  companionAuth.signOut();
+                onSignOut={async () => {
+                  await companionAuth.signOut();
                   conversationEngine.setAccessToken(null);
                   setCurrentUser(null);
                 }}
@@ -317,6 +311,13 @@ export default function App() {
           onCloseMobile={() => setMobileMenuOpen(false)}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          currentUser={currentUser}
+          onSignIn={() => setAuthModalOpen(true)}
+          onSignOut={async () => {
+            await companionAuth.signOut();
+            conversationEngine.setAccessToken(null);
+            setCurrentUser(null);
+          }}
         />
       )}
 
