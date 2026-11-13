@@ -211,6 +211,8 @@ async function runPhase3PromptEngineTests() {
   conversationEngine.deleteThread(genThread.id);
 
   console.log(`\n=== TEST SUITE RESULTS: ${passedTests} / ${totalTests} PASSED ===`);
+  if (passedTests !== totalTests) process.exitCode = 1;
+
   if (passedTests === totalTests) {
     console.log('ALL PHASE 3 PROMPT INTELLIGENCE SCENARIOS PASSED! ✅\n');
   } else {
@@ -220,4 +222,5 @@ async function runPhase3PromptEngineTests() {
 
 runPhase3PromptEngineTests().catch((err) => {
   console.error('Phase 3 test execution error:', err);
+  process.exitCode = 1;
 });
