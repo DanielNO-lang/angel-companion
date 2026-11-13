@@ -50,20 +50,26 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
     if (!validation.valid) return;
 
     setIsSubmitting(true);
-    const result = await authService.signUpWithEmailPassword(fullName, email, password);
-    setIsSubmitting(false);
+    try {
+      const result = await authService.signUpWithEmailPassword(fullName, email, password);
+      if (!result.ok) {
+        setFormError(result.message);
+        return;
+      }
 
-    if (!result.ok) {
-      setFormError(result.message);
-      return;
+      if (result.code === 'AUTHENTICATED') {
+        onNavigate('app');
+        return;
+      }
+
+      onNavigate('verify-email', { email: result.email || email.trim() });
+    } catch (error) {
+      setFormError(error instanceof Error
+        ? error.message
+        : 'Account creation could not reach Supabase. Check your connection and try again.');
+    } finally {
+      setIsSubmitting(false);
     }
-
-    if (result.code === 'AUTHENTICATED') {
-      onNavigate('app');
-      return;
-    }
-
-    onNavigate('verify-email', { email: result.email || email.trim() });
   };
 
   const inputBaseClass = isLight
