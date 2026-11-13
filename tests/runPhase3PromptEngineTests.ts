@@ -182,7 +182,7 @@ async function runPhase3PromptEngineTests() {
     'Capability routing respects user permissions and flags missing device control access'
   );
 
-  // 14. Requirement 14: Conversation context is preserved through the authenticated chat boundary.
+  // 14. Requirement 14: Conversation context is preserved through authenticated chat with a clean, greeting-free thread.
   const genThread = conversationEngine.createThread('general', undefined, 'Phase 3 Context Test');
   await conversationEngine.addMessage(genThread.id, 'What is quantum computing?');
 
