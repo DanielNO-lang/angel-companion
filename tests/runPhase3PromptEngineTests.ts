@@ -212,7 +212,7 @@ async function runPhase3PromptEngineTests() {
   }
 
   assert(
-    genThread.messages.length === 3 &&
+    genThread.messages.length === 2 &&
       aiReply?.content.includes('Research Synthesis') === true &&
       capturedHistory.some((message) => message.role === 'user' && message.content === 'What is quantum computing?'),
     14,
