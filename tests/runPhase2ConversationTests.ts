@@ -52,10 +52,10 @@ async function runPhase2ConversationTests() {
   
   assert(
     generalThread1.id !== generalThread2.id &&
-    generalThread1.messages.length === 3 &&
-    generalThread2.messages.length === 2,
+    generalThread1.messages.length === 2 &&
+    generalThread2.messages.length === 1,
     3,
-    'Multiple General Conversations remain completely independent'
+    'New General Conversations start clean and remain completely independent'
   );
 
   // 4. Scenario 4: Open Research Studio and start a contextual conversation.

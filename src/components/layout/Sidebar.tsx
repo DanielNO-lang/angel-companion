@@ -38,6 +38,9 @@ interface SidebarProps {
   onCloseMobile: () => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  currentUser: { email: string; name: string } | null;
+  onSignIn: () => void;
+  onSignOut: () => void | Promise<void>;
 }
 
 const COSMIC_QUOTES = [
@@ -65,9 +68,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   collapsed,
   onToggleCollapse,
+  currentUser,
+  onSignIn,
+  onSignOut,
 }) => {
   const [showAccountMenu, setShowAccountMenu] = useState(false);
-  const [isSignedIn, setIsSignedIn] = useState(true);
   const [authToast, setAuthToast] = useState<string | null>(null);
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [isHoverExpanded, setIsHoverExpanded] = useState(false);
@@ -135,22 +140,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'studios', label: 'Studios', icon: Clapperboard },
   ];
 
-  const recentConversations = [
-    { id: 'project-planning', title: 'Project Planning' },
-    { id: 'research-analysis', title: 'Research Analysis' },
-    { id: 'personal-assistant', title: 'Personal Assistant' },
-  ];
+  const recentConversations = conversationEngine.getThreads('general').slice(0, 5);
 
-  const handleToggleAuth = () => {
-    if (isSignedIn) {
-      setIsSignedIn(false);
-      setAuthToast('Signed out successfully.');
+  const handleToggleAuth = async () => {
+    setShowAccountMenu(false);
+    if (currentUser) {
+      await onSignOut();
+      setAuthToast('You have been signed out.');
     } else {
-      setIsSignedIn(true);
-      setAuthToast('Welcome back, John Doe!');
+      onSignIn();
     }
     setTimeout(() => setAuthToast(null), 3000);
-    setShowAccountMenu(false);
   };
 
   // Whether sidebar is visually showing full expanded view
@@ -329,8 +329,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={thread.id}
               onClick={() => {
-                const activeThread = conversationEngine.getActiveThread('general');
-                conversationEngine.renameThread(activeThread.id, thread.title);
+                conversationEngine.setActiveThread(thread.id);
                 handleNavAction('new-conversation');
               }}
               className="w-full flex items-center gap-3 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-300 hover:text-cyan-300 bg-transparent transition-colors truncate group text-left"
@@ -368,11 +367,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {/* User Profile Header */}
             <div className="flex items-center gap-2.5 pb-2 border-b border-slate-800/80 mb-2 px-1">
               <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-md">
-                JD
+                {currentUser?.name.split(/\\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase() || 'A'}
               </div>
               <div className="min-w-0">
-                <div className="text-xs font-bold text-white truncate">John Doe</div>
-                <div className="text-[10px] text-blue-300 truncate">danielokohnwachukwu22@gmail.com</div>
+                <div className="text-xs font-bold text-white truncate">{currentUser?.name || 'Guest session'}</div>
+                <div className="text-[10px] text-blue-300 truncate">{currentUser?.email || 'Not signed in'}</div>
               </div>
             </div>
 
@@ -418,7 +417,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onClick={handleToggleAuth}
                 className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-rose-300 hover:text-white bg-transparent transition-colors text-left"
               >
-                {isSignedIn ? (
+                {currentUser ? (
                   <>
                     <LogOut className="w-3.5 h-3.5 text-rose-400" />
                     <span>Log Out</span>
@@ -442,14 +441,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <div className="flex items-center justify-center gap-2.5 min-w-0 shrink-0">
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-[0_0_10px_rgba(59,130,246,0.5)] overflow-hidden">
-              JD
+              {currentUser?.name.split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase() || 'A'}
             </div>
             {isExpandedView && (
               <div className="text-left min-w-0">
-                <div className="text-xs font-semibold text-white truncate">John Doe</div>
+                <div className="text-xs font-semibold text-white truncate">{currentUser?.name || 'Guest'}</div>
                 <div className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
                   <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" />
-                  <span>{isSignedIn ? 'Pro' : 'Signed Out'}</span>
+                  <span>{currentUser ? 'Signed in' : 'Guest'}</span>
                 </div>
               </div>
             )}

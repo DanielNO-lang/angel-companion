@@ -23,54 +23,13 @@ export interface ConversationThread {
 
 const DEFAULT_CONVERSATIONS: ConversationThread[] = [
   {
-    id: 'conv_general_1',
-    title: 'General Assistance & Brainstorming',
+    id: `conv_general_${Date.now()}`,
+    title: 'New Conversation',
     scope: 'general',
-    createdAt: new Date(Date.now() - 3600000).toISOString(),
-    updatedAt: new Date(Date.now() - 1800000).toISOString(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     isArchived: false,
-    messages: [
-      {
-        id: 'msg_1',
-        sender: 'angel',
-        content: 'Hello! I am Angel, your universal personal companion. Ask me general questions, brainstorm ideas, or ask for everyday assistance.',
-        timestamp: '1h ago',
-      },
-    ],
-  },
-  {
-    id: 'conv_studio_res_1',
-    title: 'Research Paper Synthesis Session',
-    scope: 'studio',
-    studioId: 'research-studio',
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
-    updatedAt: new Date(Date.now() - 43200000).toISOString(),
-    isArchived: false,
-    messages: [
-      {
-        id: 'msg_2',
-        sender: 'angel',
-        content: 'Research Studio conversation active. Ready to synthesize academic literature, parse datasets, and extract citations.',
-        timestamp: '12h ago',
-      },
-    ],
-  },
-  {
-    id: 'conv_studio_dev_1',
-    title: 'Full-Stack TypeScript Refactoring',
-    scope: 'studio',
-    studioId: 'development-studio',
-    createdAt: new Date(Date.now() - 172800000).toISOString(),
-    updatedAt: new Date(Date.now() - 86400000).toISOString(),
-    isArchived: false,
-    messages: [
-      {
-        id: 'msg_3',
-        sender: 'angel',
-        content: 'Development Studio conversation active. Ready to analyze AST code syntax, generate TypeScript modules, and debug APIs.',
-        timestamp: '1d ago',
-      },
-    ],
+    messages: [],
   },
 ];
 
@@ -91,12 +50,13 @@ export class ConversationEngine {
     );
 
     // Safe Data Migration: ensure all records have valid scope property
-    this.threads = loaded.map((t) => {
-      if (!t.scope) {
-        return { ...t, scope: 'general' as const };
-      }
-      return t;
-    });
+    const demoSeedIds = new Set(['conv_general_1', 'conv_studio_res_1', 'conv_studio_dev_1']);
+    this.threads = loaded
+      .filter((t) => !demoSeedIds.has(t.id))
+      .map((t) => {
+        if (!t.scope) return { ...t, scope: 'general' as const };
+        return t;
+      });
 
     // 2. Load active conversation tracking IDs
     this.activeGeneralId = storageService.load<string>(
@@ -190,10 +150,6 @@ export class ConversationEngine {
       ? `General Conversation ${this.getThreads('general', undefined, true).length + 1}`
       : `${this.formatStudioName(studioId || 'research-studio')} Session ${this.getThreads('studio', studioId, true).length + 1}`;
 
-    const defaultGreeting = scope === 'general'
-      ? 'Hello! I am Angel. Ask me anything, discuss ideas, or request everyday assistance.'
-      : `Welcome to ${this.formatStudioName(studioId || 'research-studio')}. I am specialized for this environment and ready to assist your workflows.`;
-
     const newThread: ConversationThread = {
       id: `conv_${scope}_${Date.now()}`,
       title: title || defaultTitle,
@@ -202,14 +158,7 @@ export class ConversationEngine {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isArchived: false,
-      messages: [
-        {
-          id: `msg_init_${Date.now()}`,
-          sender: 'angel',
-          content: defaultGreeting,
-          timestamp: 'Just now',
-        },
-      ],
+      messages: [],
     };
 
     this.threads.unshift(newThread);

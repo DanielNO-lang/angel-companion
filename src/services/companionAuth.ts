@@ -62,26 +62,42 @@ export const companionAuth = {
   async getSession(): Promise<CompanionSession | null> {
     const current = readStoredSession();
     if (!current) return null;
-    if (current.expires_at > Math.floor(Date.now() / 1000) + 60) return current;
+
     try {
-      const refreshed = await authRequest("token?grant_type=refresh_token", {
-        refresh_token: current.refresh_token,
+      let session = current;
+      if (session.expires_at <= Math.floor(Date.now() / 1000) + 60) {
+        const refreshed = await authRequest("token?grant_type=refresh_token", {
+          refresh_token: session.refresh_token,
+        });
+        session = persistSession(refreshed);
+      }
+
+      if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error("Authentication is not configured yet.");
+      const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        headers: { apikey: SUPABASE_KEY, authorization: `Bearer ${session.access_token}` },
       });
-      return persistSession(refreshed);
+      if (!response.ok) throw new Error("Stored session is no longer valid.");
+      const user = await response.json();
+      const verified = { ...session, user };
+      localStorage.setItem(SESSION_KEY, JSON.stringify(verified));
+      return verified;
     } catch {
       localStorage.removeItem(SESSION_KEY);
       return null;
     }
   },
 
-  signOut(): void {
+  async signOut(): Promise<void> {
     const current = readStoredSession();
-    if (current && SUPABASE_URL && SUPABASE_KEY) {
-      void fetch(`${SUPABASE_URL}/auth/v1/logout`, {
-        method: "POST",
-        headers: { apikey: SUPABASE_KEY, authorization: `Bearer ${current.access_token}` },
-      }).catch(() => undefined);
+    try {
+      if (current && SUPABASE_URL && SUPABASE_KEY) {
+        await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+          method: "POST",
+          headers: { apikey: SUPABASE_KEY, authorization: `Bearer ${current.access_token}` },
+        });
+      }
+    } finally {
+      localStorage.removeItem(SESSION_KEY);
     }
-    localStorage.removeItem(SESSION_KEY);
   },
 };
