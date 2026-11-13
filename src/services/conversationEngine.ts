@@ -292,7 +292,7 @@ export class ConversationEngine {
     thread.messages.push(userMessage);
     thread.updatedAt = new Date().toISOString();
 
-    if (!thread.isCustomTitle && thread.messages.length === 2 && (thread.title.startsWith('Conversation') || thread.title.startsWith('General Conversation') || thread.title.includes('Session'))) {
+    if (!thread.isCustomTitle && sender === 'user' && !thread.messages.some((message) => message.sender === 'user' && message.id !== userMessage.id)) {
       const generated = extractIntelligentTitle(content);
       thread.title = generated;
     }
