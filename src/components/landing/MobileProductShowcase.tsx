@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Smartphone } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Smartphone } from 'lucide-react';
 import type { ThemeMode } from '../../services/authValidation';
 
 interface MobileScreenItem {
@@ -68,11 +68,61 @@ interface MobileProductShowcaseProps {
 
 export const MobileProductShowcase: React.FC<MobileProductShowcaseProps> = ({ theme }) => {
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [dragOffsetX, setDragOffsetX] = useState(0);
+  const swipeStartXRef = useRef<number | null>(null);
+  const swipeStartYRef = useRef<number | null>(null);
   const isLight = theme === 'light';
 
+  useEffect(() => {
+    MOBILE_SCREENS.forEach((screen) => {
+      const img = new window.Image();
+      img.src = screen.src;
+    });
+  }, []);
+
   const current = MOBILE_SCREENS[selectedIndex];
-  const prevScreen = MOBILE_SCREENS[(selectedIndex - 1 + MOBILE_SCREENS.length) % MOBILE_SCREENS.length];
-  const nextScreen = MOBILE_SCREENS[(selectedIndex + 1) % MOBILE_SCREENS.length];
+  const prevIndex = (selectedIndex - 1 + MOBILE_SCREENS.length) % MOBILE_SCREENS.length;
+  const nextIndex = (selectedIndex + 1) % MOBILE_SCREENS.length;
+  const prevScreen = MOBILE_SCREENS[prevIndex];
+  const nextScreen = MOBILE_SCREENS[nextIndex];
+
+  const goPrev = () => setSelectedIndex(prevIndex);
+  const goNext = () => setSelectedIndex(nextIndex);
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const touch = e.touches[0];
+    if (!touch) return;
+    swipeStartXRef.current = touch.clientX;
+    swipeStartYRef.current = touch.clientY;
+    setDragOffsetX(0);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (swipeStartXRef.current === null || swipeStartYRef.current === null) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    const dx = touch.clientX - swipeStartXRef.current;
+    const dy = touch.clientY - swipeStartYRef.current;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      setDragOffsetX(Math.max(-56, Math.min(56, dx * 0.45)));
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (swipeStartXRef.current === null) return;
+    const touch = e.changedTouches[0];
+    if (touch) {
+      const dx = touch.clientX - swipeStartXRef.current;
+      if (dx <= -42) {
+        goNext();
+      } else if (dx >= 42) {
+        goPrev();
+      }
+    }
+    swipeStartXRef.current = null;
+    swipeStartYRef.current = null;
+    setDragOffsetX(0);
+  };
 
   return (
     <section
@@ -80,10 +130,16 @@ export const MobileProductShowcase: React.FC<MobileProductShowcaseProps> = ({ th
       aria-labelledby="mobile-showcase-heading"
       className="relative w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14 sm:py-20"
     >
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.15fr] gap-10 lg:gap-12 items-center">
-        {/* Left: Copy + Mobile View Selector */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.15fr] gap-8 lg:gap-12 items-center">
+        {/* Left: Copy + Touch-Friendly Mobile View Selector */}
         <div className="space-y-5 text-center lg:text-left">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border border-cyan-400/30 bg-cyan-500/10 text-cyan-400">
+          <div
+            className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border ${
+              isLight
+                ? 'border-sky-300 bg-sky-100/80 text-blue-700'
+                : 'border-cyan-400/30 bg-cyan-500/10 text-cyan-300'
+            }`}
+          >
             <Smartphone className="w-3.5 h-3.5" />
             <span>Responsive Across Every Screen</span>
           </div>
@@ -102,7 +158,7 @@ export const MobileProductShowcase: React.FC<MobileProductShowcaseProps> = ({ th
             and full-height composer adapt cleanly for portrait and landscape touch screens.
           </p>
 
-          {/* Interactive Screen Tabs */}
+          {/* Interactive Screen Tabs with Comfortable Touch Targets */}
           <div className="flex flex-wrap justify-center lg:justify-start gap-2 pt-1">
             {MOBILE_SCREENS.map((screen, idx) => {
               const active = idx === selectedIndex;
@@ -111,12 +167,13 @@ export const MobileProductShowcase: React.FC<MobileProductShowcaseProps> = ({ th
                   key={screen.id}
                   type="button"
                   onClick={() => setSelectedIndex(idx)}
-                  className={`px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all cursor-pointer ${
+                  aria-pressed={active}
+                  className={`min-h-[40px] px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
                     active
-                      ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white shadow-lg'
+                      ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white shadow-[0_8px_22px_rgba(79,70,229,0.4)] -translate-y-0.5'
                       : isLight
-                        ? 'bg-white/80 hover:bg-white text-slate-700 border border-slate-200'
-                        : 'glass-panel hover:bg-white/10 text-slate-300 border border-indigo-500/20'
+                        ? 'bg-white/75 hover:bg-white text-slate-700 border border-slate-200/90 hover:border-blue-300'
+                        : 'landing-glass-card text-slate-300 hover:text-white'
                   }`}
                 >
                   {screen.label}
@@ -126,21 +183,25 @@ export const MobileProductShowcase: React.FC<MobileProductShowcaseProps> = ({ th
           </div>
 
           <div
-            className={`p-4 rounded-2xl border text-left transition-all ${
-              isLight
-                ? 'bg-white/80 border-slate-200 text-slate-800 shadow-sm'
-                : 'glass-panel border-indigo-500/20 text-slate-200'
+            key={current.id + '-card'}
+            className={`animate-landing-reveal landing-glass-card p-4 sm:p-5 rounded-2xl text-left ${
+              isLight ? 'text-slate-800' : 'text-slate-200'
             }`}
           >
-            <h3 className="text-sm font-bold font-heading">{current.title}</h3>
-            <p className={`text-xs mt-1 leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-bold font-heading">{current.title}</h3>
+              <span className={`text-[11px] font-mono ${isLight ? 'text-indigo-700' : 'text-cyan-300'}`}>
+                {selectedIndex + 1} / {MOBILE_SCREENS.length}
+              </span>
+            </div>
+            <p className={`text-xs mt-1.5 leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
               {current.description}
             </p>
           </div>
         </div>
 
-        {/* Right: Realistic Multi-Phone 3D Perspective Stage */}
-        <div className="relative flex items-center justify-center py-4">
+        {/* Right: Swipeable Multi-Phone 3D Perspective Stage */}
+        <div className="relative flex flex-col items-center justify-center py-2 sm:py-4">
           {/* Ambient glow behind centerpiece device */}
           <div
             className={`absolute w-64 h-64 sm:w-80 sm:h-80 rounded-full blur-3xl pointer-events-none ${
@@ -150,49 +211,124 @@ export const MobileProductShowcase: React.FC<MobileProductShowcaseProps> = ({ th
             }`}
           />
 
-          {/* Left Flanking Phone (Desktop/Tablet) */}
-          <button
-            type="button"
-            onClick={() => setSelectedIndex((selectedIndex - 1 + MOBILE_SCREENS.length) % MOBILE_SCREENS.length)}
-            aria-label={`View ${prevScreen.title}`}
-            className="hidden sm:block relative -mr-8 z-0 opacity-65 hover:opacity-90 transition-all duration-300 -rotate-6 scale-90 cursor-pointer"
+          <div
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            style={{ perspective: '1100px' }}
+            className="relative flex items-center justify-center touch-pan-y select-none w-full"
           >
-            <div className="w-[180px] rounded-[32px] p-2 bg-slate-900 border border-slate-700/80 shadow-2xl">
-              <div className="rounded-[24px] overflow-hidden aspect-[9/19.5] bg-[#050714]">
-                <img src={prevScreen.src} alt={prevScreen.alt} className="w-full h-full object-cover object-top" loading="lazy" />
+            {/* Left Flanking Phone (Tablet/Desktop only so narrow mobile stays clean & dominant) */}
+            <button
+              type="button"
+              onClick={goPrev}
+              aria-label={`View ${prevScreen.title}`}
+              className="hidden sm:block relative -mr-8 z-0 opacity-65 hover:opacity-95 transition-all duration-300 -rotate-6 scale-90 hover:-translate-y-1 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 rounded-[34px]"
+            >
+              <div className="w-[175px] md:w-[185px] rounded-[32px] p-2 bg-slate-900 border border-slate-700/80 shadow-2xl">
+                <div className="rounded-[24px] overflow-hidden aspect-[9/19.5] bg-[#050714]">
+                  <img src={prevScreen.src} alt={prevScreen.alt} className="w-full h-full object-cover object-top" loading="lazy" />
+                </div>
+              </div>
+            </button>
+
+            {/* Center Hero Realistic Phone Frame */}
+            <div
+              style={{
+                transform: dragOffsetX !== 0 ? `translateX(${dragOffsetX}px) rotate(${dragOffsetX * 0.06}deg)` : undefined,
+                transition: dragOffsetX === 0 ? 'transform 0.32s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
+              }}
+              className="relative z-10 w-[238px] sm:w-[272px] rounded-[40px] sm:rounded-[42px] p-2.5 bg-gradient-to-b from-slate-700 via-slate-900 to-slate-800 border border-slate-400/40 shadow-[0_28px_70px_rgba(0,0,0,0.62)] animate-companion-sway"
+            >
+              {/* Hardware top notch/speaker */}
+              <div className="w-20 h-4 bg-black rounded-full mx-auto mb-1.5 flex items-center justify-center">
+                <span className="w-2 h-2 rounded-full bg-slate-800 border border-slate-700" />
+              </div>
+              <div className="relative rounded-[30px] sm:rounded-[32px] overflow-hidden aspect-[9/19.5] bg-[#050714] border border-slate-800">
+                {MOBILE_SCREENS.map((screen, idx) => {
+                  const isActive = idx === selectedIndex;
+                  return (
+                    <img
+                      key={screen.id}
+                      src={screen.src}
+                      alt={screen.alt}
+                      draggable={false}
+                      aria-hidden={!isActive}
+                      className={`absolute inset-0 w-full h-full object-cover object-top transition-opacity duration-300 ${
+                        isActive ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'
+                      }`}
+                    />
+                  );
+                })}
               </div>
             </div>
-          </button>
 
-          {/* Center Hero Realistic Phone Frame */}
-          <div className="relative z-10 w-[250px] sm:w-[275px] rounded-[42px] p-2.5 bg-gradient-to-b from-slate-700 via-slate-900 to-slate-800 border border-slate-500/50 shadow-[0_28px_70px_rgba(0,0,0,0.65)] animate-companion-sway">
-            {/* Hardware side accents */}
-            <div className="w-20 h-4 bg-black rounded-full mx-auto mb-1.5 flex items-center justify-center">
-              <span className="w-2 h-2 rounded-full bg-slate-800 border border-slate-700" />
-            </div>
-            <div className="rounded-[32px] overflow-hidden aspect-[9/19.5] bg-[#050714] border border-slate-800">
-              <img
-                key={current.id}
-                src={current.src}
-                alt={current.alt}
-                className="w-full h-full object-cover object-top transition-opacity duration-300"
-              />
-            </div>
+            {/* Right Flanking Phone (Tablet/Desktop only) */}
+            <button
+              type="button"
+              onClick={goNext}
+              aria-label={`View ${nextScreen.title}`}
+              className="hidden sm:block relative -ml-8 z-0 opacity-65 hover:opacity-95 transition-all duration-300 rotate-6 scale-90 hover:-translate-y-1 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 rounded-[34px]"
+            >
+              <div className="w-[175px] md:w-[185px] rounded-[32px] p-2 bg-slate-900 border border-slate-700/80 shadow-2xl">
+                <div className="rounded-[24px] overflow-hidden aspect-[9/19.5] bg-[#050714]">
+                  <img src={nextScreen.src} alt={nextScreen.alt} className="w-full h-full object-cover object-top" loading="lazy" />
+                </div>
+              </div>
+            </button>
           </div>
 
-          {/* Right Flanking Phone (Desktop/Tablet) */}
-          <button
-            type="button"
-            onClick={() => setSelectedIndex((selectedIndex + 1) % MOBILE_SCREENS.length)}
-            aria-label={`View ${nextScreen.title}`}
-            className="hidden sm:block relative -ml-8 z-0 opacity-65 hover:opacity-90 transition-all duration-300 rotate-6 scale-90 cursor-pointer"
-          >
-            <div className="w-[180px] rounded-[32px] p-2 bg-slate-900 border border-slate-700/80 shadow-2xl">
-              <div className="rounded-[24px] overflow-hidden aspect-[9/19.5] bg-[#050714]">
-                <img src={nextScreen.src} alt={nextScreen.alt} className="w-full h-full object-cover object-top" loading="lazy" />
-              </div>
+          {/* Touch Swipe Pagination Controls */}
+          <div className="mt-5 flex items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={goPrev}
+              aria-label="Previous mobile screen"
+              className={`min-w-[40px] min-h-[40px] rounded-full flex items-center justify-center border transition-all cursor-pointer active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
+                isLight
+                  ? 'bg-white/80 hover:bg-white border-slate-300 text-slate-800'
+                  : 'landing-glass-card text-slate-200 hover:text-cyan-300'
+              }`}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-1.5" role="tablist" aria-label="Mobile screens pagination">
+              {MOBILE_SCREENS.map((screen, idx) => {
+                const active = idx === selectedIndex;
+                return (
+                  <button
+                    key={screen.id + '-dot'}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    aria-label={`Show ${screen.title}`}
+                    onClick={() => setSelectedIndex(idx)}
+                    className={`h-2 rounded-full transition-all duration-300 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
+                      active
+                        ? 'w-7 bg-gradient-to-r from-cyan-400 to-indigo-500'
+                        : isLight
+                          ? 'w-2 bg-slate-300 hover:bg-slate-400'
+                          : 'w-2 bg-slate-700 hover:bg-slate-500'
+                    }`}
+                  />
+                );
+              })}
             </div>
-          </button>
+
+            <button
+              type="button"
+              onClick={goNext}
+              aria-label="Next mobile screen"
+              className={`min-w-[40px] min-h-[40px] rounded-full flex items-center justify-center border transition-all cursor-pointer active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
+                isLight
+                  ? 'bg-white/80 hover:bg-white border-slate-300 text-slate-800'
+                  : 'landing-glass-card text-slate-200 hover:text-cyan-300'
+              }`}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </section>

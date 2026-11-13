@@ -50,7 +50,8 @@ export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
 
     // Studio Environment
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+    const roomEnv = new RoomEnvironment();
+    scene.environment = pmremGenerator.fromScene(roomEnv, 0.04).texture;
     pmremGenerator.dispose();
 
     // Lighting
@@ -151,22 +152,38 @@ export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     let animationFrameId = 0;
-    const clock = new THREE.Clock();
+    const startTimeMs = performance.now();
     let lastRenderTime = 0;
     const minFrameIntervalMs = 1000 / 30;
     let firstFrameRendered = false;
+    let isVisibleInViewport = true;
+
+    const observer =
+      typeof IntersectionObserver !== 'undefined'
+        ? new IntersectionObserver(
+            (entries) => {
+              isVisibleInViewport = entries[0]?.isIntersecting ?? true;
+            },
+            { threshold: 0.05 }
+          )
+        : null;
+    observer?.observe(container);
 
     const animate = (nowArg?: number) => {
       if (!prefersReducedMotion) {
         animationFrameId = requestAnimationFrame(animate);
       }
       const now = typeof nowArg === 'number' ? nowArg : performance.now();
-      if (firstFrameRendered && !prefersReducedMotion && now - lastRenderTime < minFrameIntervalMs) {
+      if (
+        firstFrameRendered &&
+        !prefersReducedMotion &&
+        (document.hidden || !isVisibleInViewport || now - lastRenderTime < minFrameIntervalMs)
+      ) {
         return;
       }
       lastRenderTime = now;
 
-      const elapsed = clock.getElapsedTime();
+      const elapsed = (now - startTimeMs) * 0.001;
 
       if (!prefersReducedMotion) {
         // Base Floating Motion
@@ -227,9 +244,12 @@ export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
 
     return () => {
       cancelAnimationFrame(animationFrameId);
+      observer?.disconnect();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
+      roomEnv.dispose();
+      scene.environment?.dispose();
       coreGeom.dispose();
       shellGeom.dispose();
       ringGeom.dispose();

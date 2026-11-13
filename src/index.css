@@ -304,3 +304,145 @@ body {
   white-space: nowrap;
   border-width: 0;
 }
+
+/* ============================================================================
+   SCOPED LANDING PAGE GLASS, SPATIAL DEPTH & ICON INTERACTION UTILITIES
+   Strictly scoped under .landing-scope so authenticated workspace UI is unchanged.
+   ============================================================================ */
+
+.landing-scope .landing-glass-card {
+  background: rgba(9, 14, 38, 0.44);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(129, 140, 248, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 12px 36px -10px rgba(2, 6, 23, 0.55);
+  transition:
+    transform 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.28s ease,
+    background-color 0.28s ease,
+    box-shadow 0.28s ease;
+}
+
+.landing-scope .landing-glass-card:hover {
+  border-color: rgba(56, 189, 248, 0.36);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 16px 42px -12px rgba(56, 189, 248, 0.18),
+    0 8px 24px -8px rgba(99, 102, 241, 0.2);
+}
+
+.theme-light .landing-scope .landing-glass-card {
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 14px 36px -12px rgba(30, 64, 175, 0.12);
+}
+
+.theme-light .landing-scope .landing-glass-card:hover {
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(59, 130, 246, 0.42);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    0 18px 44px -12px rgba(59, 130, 246, 0.18);
+}
+
+@keyframes landingReveal {
+  from {
+    opacity: 0.35;
+    transform: translateY(4px) scale(0.996);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.landing-scope .animate-landing-reveal {
+  animation: landingReveal 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes flowBeam {
+  from {
+    stroke-dashoffset: 36;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.landing-scope .animate-flow-beam {
+  stroke-dasharray: 6 6;
+  animation: flowBeam 1.6s linear infinite;
+}
+
+/* Purposeful, hover/focus/active capability icon animations */
+.landing-scope .cap-icon {
+  transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease, filter 0.25s ease;
+}
+
+.landing-scope .cap-card:hover .icon-motion-conversations,
+.landing-scope .cap-card[data-active='true'] .icon-motion-conversations {
+  transform: translateY(-1.5px) scale(1.1);
+}
+
+.landing-scope .cap-card:hover .icon-motion-adaptive,
+.landing-scope .cap-card[data-active='true'] .icon-motion-adaptive {
+  transform: rotate(90deg) scale(1.06);
+}
+
+.landing-scope .cap-card:hover .icon-motion-agents,
+.landing-scope .cap-card[data-active='true'] .icon-motion-agents {
+  transform: translateY(-2px) scale(1.08);
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.55));
+}
+
+.landing-scope .cap-card:hover .icon-motion-studios,
+.landing-scope .cap-card[data-active='true'] .icon-motion-studios {
+  transform: rotate(-10deg) scale(1.08);
+}
+
+.landing-scope .cap-card:hover .icon-motion-workspace,
+.landing-scope .cap-card[data-active='true'] .icon-motion-workspace {
+  transform: translateY(-1.5px) rotate(-4deg) scale(1.08);
+}
+
+.landing-scope .cap-card:hover .icon-motion-tools,
+.landing-scope .cap-card[data-active='true'] .icon-motion-tools {
+  transform: rotate(-20deg) scale(1.08);
+}
+
+.landing-scope .cap-card:hover .icon-motion-memory,
+.landing-scope .cap-card[data-active='true'] .icon-motion-memory {
+  transform: scale(1.12);
+  filter: drop-shadow(0 0 6px rgba(168, 85, 247, 0.55));
+}
+
+.landing-scope .cap-card:hover .icon-motion-library,
+.landing-scope .cap-card[data-active='true'] .icon-motion-library {
+  transform: perspective(120px) rotateY(-14deg) scale(1.08);
+}
+
+.landing-scope .cap-card:hover .icon-motion-multimodal,
+.landing-scope .cap-card[data-active='true'] .icon-motion-multimodal {
+  transform: scale(1.12);
+  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.6));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-scope .animate-spin-slow,
+  .landing-scope .animate-float,
+  .landing-scope .animate-pulse-glow,
+  .landing-scope .animate-companion-sway,
+  .landing-scope .animate-landing-reveal,
+  .landing-scope .animate-flow-beam {
+    animation: none !important;
+  }
+  .landing-scope .cap-icon,
+  .landing-scope .landing-glass-card {
+    transition: none !important;
+  }
+}
+

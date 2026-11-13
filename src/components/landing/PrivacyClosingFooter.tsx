@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ShieldCheck, Lock, Layers, KeyRound, ArrowRight, X } from 'lucide-react';
 import { AngelEmblem3D } from '../branding/AngelEmblem3D';
 import type { AppRoute, ThemeMode } from '../../services/authValidation';
@@ -16,6 +16,15 @@ export const PrivacyClosingFooter: React.FC<PrivacyClosingFooterProps> = ({
 }) => {
   const [policyModal, setPolicyModal] = useState<'privacy' | 'terms' | null>(null);
   const isLight = theme === 'light';
+
+  useEffect(() => {
+    if (!policyModal) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPolicyModal(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [policyModal]);
 
   const trustPillars = [
     {
@@ -69,13 +78,17 @@ export const PrivacyClosingFooter: React.FC<PrivacyClosingFooterProps> = ({
             return (
               <div
                 key={pillar.title}
-                className={`rounded-3xl p-5 sm:p-6 border space-y-3 ${
-                  isLight
-                    ? 'glass-panel border-white/90 text-slate-900'
-                    : 'glass-panel border-indigo-500/20 text-slate-100'
+                className={`group landing-glass-card rounded-3xl p-5 sm:p-6 space-y-3 hover:-translate-y-0.5 ${
+                  isLight ? 'text-slate-900' : 'text-slate-100'
                 }`}
               >
-                <div className="w-10 h-10 rounded-2xl bg-indigo-500/15 border border-indigo-400/30 flex items-center justify-center text-cyan-400">
+                <div
+                  className={`w-10 h-10 rounded-2xl border flex items-center justify-center transition-all duration-300 group-hover:scale-105 ${
+                    isLight
+                      ? 'bg-sky-50 border-sky-200 text-indigo-600 group-hover:border-blue-400'
+                      : 'bg-indigo-500/15 border-indigo-400/30 text-cyan-400 group-hover:border-cyan-400/60 group-hover:shadow-[0_0_16px_rgba(56,189,248,0.28)]'
+                  }`}
+                >
                   <Icon className="w-5 h-5" />
                 </div>
                 <h3 className="text-base font-bold font-heading">{pillar.title}</h3>
@@ -91,13 +104,16 @@ export const PrivacyClosingFooter: React.FC<PrivacyClosingFooterProps> = ({
       {/* CLOSING INVITATION SECTION */}
       <section className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16">
         <div
-          className={`rounded-[36px] p-8 sm:p-12 lg:p-16 text-center flex flex-col items-center space-y-6 border relative overflow-hidden ${
-            isLight
-              ? 'glass-panel-glow border-white/95 text-slate-900'
-              : 'glass-panel-glow border-indigo-500/30 text-white'
+          className={`landing-glass-card rounded-[32px] sm:rounded-[36px] p-8 sm:p-12 lg:p-16 text-center flex flex-col items-center space-y-6 relative overflow-hidden ${
+            isLight ? 'text-slate-900' : 'text-white'
           }`}
         >
           <div className="relative flex items-center justify-center">
+            <div
+              className={`absolute w-36 h-36 rounded-full border pointer-events-none animate-spin-slow ${
+                isLight ? 'border-sky-400/40' : 'border-cyan-400/25'
+              }`}
+            />
             <div
               className={`absolute w-32 h-32 rounded-full blur-2xl pointer-events-none ${
                 isLight ? 'bg-sky-300/50' : 'bg-cyan-500/25'
@@ -118,7 +134,7 @@ export const PrivacyClosingFooter: React.FC<PrivacyClosingFooterProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('signup')}
-              className="w-full sm:w-auto min-w-[180px] min-h-[48px] px-7 py-3 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold text-sm shadow-[0_10px_30px_rgba(79,70,229,0.45)] flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full sm:w-auto min-w-[180px] min-h-[48px] px-7 py-3 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold text-sm shadow-[0_10px_30px_rgba(79,70,229,0.42)] hover:-translate-y-0.5 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
             >
               <span>Get Started</span>
               <ArrowRight className="w-4 h-4" />
@@ -126,10 +142,10 @@ export const PrivacyClosingFooter: React.FC<PrivacyClosingFooterProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('signin')}
-              className={`w-full sm:w-auto min-w-[160px] min-h-[48px] px-7 py-3 rounded-2xl font-semibold text-sm border cursor-pointer ${
+              className={`w-full sm:w-auto min-w-[160px] min-h-[48px] px-7 py-3 rounded-2xl font-semibold text-sm border hover:-translate-y-0.5 active:scale-[0.98] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
                 isLight
-                  ? 'bg-white hover:bg-slate-50 text-slate-900 border-slate-300'
-                  : 'glass-panel hover:bg-white/10 text-white border-indigo-400/30'
+                  ? 'bg-white/85 hover:bg-white text-slate-900 border-slate-300 hover:border-blue-400'
+                  : 'glass-panel hover:bg-white/10 text-white border-indigo-400/30 hover:border-cyan-400/50'
               }`}
             >
               Sign In
@@ -141,14 +157,18 @@ export const PrivacyClosingFooter: React.FC<PrivacyClosingFooterProps> = ({
       {/* FOOTER */}
       <footer className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12">
         <div
-          className={`rounded-3xl px-6 py-8 border flex flex-col md:flex-row items-center justify-between gap-6 ${
-            isLight
-              ? 'glass-panel border-white/80 text-slate-700'
-              : 'glass-panel border-indigo-500/20 text-slate-300'
+          className={`landing-glass-card rounded-3xl px-6 py-7 flex flex-col md:flex-row items-center justify-between gap-6 ${
+            isLight ? 'text-slate-700' : 'text-slate-300'
           }`}
         >
           <div className="flex items-center gap-3">
-            <AngelEmblem3D size={34} rotationSpeed={14} />
+            <div
+              className={`w-9 h-9 flex items-center justify-center rounded-xl shrink-0 ${
+                isLight ? 'bg-gradient-to-br from-slate-900 to-indigo-950 ring-1 ring-indigo-300/70 shadow-sm' : ''
+              }`}
+            >
+              <AngelEmblem3D size={isLight ? 28 : 34} rotationSpeed={14} />
+            </div>
             <div className="text-left">
               <div className={`text-sm font-bold tracking-[0.2em] font-heading ${isLight ? 'text-slate-900' : 'text-white'}`}>
                 ANGEL
@@ -158,19 +178,19 @@ export const PrivacyClosingFooter: React.FC<PrivacyClosingFooterProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs font-semibold">
-            <button type="button" onClick={() => onScrollToSection('about')} className="hover:text-cyan-400 cursor-pointer">
+            <button type="button" onClick={() => onScrollToSection('about')} className="hover:text-cyan-400 transition-colors cursor-pointer py-1 px-1.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70">
               About Angel
             </button>
-            <button type="button" onClick={() => onScrollToSection('capabilities')} className="hover:text-cyan-400 cursor-pointer">
+            <button type="button" onClick={() => onScrollToSection('capabilities')} className="hover:text-cyan-400 transition-colors cursor-pointer py-1 px-1.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70">
               Core Capabilities
             </button>
-            <button type="button" onClick={() => onScrollToSection('experience')} className="hover:text-cyan-400 cursor-pointer">
+            <button type="button" onClick={() => onScrollToSection('experience')} className="hover:text-cyan-400 transition-colors cursor-pointer py-1 px-1.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70">
               Experience
             </button>
-            <button type="button" onClick={() => setPolicyModal('privacy')} className="hover:text-cyan-400 cursor-pointer">
+            <button type="button" onClick={() => setPolicyModal('privacy')} className="hover:text-cyan-400 transition-colors cursor-pointer py-1 px-1.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70">
               Privacy
             </button>
-            <button type="button" onClick={() => setPolicyModal('terms')} className="hover:text-cyan-400 cursor-pointer">
+            <button type="button" onClick={() => setPolicyModal('terms')} className="hover:text-cyan-400 transition-colors cursor-pointer py-1 px-1.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70">
               Terms
             </button>
           </div>
@@ -183,14 +203,20 @@ export const PrivacyClosingFooter: React.FC<PrivacyClosingFooterProps> = ({
 
       {/* Truthful Privacy & Terms Summary Dialog */}
       {policyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setPolicyModal(null);
+          }}
+        >
           <div
             role="dialog"
+            aria-modal="true"
             aria-label={policyModal === 'privacy' ? 'Angel Privacy Notice' : 'Angel Terms of Use'}
-            className={`w-full max-w-lg rounded-3xl p-6 border shadow-2xl space-y-4 ${
+            className={`animate-landing-reveal w-full max-w-lg rounded-3xl p-6 border shadow-2xl space-y-4 ${
               isLight
-                ? 'bg-white text-slate-900 border-slate-200'
-                : 'bg-[#090e26] text-slate-100 border-indigo-500/30'
+                ? 'bg-white/95 text-slate-900 border-sky-200 backdrop-blur-2xl'
+                : 'bg-[#090e26]/95 text-slate-100 border-indigo-500/35 backdrop-blur-2xl'
             }`}
           >
             <div className="flex items-center justify-between">
@@ -201,7 +227,7 @@ export const PrivacyClosingFooter: React.FC<PrivacyClosingFooterProps> = ({
                 type="button"
                 onClick={() => setPolicyModal(null)}
                 aria-label="Close dialog"
-                className="p-1.5 rounded-xl hover:bg-slate-500/15 cursor-pointer"
+                className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl hover:bg-slate-500/15 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -240,7 +266,7 @@ export const PrivacyClosingFooter: React.FC<PrivacyClosingFooterProps> = ({
               <button
                 type="button"
                 onClick={() => setPolicyModal(null)}
-                className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
               >
                 Close
               </button>

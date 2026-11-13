@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   MessageSquare,
   LayoutGrid,
@@ -17,6 +17,7 @@ import type { ThemeMode } from '../../services/authValidation';
 
 interface CapabilityItem {
   id: string;
+  motionKey: string;
   title: string;
   shortTitle: string;
   status: 'Active in Workspace' | 'Local Scoped + Sync Pending' | 'Configurable Integrations';
@@ -32,6 +33,7 @@ interface CapabilityItem {
 const CAPABILITIES: CapabilityItem[] = [
   {
     id: 'conversations',
+    motionKey: 'conversations',
     title: '1. Intelligent Conversations',
     shortTitle: 'Conversations',
     status: 'Active in Workspace',
@@ -47,6 +49,7 @@ const CAPABILITIES: CapabilityItem[] = [
   },
   {
     id: 'adaptive-workspace',
+    motionKey: 'adaptive',
     title: '2. Adaptive Workspace',
     shortTitle: 'Adaptive',
     status: 'Active in Workspace',
@@ -62,6 +65,7 @@ const CAPABILITIES: CapabilityItem[] = [
   },
   {
     id: 'agents',
+    motionKey: 'agents',
     title: '3. Specialized Agents',
     shortTitle: 'Agents',
     status: 'Active in Workspace',
@@ -77,6 +81,7 @@ const CAPABILITIES: CapabilityItem[] = [
   },
   {
     id: 'studios',
+    motionKey: 'studios',
     title: '4. Eight Specialized Studios',
     shortTitle: 'Studios',
     status: 'Active in Workspace',
@@ -92,6 +97,7 @@ const CAPABILITIES: CapabilityItem[] = [
   },
   {
     id: 'workspace-projects',
+    motionKey: 'workspace',
     title: '5. Workspace & Projects',
     shortTitle: 'Workspace',
     status: 'Active in Workspace',
@@ -107,6 +113,7 @@ const CAPABILITIES: CapabilityItem[] = [
   },
   {
     id: 'tools-integrations',
+    motionKey: 'tools',
     title: '6. Tools & Integrations',
     shortTitle: 'Tools',
     status: 'Configurable Integrations',
@@ -122,6 +129,7 @@ const CAPABILITIES: CapabilityItem[] = [
   },
   {
     id: 'memory-personalisation',
+    motionKey: 'memory',
     title: '7. Memory & Personalisation',
     shortTitle: 'Memory',
     status: 'Local Scoped + Sync Pending',
@@ -137,6 +145,7 @@ const CAPABILITIES: CapabilityItem[] = [
   },
   {
     id: 'knowledge-library',
+    motionKey: 'library',
     title: '8. Knowledge Library',
     shortTitle: 'Library',
     status: 'Active in Workspace',
@@ -152,6 +161,7 @@ const CAPABILITIES: CapabilityItem[] = [
   },
   {
     id: 'voice-multimodal',
+    motionKey: 'multimodal',
     title: '9. Voice, Vision & Multimodal',
     shortTitle: 'Multimodal',
     status: 'Active in Workspace',
@@ -174,8 +184,26 @@ interface CapabilitiesShowcaseProps {
 export const CapabilitiesShowcase: React.FC<CapabilitiesShowcaseProps> = ({ theme }) => {
   const [activeId, setActiveId] = useState<string>('conversations');
   const isLight = theme === 'light';
-  const active = CAPABILITIES.find((c) => c.id === activeId) || CAPABILITIES[0];
+
+  useEffect(() => {
+    CAPABILITIES.forEach((cap) => {
+      const img = new window.Image();
+      img.src = cap.screenshotSrc;
+    });
+  }, []);
+  const activeIndex = Math.max(0, CAPABILITIES.findIndex((c) => c.id === activeId));
+  const active = CAPABILITIES[activeIndex] || CAPABILITIES[0];
   const ActiveIcon = active.icon;
+
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      setActiveId(CAPABILITIES[(index + 1) % CAPABILITIES.length].id);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      setActiveId(CAPABILITIES[(index - 1 + CAPABILITIES.length) % CAPABILITIES.length].id);
+    }
+  };
 
   return (
     <section
@@ -183,7 +211,7 @@ export const CapabilitiesShowcase: React.FC<CapabilitiesShowcaseProps> = ({ them
       aria-labelledby="capabilities-heading"
       className="relative w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14 sm:py-20"
     >
-      <div className="text-center max-w-3xl mx-auto space-y-3 mb-10 sm:mb-12">
+      <div className="text-center max-w-3xl mx-auto space-y-3 mb-9 sm:mb-12">
         <p className={`text-xs font-bold uppercase tracking-[0.24em] font-heading ${isLight ? 'text-indigo-700' : 'text-cyan-300'}`}>
           Core Capabilities • Real Workspace Proof
         </p>
@@ -199,32 +227,60 @@ export const CapabilitiesShowcase: React.FC<CapabilitiesShowcaseProps> = ({ them
         </p>
       </div>
 
-      {/* Capability Spatial Selector Strip */}
+      {/* Responsive Intelligent Glass Capability Cards */}
       <div
         role="tablist"
         aria-label="Angel Core Capabilities"
-        className="flex flex-wrap justify-center gap-2 mb-8"
+        className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2 sm:gap-2.5 mb-7"
       >
-        {CAPABILITIES.map((cap) => {
+        {CAPABILITIES.map((cap, idx) => {
           const Icon = cap.icon;
           const isSelected = cap.id === active.id;
+          const statusDotClass =
+            cap.statusTone === 'emerald'
+              ? 'bg-emerald-400'
+              : cap.statusTone === 'amber'
+                ? 'bg-amber-400'
+                : 'bg-sky-400';
           return (
             <button
               key={cap.id}
+              id={`cap-tab-${cap.id}`}
               type="button"
               role="tab"
               aria-selected={isSelected}
+              aria-controls="capability-stage-panel"
+              data-active={isSelected ? 'true' : 'false'}
               onClick={() => setActiveId(cap.id)}
-              className={`px-3.5 py-2.5 rounded-2xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
+              onKeyDown={(e) => handleTabKeyDown(e, idx)}
+              className={`cap-card group relative px-2 sm:px-3 py-2.5 sm:py-3 rounded-2xl text-[11px] sm:text-xs font-semibold flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
                 isSelected
-                  ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white shadow-[0_6px_24px_rgba(79,70,229,0.45)] scale-[1.02]'
+                  ? isLight
+                    ? 'bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white border border-blue-400/70 shadow-[0_10px_28px_rgba(79,70,229,0.35)] -translate-y-0.5'
+                    : 'bg-gradient-to-br from-blue-600/90 via-indigo-600/90 to-purple-600/90 text-white border border-cyan-300/60 shadow-[0_10px_28px_rgba(56,189,248,0.28)] -translate-y-0.5'
                   : isLight
-                    ? 'bg-white/75 hover:bg-white text-slate-700 border border-slate-200/90 shadow-sm'
-                    : 'glass-panel hover:bg-white/10 text-slate-300 border border-indigo-500/20'
+                    ? 'bg-white/65 hover:bg-white/90 text-slate-700 border border-slate-200/90 hover:border-blue-300/80 hover:-translate-y-0.5 shadow-xs backdrop-blur-xl'
+                    : 'bg-[#090e26]/45 hover:bg-[#0e1538]/70 text-slate-300 hover:text-white border border-indigo-500/20 hover:border-cyan-400/45 hover:-translate-y-0.5 backdrop-blur-xl'
               }`}
             >
-              <Icon className={`w-3.5 h-3.5 ${isSelected ? 'text-cyan-200' : 'text-cyan-400'}`} />
-              <span>{cap.shortTitle}</span>
+              <span
+                className={`absolute top-2 right-2 w-1.5 h-1.5 rounded-full ${statusDotClass} ${
+                  isSelected ? 'ring-2 ring-white/50' : 'opacity-75'
+                }`}
+                aria-hidden="true"
+              />
+              <div
+                className={`w-7 h-7 rounded-xl flex items-center justify-center transition-colors ${
+                  isSelected
+                    ? 'bg-white/15 text-cyan-200'
+                    : isLight
+                      ? 'bg-sky-50 text-indigo-600 group-hover:bg-sky-100'
+                      : 'bg-indigo-500/10 text-cyan-400 group-hover:bg-indigo-500/20'
+                }`}
+              >
+                <Icon className={`w-4 h-4 cap-icon icon-motion-${cap.motionKey}`} />
+              </div>
+              <span className="leading-tight text-center truncate w-full">{cap.shortTitle}</span>
             </button>
           );
         })}
@@ -232,33 +288,37 @@ export const CapabilitiesShowcase: React.FC<CapabilitiesShowcaseProps> = ({ them
 
       {/* Interactive 3D-Depth Feature & Real Screenshot Presentation Stage */}
       <div
-        className={`rounded-[32px] p-5 sm:p-8 lg:p-10 transition-all ${
-          isLight
-            ? 'glass-panel-glow border border-white/90 text-slate-900'
-            : 'glass-panel-glow border border-indigo-500/25 text-slate-100'
+        id="capability-stage-panel"
+        role="tabpanel"
+        aria-labelledby={`cap-tab-${active.id}`}
+        className={`landing-glass-card rounded-[28px] sm:rounded-[32px] p-4 sm:p-8 lg:p-10 ${
+          isLight ? 'text-slate-900' : 'text-slate-100'
         }`}
       >
-        <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-6 lg:gap-10 items-center">
+        <div
+          key={active.id}
+          className="animate-landing-reveal grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-6 lg:gap-10 items-center"
+        >
           {/* Left: Illuminated Floating Desktop Viewport Frame with Real Screenshot */}
           <div className="relative group" style={{ perspective: '1200px' }}>
             <div
-              className={`rounded-3xl overflow-hidden border transition-transform duration-500 lg:group-hover:[transform:rotateY(1.5deg)_rotateX(1deg)] ${
+              className={`rounded-2xl sm:rounded-3xl overflow-hidden border transition-transform duration-500 lg:group-hover:[transform:rotateY(1.5deg)_rotateX(1deg)] ${
                 isLight
-                  ? 'border-sky-200 bg-slate-950 shadow-[0_24px_60px_-15px_rgba(30,64,175,0.28)]'
-                  : 'border-cyan-400/25 bg-[#040714] shadow-[0_24px_70px_-12px_rgba(56,189,248,0.28)]'
+                  ? 'border-sky-200 bg-slate-950 shadow-[0_24px_60px_-15px_rgba(30,64,175,0.25)]'
+                  : 'border-cyan-400/25 bg-[#040714] shadow-[0_24px_70px_-12px_rgba(56,189,248,0.24)]'
               }`}
             >
               {/* Browser Top Chrome */}
-              <div className="px-4 py-2.5 bg-slate-950/90 border-b border-slate-800/80 flex items-center justify-between">
+              <div className="px-3.5 sm:px-4 py-2 sm:py-2.5 bg-slate-950/90 border-b border-slate-800/80 flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400/80" />
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-400/80" />
                 </div>
-                <span className="text-[11px] font-mono text-slate-400 truncate max-w-[220px] sm:max-w-none">
+                <span className="text-[11px] font-mono text-slate-400 truncate max-w-[200px] sm:max-w-none">
                   Angel Workspace • {active.shortTitle}
                 </span>
-                <span className="w-8" />
+                <span className="w-6 sm:w-8" />
               </div>
 
               {/* Crisp, Legible Real Workspace Screenshot */}
@@ -277,8 +337,14 @@ export const CapabilitiesShowcase: React.FC<CapabilitiesShowcaseProps> = ({ them
           {/* Right: Structured Capability Storytelling */}
           <div className="space-y-4 text-left">
             <div className="flex flex-wrap items-center gap-2.5">
-              <div className="p-2.5 rounded-2xl bg-indigo-500/15 border border-indigo-400/30 text-cyan-400">
-                <ActiveIcon className="w-5 h-5" />
+              <div
+                className={`p-2.5 rounded-2xl border ${
+                  isLight
+                    ? 'bg-sky-50 border-sky-200 text-indigo-600'
+                    : 'bg-indigo-500/15 border-indigo-400/30 text-cyan-400'
+                }`}
+              >
+                <ActiveIcon className={`w-5 h-5 cap-icon icon-motion-${active.motionKey}`} />
               </div>
               <span
                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold border ${
@@ -317,7 +383,7 @@ export const CapabilitiesShowcase: React.FC<CapabilitiesShowcaseProps> = ({ them
             <div
               className={`p-3.5 rounded-2xl border text-xs leading-relaxed ${
                 isLight
-                  ? 'bg-sky-50/75 border-sky-200 text-slate-700'
+                  ? 'bg-sky-50/80 border-sky-200/90 text-slate-700'
                   : 'bg-slate-950/55 border-indigo-500/20 text-slate-300'
               }`}
             >

@@ -21,12 +21,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const scrollToSection = (sectionId: string) => {
     const el = document.getElementById(sectionId);
     if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const reduced =
+        typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      el.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
     }
   };
 
   return (
-    <div className="relative z-10 min-h-screen w-full overflow-x-hidden">
+    <div className="landing-scope relative z-10 min-h-screen w-full overflow-x-hidden">
       <LandingNav
         theme={theme}
         onToggleTheme={onToggleTheme}

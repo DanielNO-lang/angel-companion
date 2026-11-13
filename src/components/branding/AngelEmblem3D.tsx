@@ -127,6 +127,18 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
     let currentTiltX = 0;
     let currentTiltY = 0;
     let frameSignaled = false;
+    let isVisibleInViewport = true;
+
+    const observer =
+      typeof IntersectionObserver !== 'undefined'
+        ? new IntersectionObserver(
+            (entries) => {
+              isVisibleInViewport = entries[0]?.isIntersecting ?? true;
+            },
+            { threshold: 0.05 }
+          )
+        : null;
+    observer?.observe(container);
 
     const handleMouseMove = (e: MouseEvent | PointerEvent) => {
       if (!tiltOnHover && !pointerTracking) return;
@@ -165,7 +177,11 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
       }
 
       const now = typeof nowArg === 'number' ? nowArg : performance.now();
-      if (frameSignaled && !prefersReducedMotion && now - lastRenderTime < minFrameIntervalMs) {
+      if (
+        frameSignaled &&
+        !prefersReducedMotion &&
+        (document.hidden || !isVisibleInViewport || now - lastRenderTime < minFrameIntervalMs)
+      ) {
         return;
       }
       lastRenderTime = now;
@@ -205,6 +221,7 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
 
     return () => {
       cancelAnimationFrame(animationFrameId);
+      observer?.disconnect();
       if (pointerTracking) {
         window.removeEventListener('pointermove', handleMouseMove);
       } else if (tiltOnHover) {
@@ -214,6 +231,8 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
+      roomEnv.dispose();
+      scene.environment?.dispose();
       tubeGeometry.dispose();
       chromeMaterial.dispose();
       renderer.dispose();
