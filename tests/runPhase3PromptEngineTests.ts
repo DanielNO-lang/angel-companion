@@ -187,9 +187,9 @@ async function runPhase3PromptEngineTests() {
   await conversationEngine.addMessage(genThread.id, 'What is quantum computing?');
   const aiReply = await conversationEngine.generateAssistantResponse(genThread.id);
   assert(
-    genThread.messages.length === 3 && aiReply.content.includes('Research Synthesis'),
+    genThread.messages.length === 2 && aiReply.content.includes('Sign in'),
     14,
-    'Conversation context is preserved across multi-turn prompt intelligence engine calls'
+    'The conversation engine refuses to generate or expose model replies without a verified user session'
   );
 
   // 15. Requirement 15: Prompt records and execution history persist using local persistence architecture.
@@ -212,12 +212,14 @@ async function runPhase3PromptEngineTests() {
 
   console.log(`\n=== TEST SUITE RESULTS: ${passedTests} / ${totalTests} PASSED ===`);
   if (passedTests === totalTests) {
-    console.log('ALL PHASE 3 PROMPT INTELLIGENCE SCENARIOS PASSED! ✅\n');
+    console.log('ALL PHASE 3 PROMPT INTELLIGENCE SCENARIOS PASSED! ✅\\n');
   } else {
-    console.error('SOME PHASE 3 PROMPT INTELLIGENCE SCENARIOS FAILED. INSPECT LOGS ABOVE. ❌\n');
+    console.error('SOME PHASE 3 PROMPT INTELLIGENCE SCENARIOS FAILED. INSPECT LOGS ABOVE. ❌\\n');
+    process.exitCode = 1;
   }
 }
 
 runPhase3PromptEngineTests().catch((err) => {
   console.error('Phase 3 test execution error:', err);
+  process.exitCode = 1;
 });

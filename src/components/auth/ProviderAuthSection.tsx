@@ -37,10 +37,15 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
     }
 
     setLoadingProvider(provider.id);
-    const result = await authService.signInWithOAuthProvider(provider.id, provider.scopes);
-    if (!result.ok) {
+    try {
+      const result = await authService.signInWithOAuthProvider(provider.id, provider.scopes);
+      if (!result.ok) {
+        setLoadingProvider(null);
+        onError(result.message);
+      }
+    } catch (error) {
       setLoadingProvider(null);
-      onError(result.message);
+      onError(error instanceof Error ? error.message : 'Could not start provider sign-in. Please try again.');
     }
   };
 
@@ -128,7 +133,7 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
               }`}
             >
               OAuth buttons connect exclusively to real Supabase Auth flows—never simulated logins. Enable each provider
-              in Supabase Auth with its client credentials and list enabled IDs in{' '}
+              in Supabase Auth with their provider credentials. Google is attempted directly through Supabase when the project client is configured; additional providers may also be allow-listed in{' '}
               <code className="font-mono text-cyan-400">VITE_SUPABASE_ENABLED_PROVIDERS</code>.
             </div>
           )}

@@ -52,10 +52,10 @@ async function runPhase2ConversationTests() {
   
   assert(
     generalThread1.id !== generalThread2.id &&
-    generalThread1.messages.length === 3 &&
-    generalThread2.messages.length === 2,
+    generalThread1.messages.length === 2 &&
+    generalThread2.messages.length === 1,
     3,
-    'Multiple General Conversations remain completely independent'
+    'New conversations start without demo greetings and remain completely independent'
   );
 
   // 4. Scenario 4: Open Research Studio and start a contextual conversation.
@@ -172,12 +172,14 @@ async function runPhase2ConversationTests() {
 
   console.log(`\n=== TEST SUITE RESULTS: ${passedTests} / ${totalTests} PASSED ===`);
   if (passedTests === totalTests) {
-    console.log('ALL PHASE 2 CONVERSATION SEPARATION SCENARIOS PASSED! ✅\n');
+    console.log('ALL PHASE 2 CONVERSATION SEPARATION SCENARIOS PASSED! ✅\\n');
   } else {
-    console.error('SOME CONVERSATION SCENARIOS FAILED. INSPECT LOGS ABOVE. ❌\n');
+    console.error('SOME CONVERSATION SCENARIOS FAILED. INSPECT LOGS ABOVE. ❌\\n');
+    process.exitCode = 1;
   }
 }
 
 runPhase2ConversationTests().catch((err) => {
   console.error('Phase 2 test execution failed:', err);
+  process.exitCode = 1;
 });

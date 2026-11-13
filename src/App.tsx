@@ -306,6 +306,20 @@ export default function App() {
     };
   }, []);
 
+  // Keep the conversation engine bound to the same verified Supabase identity as the UI.
+  // Its local cache is namespaced per user so one account can never merge another account's threads.
+  React.useEffect(() => {
+    if (
+      authSnapshot.status === 'authenticated' &&
+      authSnapshot.session?.access_token &&
+      authSnapshot.user?.id
+    ) {
+      conversationEngine.setAccessToken(authSnapshot.session.access_token, authSnapshot.user.id);
+    } else if (authSnapshot.status === 'unauthenticated' || authSnapshot.status === 'unconfigured') {
+      conversationEngine.setAccessToken(null, null);
+    }
+  }, [authSnapshot.status, authSnapshot.session?.access_token, authSnapshot.user?.id]);
+
   // Strict Route Guard enforcing verified Supabase session before allowing workspace rendering
   const isAuthenticated = canAccessWorkspace(authSnapshot.status);
 

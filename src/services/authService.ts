@@ -272,7 +272,7 @@ class AuthService {
       return {
         ok: false,
         code: 'UNCONFIGURED',
-        message: 'Supabase authentication is not configured yet. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+        message: 'Supabase authentication is not configured yet. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.',
       };
     }
 
@@ -329,7 +329,7 @@ class AuthService {
       return {
         ok: false,
         code: 'UNCONFIGURED',
-        message: 'Supabase authentication is not configured yet. Registration requires VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+        message: 'Supabase authentication is not configured yet. Registration requires VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.',
       };
     }
 
@@ -466,7 +466,7 @@ class AuthService {
     }
 
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: getCallbackUrl('/reset-password'),
+      redirectTo: getCallbackUrl('/auth/callback?type=recovery&next=/reset-password'),
     });
 
     if (error) {
@@ -571,37 +571,54 @@ class AuthService {
       return {
         ok: false,
         code: 'UNCONFIGURED',
-        message: `Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY and configure ${provider} in Supabase before signing in.`,
+        message: 'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY before signing in.',
       };
     }
 
     this.ensureAuthListener();
 
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: provider as Parameters<typeof supabase.auth.signInWithOAuth>[0]['provider'],
-      options: {
-        redirectTo: getCallbackUrl('/auth/callback'),
-        scopes,
-      },
-    });
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: provider as Parameters<typeof supabase.auth.signInWithOAuth>[0]['provider'],
+        options: {
+          redirectTo: getCallbackUrl('/auth/callback'),
+          scopes,
+        },
+      });
 
-    if (error) {
+      if (error) {
+        const detail = error.message || `Failed to initiate ${provider} sign-in.`;
+        const providerName = provider === 'azure'
+          ? 'Microsoft'
+          : provider.charAt(0).toUpperCase() + provider.slice(1);
+        const message = /provider.*(not enabled|unsupported)|unsupported provider/i.test(detail)
+          ? `${providerName} sign-in is not enabled in Supabase yet. Enable it under Authentication → Providers and add the provider's OAuth Client ID and Client Secret.`
+          : detail;
+        return { ok: false, code: 'ERROR', message };
+      }
+
+      if (data?.url && typeof window !== 'undefined') {
+        window.location.assign(data.url);
+      } else {
+        return {
+          ok: false,
+          code: 'ERROR',
+          message: `Supabase did not return an authorization URL for ${provider}.`,
+        };
+      }
+
+      return {
+        ok: true,
+        code: 'OAUTH_REDIRECT',
+        message: `Redirecting to ${provider}...`,
+      };
+    } catch (error) {
       return {
         ok: false,
         code: 'ERROR',
-        message: error.message || `Failed to initiate ${provider} sign-in.`,
+        message: error instanceof Error ? error.message : `Unable to start ${provider} sign-in.`,
       };
     }
-
-    if (data?.url && typeof window !== 'undefined') {
-      window.location.assign(data.url);
-    }
-
-    return {
-      ok: true,
-      code: 'OAUTH_REDIRECT',
-      message: `Redirecting to ${provider}...`,
-    };
   }
 
   public async processAuthCallback(search: string, hash: string): Promise<{
