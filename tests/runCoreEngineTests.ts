@@ -171,4 +171,5 @@ async function runCoreEngineTests() {
 
 runCoreEngineTests().catch((err) => {
   console.error('Test execution error:', err);
+  process.exitCode = 1;
 });
