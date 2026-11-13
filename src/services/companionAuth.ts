@@ -52,6 +52,37 @@ export const companionAuth = {
     return persistSession(payload);
   },
 
+  async acceptRecoverySessionFromUrl(): Promise<boolean> {
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    if (params.get('type') !== 'recovery') return false;
+    const accessToken = params.get('access_token');
+    const refreshToken = params.get('refresh_token');
+    if (!accessToken || !refreshToken || !SUPABASE_URL || !SUPABASE_KEY) {
+      throw new Error('This recovery link is incomplete or expired. Request a new one.');
+    }
+    const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: SUPABASE_KEY, authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) throw new Error('This recovery link has expired. Request a new one.');
+    const user = await response.json();
+    persistSession({ access_token: accessToken, refresh_token: refreshToken, expires_in: Number(params.get('expires_in') || 3600), user });
+    window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+    return true;
+  },
+
+  async updatePassword(password: string): Promise<void> {
+    if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error('Authentication is not configured yet.');
+    const current = readStoredSession();
+    if (!current) throw new Error('Your recovery session has expired. Request a new link.');
+    const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', apikey: SUPABASE_KEY, authorization: `Bearer ${current.access_token}` },
+      body: JSON.stringify({ password }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.msg || payload.message || 'Could not update your password. Request a new recovery link.');
+  },
+
   async resetPassword(email: string): Promise<void> {
     await authRequest("recover", {
       email,
