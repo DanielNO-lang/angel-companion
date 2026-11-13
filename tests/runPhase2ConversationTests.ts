@@ -175,6 +175,8 @@ async function runPhase2ConversationTests() {
     console.log('ALL PHASE 2 CONVERSATION SEPARATION SCENARIOS PASSED! ✅\n');
   } else {
     console.error('SOME CONVERSATION SCENARIOS FAILED. INSPECT LOGS ABOVE. ❌\n');
+  } else {
+    process.exitCode = 1;
   }
 }
 
