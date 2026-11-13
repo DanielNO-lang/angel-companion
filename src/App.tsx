@@ -259,9 +259,12 @@ export default function App() {
                 user={currentUser}
                 onSignIn={() => setAuthModalOpen(true)}
                 onSignOut={async () => {
-                  await companionAuth.signOut();
-                  conversationEngine.setAccessToken(null);
-                  setCurrentUser(null);
+                  try {
+                    await companionAuth.signOut();
+                  } finally {
+                    conversationEngine.setAccessToken(null);
+                    setCurrentUser(null);
+                  }
                 }}
               />
             )}
@@ -314,9 +317,12 @@ export default function App() {
           currentUser={currentUser}
           onSignIn={() => setAuthModalOpen(true)}
           onSignOut={async () => {
-            await companionAuth.signOut();
-            conversationEngine.setAccessToken(null);
-            setCurrentUser(null);
+            try {
+              await companionAuth.signOut();
+            } finally {
+              conversationEngine.setAccessToken(null);
+              setCurrentUser(null);
+            }
           }}
         />
       )}
