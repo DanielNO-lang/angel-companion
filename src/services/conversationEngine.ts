@@ -2,6 +2,7 @@ import { ChatMessage, StudioId } from '../types/angel';
 import { storageService, STORAGE_KEYS } from './storageService';
 import { memoryEngine } from './memoryEngine';
 import { companionData } from './companionData';
+import { extractIntelligentTitle } from './geminiModelService';
 
 export type ConversationScope = 'general' | 'studio';
 
