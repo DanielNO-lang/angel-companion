@@ -6,7 +6,7 @@ import { getRememberMePreference } from './authValidation';
  *
  * Complies strictly with project security guidelines:
  * 1. Does NOT hardcode placeholder credentials or OAuth secrets.
- * 2. Checks VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY safely.
+ * 2. Accepts the configured VITE_SUPABASE_PUBLISHABLE_KEY and legacy VITE_SUPABASE_ANON_KEY.
  * 3. Provides explicit unconfigured status without simulating signed-in users.
  * 4. Respects Remember-Me persistence choice across localStorage / sessionStorage.
  */
@@ -37,11 +37,11 @@ function readEnvVar(name: string): string | null {
 
 export const getSupabaseConfigState = (): SupabaseConfigState => {
   const url = readEnvVar('VITE_SUPABASE_URL');
-  const key = readEnvVar('VITE_SUPABASE_ANON_KEY');
+  const key = readEnvVar('VITE_SUPABASE_PUBLISHABLE_KEY') || readEnvVar('VITE_SUPABASE_ANON_KEY');
   const missingVariables: string[] = [];
 
   if (!url) missingVariables.push('VITE_SUPABASE_URL');
-  if (!key) missingVariables.push('VITE_SUPABASE_ANON_KEY');
+  if (!key) missingVariables.push('VITE_SUPABASE_PUBLISHABLE_KEY (or legacy VITE_SUPABASE_ANON_KEY)');
 
   if (url && key) {
     try {
@@ -68,7 +68,7 @@ export const getSupabaseConfigState = (): SupabaseConfigState => {
     isConfigured: false,
     supabaseUrl: null,
     statusMessage:
-      'Supabase authentication is not configured in this environment. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable live sign-in, registration, verification, and OAuth.',
+      'Supabase authentication is not configured in this environment. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (or legacy VITE_SUPABASE_ANON_KEY) to enable live sign-in, registration, verification, and OAuth.',
     missingVariables,
   };
 };
@@ -121,7 +121,7 @@ let cachedUrl: string | null = null;
 
 export const getSupabaseClient = (): SupabaseClient | null => {
   const config = getSupabaseConfigState();
-  const key = readEnvVar('VITE_SUPABASE_ANON_KEY');
+  const key = readEnvVar('VITE_SUPABASE_PUBLISHABLE_KEY') || readEnvVar('VITE_SUPABASE_ANON_KEY');
 
   if (!config.isConfigured || !config.supabaseUrl || !key) {
     return null;
