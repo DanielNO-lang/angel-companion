@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../types/angel';
+import type { ChatMessage, StudioId } from '../types/angel';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const SUPABASE_KEY = (
@@ -78,7 +78,7 @@ export const companionData = {
         id: row.client_id || row.id,
         title: row.title,
         scope: firstMeta.scope === 'studio' ? 'studio' : 'general',
-        studioId: firstMeta.studioId || undefined,
+        studioId: firstMeta.studioId ? (firstMeta.studioId as StudioId) : undefined,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         isArchived: row.status === 'archived',
