@@ -1,3 +1,29 @@
+import { ChatMessage, StudioId } from '../types/angel';
+import { storageService, STORAGE_KEYS } from './storageService';
+import { memoryEngine } from './memoryEngine';
+import { companionData } from './companionData';
+
+export type ConversationScope = 'general' | 'studio';
+
+export interface ConversationThread {
+  id: string;
+  title: string;
+  scope: ConversationScope;
+  studioId?: StudioId;
+  createdAt: string;
+  updatedAt: string;
+  isArchived: boolean;
+  isCustomTitle?: boolean;
+  messages: ChatMessage[];
+  metadata?: {
+    tags?: string[];
+    summary?: string;
+    handoffFromId?: string;
+  };
+}
+
+const DEFAULT_CONVERSATIONS: ConversationThread[] = [];
+
 export class ConversationEngine {
   private threads: ConversationThread[] = [];
   private activeGeneralId = '';
