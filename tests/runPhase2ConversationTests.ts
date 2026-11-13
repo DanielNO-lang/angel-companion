@@ -171,6 +171,8 @@ async function runPhase2ConversationTests() {
   conversationEngine.deleteThread(handoffThread.id);
 
   console.log(`\n=== TEST SUITE RESULTS: ${passedTests} / ${totalTests} PASSED ===`);
+  if (passedTests !== totalTests) process.exitCode = 1;
+
   if (passedTests === totalTests) {
     console.log('ALL PHASE 2 CONVERSATION SEPARATION SCENARIOS PASSED! ✅\n');
   } else {
@@ -180,4 +182,5 @@ async function runPhase2ConversationTests() {
 
 runPhase2ConversationTests().catch((err) => {
   console.error('Phase 2 test execution failed:', err);
+  process.exitCode = 1;
 });
