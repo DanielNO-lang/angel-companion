@@ -163,10 +163,9 @@ async function runCoreEngineTests() {
 
   console.log(`\n=== TEST SUITE RESULTS: ${passedTests} / ${totalTests} PASSED ===`);
   if (passedTests === totalTests) {
-    console.log('ALL CORE APPLICATION ENGINE TESTS PASSED SUCCESSFULLY! ✅\n');
+    console.log('ALL CORE APPLICATION ENGINE TESTS PASSED SUCCESSFULLY! ✅\\n');
   } else {
-    console.error('SOME ENGINE TESTS FAILED. INSPECT LOGS ABOVE. ❌\n');
-  } else {
+    console.error('SOME ENGINE TESTS FAILED. INSPECT LOGS ABOVE. ❌\\n');
     process.exitCode = 1;
   }
 }
