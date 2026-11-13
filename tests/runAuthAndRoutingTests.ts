@@ -26,6 +26,7 @@ import {
 } from '../src/services/authProviderRegistry';
 import { getSupabaseConfigState } from '../src/services/supabaseClient';
 import { authService } from '../src/services/authService';
+import { conversationEngine } from '../src/services/conversationEngine';
 
 test('Email validation accepts valid addresses and rejects malformed inputs', () => {
   assert.equal(validateEmail('companion@angel.ai'), true);
@@ -132,6 +133,22 @@ test('Workspace auth guard strictly blocks unauthenticated and unconfigured stat
   assert.equal(canAccessWorkspace('unconfigured'), false);
   assert.equal(canAccessWorkspace('loading'), false);
   assert.equal(canAccessWorkspace('authenticated'), true);
+});
+
+test('New conversations are empty and previously seeded demo threads are filtered out', () => {
+  const demoIds = new Set(['conv_general_1', 'conv_studio_res_1', 'conv_studio_dev_1']);
+  assert.equal(
+    conversationEngine.getThreads('general', undefined, true).some((thread) => demoIds.has(thread.id)),
+    false,
+  );
+  assert.equal(
+    conversationEngine.getThreads('studio', undefined, true).some((thread) => demoIds.has(thread.id)),
+    false,
+  );
+
+  const thread = conversationEngine.createThread('general', undefined, 'Clean Thread Test');
+  assert.equal(thread.messages.length, 0);
+  conversationEngine.deleteThread(thread.id);
 });
 
 test('Sole authentication identity unlink protection prevents locking user out', () => {
