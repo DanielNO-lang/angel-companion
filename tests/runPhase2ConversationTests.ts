@@ -172,10 +172,9 @@ async function runPhase2ConversationTests() {
 
   console.log(`\n=== TEST SUITE RESULTS: ${passedTests} / ${totalTests} PASSED ===`);
   if (passedTests === totalTests) {
-    console.log('ALL PHASE 2 CONVERSATION SEPARATION SCENARIOS PASSED! ✅\n');
+    console.log('ALL PHASE 2 CONVERSATION SEPARATION SCENARIOS PASSED! ✅\\n');
   } else {
-    console.error('SOME CONVERSATION SCENARIOS FAILED. INSPECT LOGS ABOVE. ❌\n');
-  } else {
+    console.error('SOME CONVERSATION SCENARIOS FAILED. INSPECT LOGS ABOVE. ❌\\n');
     process.exitCode = 1;
   }
 }
