@@ -20,6 +20,7 @@ import {
 } from '../../services/authProviderRegistry';
 import { canUnlinkIdentity } from '../../services/authValidation';
 import { ProviderLogo } from '../auth/ProviderLogo';
+import { toFriendlyError } from '../../services/errorHandlingService';
 
 interface AccountPageProps {
   user?: AuthUser | null;
@@ -51,7 +52,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
     if (!isReady) {
       setFeedback({
         type: 'error',
-        text: `${displayName} cannot be linked until it is configured and enabled in your Supabase Auth provider settings.`,
+        text: `${displayName} sign-in is unavailable right now.`,
       });
       return;
     }
@@ -60,7 +61,8 @@ export const AccountPage: React.FC<AccountPageProps> = ({
     const res = await authService.linkProviderIdentity(providerId);
     setActionBusy(null);
     if (!res.ok) {
-      setFeedback({ type: 'error', text: res.message });
+      const context = providerId === 'google' ? 'google_oauth' : 'oauth';
+      setFeedback({ type: 'error', text: toFriendlyError(res.message, context).userMessage });
     }
   };
 
@@ -77,7 +79,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
     setActionBusy(null);
     setFeedback({
       type: res.ok ? 'success' : 'error',
-      text: res.ok ? `${label} disconnected.` : res.message,
+      text: res.ok ? `${label} disconnected.` : toFriendlyError(res.message, 'auth').userMessage,
     });
   };
 
@@ -87,7 +89,10 @@ export const AccountPage: React.FC<AccountPageProps> = ({
     setActionBusy('password-reset');
     const res = await authService.requestPasswordReset(user.email);
     setActionBusy(null);
-    setFeedback({ type: res.ok ? 'success' : 'error', text: res.message });
+    setFeedback({
+      type: res.ok ? 'success' : 'error',
+      text: res.ok ? res.message : toFriendlyError(res.message, 'auth').userMessage,
+    });
   };
 
   const emailConnected = connectedProvidersMap.has('email') || Boolean(user?.emailVerified);
@@ -95,7 +100,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Authenticated User Profile Header */}
-      <div className="rounded-3xl glass-panel-glow border border-indigo-500/30 bg-slate-950/40 backdrop-blur-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="rounded-3xl glass-panel-glow angel-blurred-surface bg-slate-950/38 backdrop-blur-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-500 flex items-center justify-center text-xl font-bold text-white shadow-xl shrink-0">
             {user?.initials || 'AN'}
@@ -105,7 +110,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
               <h2 className="text-xl font-bold font-heading text-white truncate">
                 {user?.fullName || 'Authenticated Angel User'}
               </h2>
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 text-[10px] font-bold border border-emerald-500/40 inline-flex items-center gap-1">
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-950/75 text-emerald-300 text-[10px] font-bold inline-flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" />
                 <span>{user?.emailVerified ? 'Verified Account' : 'Authenticated'}</span>
               </span>
@@ -118,7 +123,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
           <button
             type="button"
             onClick={onSignOut}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-2xl bg-rose-950/70 hover:bg-rose-900/80 border border-rose-500/40 text-rose-200 text-xs font-semibold cursor-pointer transition-colors"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-2xl bg-rose-950/65 hover:bg-rose-900/75 text-rose-200 text-xs font-semibold cursor-pointer transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Sign Out</span>
@@ -129,10 +134,10 @@ export const AccountPage: React.FC<AccountPageProps> = ({
       {feedback && (
         <div
           role="status"
-          className={`p-3.5 rounded-2xl border text-xs flex items-start gap-2.5 ${
+          className={`p-3.5 rounded-2xl angel-blurred-surface text-xs flex items-start gap-2.5 ${
             feedback.type === 'success'
-              ? 'bg-emerald-950/70 border-emerald-500/40 text-emerald-200'
-              : 'bg-rose-950/70 border-rose-500/40 text-rose-200'
+              ? 'bg-emerald-950/65 text-emerald-200'
+              : 'bg-rose-950/65 text-rose-200'
           }`}
         >
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -141,8 +146,8 @@ export const AccountPage: React.FC<AccountPageProps> = ({
       )}
 
       {/* 1. CONNECTED SIGN-IN IDENTITIES & ACCOUNT SECURITY */}
-      <section className="rounded-3xl glass-panel border border-indigo-500/25 bg-slate-950/40 backdrop-blur-2xl p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+      <section className="rounded-3xl glass-panel angel-blurred-surface bg-slate-950/38 backdrop-blur-2xl p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3">
           <div className="flex items-center gap-2.5">
             <Shield className="w-5 h-5 text-cyan-400" />
             <div>
@@ -160,7 +165,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
             type="button"
             onClick={handleSendPasswordReset}
             disabled={actionBusy === 'password-reset' || !user?.email}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-200 cursor-pointer disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800/80 text-xs font-semibold text-slate-200 cursor-pointer disabled:opacity-50"
           >
             {actionBusy === 'password-reset' ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -173,9 +178,9 @@ export const AccountPage: React.FC<AccountPageProps> = ({
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
           {/* Email & Password Row */}
-          <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-center justify-between gap-3">
+          <div className="p-4 rounded-2xl bg-slate-900/50 angel-blurred-surface flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="w-9 h-9 rounded-xl bg-indigo-950/80 border border-indigo-500/30 flex items-center justify-center shrink-0">
+              <div className="w-9 h-9 rounded-xl bg-indigo-950/75 flex items-center justify-center shrink-0">
                 <ProviderLogo provider="email" className="w-4 h-4 text-cyan-300" />
               </div>
               <div className="min-w-0">
@@ -188,8 +193,8 @@ export const AccountPage: React.FC<AccountPageProps> = ({
             <span
               className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 ${
                 emailConnected
-                  ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/35'
-                  : 'bg-slate-800 text-slate-400'
+                  ? 'bg-emerald-950/75 text-emerald-300'
+                  : 'bg-slate-800/80 text-slate-400'
               }`}
             >
               {emailConnected ? 'Connected' : 'Not connected'}
@@ -205,7 +210,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
             return (
               <div
                 key={provider.id}
-                className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-center justify-between gap-3"
+                className="p-4 rounded-2xl bg-slate-900/50 angel-blurred-surface flex items-center justify-between gap-3"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-9 h-9 rounded-xl bg-white/95 flex items-center justify-center shrink-0 text-slate-900">
@@ -218,7 +223,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                         ? linked.email || 'Identity linked'
                         : provider.isReady
                           ? 'Not connected'
-                          : 'Provider setup required in Supabase'}
+                          : 'Unavailable right now'}
                     </div>
                   </div>
                 </div>
@@ -230,7 +235,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                       disabled={busy || !guard.allowed}
                       onClick={() => handleUnlinkProvider(linked, provider.displayName)}
                       title={guard.allowed ? `Disconnect ${provider.displayName}` : guard.reason}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-950/80 hover:bg-rose-950/80 text-emerald-300 hover:text-rose-200 border border-emerald-500/35 hover:border-rose-500/40 font-semibold transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-950/75 hover:bg-rose-950/75 text-emerald-300 hover:text-rose-200 font-semibold transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Unlink className="w-3 h-3" />}
                       <span>{guard.allowed ? 'Connected' : 'Primary Lock'}</span>
@@ -243,11 +248,11 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold transition-colors cursor-pointer ${
                         provider.isReady
                           ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                          : 'bg-slate-800 text-slate-400 border border-slate-700'
+                          : 'bg-slate-800/80 text-slate-400'
                       }`}
                     >
                       {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
-                      <span>{provider.isReady ? 'Connect' : 'Setup Req.'}</span>
+                      <span>{provider.isReady ? 'Connect' : 'Unavailable'}</span>
                     </button>
                   )}
                 </div>
@@ -258,8 +263,8 @@ export const AccountPage: React.FC<AccountPageProps> = ({
       </section>
 
       {/* 2. SEPARATE: CONNECTED EXTERNAL APPLICATIONS & DATA PERMISSIONS */}
-      <section className="rounded-3xl glass-panel border border-cyan-500/20 bg-slate-950/40 backdrop-blur-2xl p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+      <section className="rounded-3xl glass-panel angel-blurred-surface bg-slate-950/38 backdrop-blur-2xl p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3">
           <div className="flex items-center gap-2.5">
             <Lock className="w-5 h-5 text-indigo-400" />
             <div>
@@ -289,11 +294,11 @@ export const AccountPage: React.FC<AccountPageProps> = ({
           {EXTERNAL_APP_INTEGRATIONS.map((app) => (
             <div
               key={app.id}
-              className="p-4 rounded-2xl bg-slate-900/50 border border-slate-800/90 space-y-1.5"
+              className="p-4 rounded-2xl bg-slate-900/45 angel-blurred-surface space-y-1.5"
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="font-bold text-white">{app.name}</span>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800/80 text-slate-300">
                   {app.status}
                 </span>
               </div>
@@ -307,11 +312,11 @@ export const AccountPage: React.FC<AccountPageProps> = ({
       </section>
 
       {/* Server Proxy Key Boundary */}
-      <div className="p-5 rounded-3xl glass-panel border border-indigo-500/20 bg-slate-950/40 backdrop-blur-2xl text-xs space-y-1.5">
+      <div className="p-5 rounded-3xl glass-panel angel-blurred-surface bg-slate-950/38 backdrop-blur-2xl text-xs space-y-1.5">
         <span className="text-slate-400 font-medium block">Model Credentials Boundary</span>
         <div className="text-sm font-semibold text-indigo-300">Managed via Server-Side Proxy</div>
         <p className="text-slate-400">
-          GEMINI_API_KEY and sensitive OAuth client secrets are never embedded or exposed inside frontend browser code.
+          AI model credentials and signing keys stay strictly on the server and are never exposed inside browser code.
         </p>
       </div>
     </div>

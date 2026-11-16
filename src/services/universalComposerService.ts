@@ -22,18 +22,34 @@ export class UniversalComposerService {
   private modesMap: Map<string, ComposerMode> = new Map();
   private submittingMap: Map<string, boolean> = new Map();
   private errorsMap: Map<string, string | null> = new Map();
+  private activeUserId: string | null = null;
 
   constructor() {
     this.loadPersistence();
   }
 
+  private scopedKey(base: string): string {
+    return this.activeUserId ? `${base}:user:${this.activeUserId}` : base;
+  }
+
+  public setUserContext(userId: string | null): void {
+    if (this.activeUserId !== userId) {
+      this.activeUserId = userId;
+      this.draftsMap.clear();
+      this.modesMap.clear();
+      this.submittingMap.clear();
+      this.errorsMap.clear();
+      this.loadPersistence();
+    }
+  }
+
   private loadPersistence(): void {
-    const loadedDrafts = storageService.load<Record<string, string>>(STORAGE_KEYS.drafts, {});
+    const loadedDrafts = storageService.load<Record<string, string>>(this.scopedKey(STORAGE_KEYS.drafts), {});
     Object.entries(loadedDrafts).forEach(([k, v]) => {
       if (typeof v === 'string') this.draftsMap.set(k, v);
     });
 
-    const loadedModes = storageService.load<Record<string, ComposerMode>>(STORAGE_KEYS.modes, {});
+    const loadedModes = storageService.load<Record<string, ComposerMode>>(this.scopedKey(STORAGE_KEYS.modes), {});
     Object.entries(loadedModes).forEach(([k, v]) => {
       if (v) this.modesMap.set(k, v);
     });
@@ -44,13 +60,13 @@ export class UniversalComposerService {
     this.draftsMap.forEach((v, k) => {
       if (v.trim()) draftsObj[k] = v;
     });
-    storageService.save(STORAGE_KEYS.drafts, draftsObj);
+    storageService.save(this.scopedKey(STORAGE_KEYS.drafts), draftsObj);
 
     const modesObj: Record<string, ComposerMode> = {};
     this.modesMap.forEach((v, k) => {
       modesObj[k] = v;
     });
-    storageService.save(STORAGE_KEYS.modes, modesObj);
+    storageService.save(this.scopedKey(STORAGE_KEYS.modes), modesObj);
   }
 
   public getContextKey(context: ComposerContext): string {
@@ -122,7 +138,6 @@ export class UniversalComposerService {
     const key = this.getContextKey(context);
     const trimmedText = text.trim();
 
-    // 1. Check for unsafe URLs
     const { unsafeUrls } = linkPreviewService.detectUrls(trimmedText);
     if (unsafeUrls.length > 0) {
       const err = `Unsafe URL scheme detected (${unsafeUrls.join(', ')}). Submission rejected for security.`;
@@ -130,7 +145,6 @@ export class UniversalComposerService {
       return { success: false, error: err, summaryText: err };
     }
 
-    // 2. Resolve attachments (staged + passed)
     const attachmentsToCommit: AttachmentRecord[] = [];
     if (Array.isArray(attachedFileOrFiles)) {
       attachmentsToCommit.push(...attachedFileOrFiles);
@@ -146,19 +160,16 @@ export class UniversalComposerService {
       }
     }
 
-    // Get any staged attachments and commit
     const staged = universalAttachmentService.getStagedAttachments(context);
     if (staged.length > 0) {
       const committed = await universalAttachmentService.commitAttachments(context);
       attachmentsToCommit.push(...committed);
     }
 
-    // Deduplicate committed attachments by id
     const uniqueAttachments = Array.from(
       new Map(attachmentsToCommit.map((a) => [a.id, a])).values()
     );
 
-    // 3. Validation: Agent tasks require an explicit agent & non-empty description
     if (context.type === 'agent_task') {
       if (!context.agentId) {
         const err = 'Agent task assignment requires a selected agent ID.';
@@ -178,7 +189,6 @@ export class UniversalComposerService {
       }
     }
 
-    // 4. Prevent duplicate submission while in progress
     if (this.submittingMap.get(key)) {
       const err = 'Submission already in progress for this context.';
       this.errorsMap.set(key, err);
@@ -199,7 +209,6 @@ export class UniversalComposerService {
       fullContent = trimmedText ? `${trimmedText}\n${attSummary}` : attSummary;
     }
 
-    // Extract link previews
     const linkPreviews: LinkPreview[] = await linkPreviewService.getPreviewsForText(trimmedText);
 
     try {
@@ -213,7 +222,7 @@ export class UniversalComposerService {
             threadId = activeThread.id;
           }
 
-          const userMsg = await conversationEngine.addMessage(
+          await conversationEngine.addMessage(
             threadId,
             fullContent,
             'user',
@@ -244,7 +253,7 @@ export class UniversalComposerService {
             threadId = activeStudioThread.id;
           }
 
-          const userMsg = await conversationEngine.addMessage(
+          await conversationEngine.addMessage(
             threadId,
             fullContent,
             'user',
@@ -273,7 +282,6 @@ export class UniversalComposerService {
             workspaceEngine.addFileToProject(projId, att.name, content, 'document');
           }
 
-          // Register instruction in project workspace
           workspaceEngine.addInstructionToProject(projId, fullContent);
 
           result = {
@@ -344,8 +352,9 @@ export class UniversalComposerService {
             'learning-education-studio',
             `Learning: ${learningSubject}`
           );
+          thread.isCustomTitle = true;
 
-          const userMsg = await conversationEngine.addMessage(
+          await conversationEngine.addMessage(
             thread.id,
             fullContent,
             'user',
@@ -373,7 +382,7 @@ export class UniversalComposerService {
           result = {
             success: true,
             messageId: aiMsg.id,
-            summaryText: `Submitted fallback message to General Conversation.`,
+            summaryText: 'Submitted fallback message to General Conversation.',
             attachments: uniqueAttachments,
             linkPreviews,
           };

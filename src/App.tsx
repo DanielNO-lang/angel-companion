@@ -12,6 +12,8 @@ import { SupabaseBoundaryModal } from './components/modals/SupabaseBoundaryModal
 import { SystemDetailsModal } from './components/modals/SystemDetailsModal';
 import { MediaStreamOverlays } from './components/media/MediaStreamOverlays';
 import { AppShellSkeleton, PageSkeleton } from './components/ui/Skeleton';
+import { FriendlyErrorScreen } from './components/ui/FriendlyErrorScreen';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
 // Public Landing & Dedicated Authentication Pages
 import { LandingPage } from './components/landing/LandingPage';
@@ -21,8 +23,19 @@ import { EmailVerificationPage } from './components/auth/EmailVerificationPage';
 import { PasswordRecoveryPage } from './components/auth/PasswordRecoveryPage';
 import { AuthLayout } from './components/auth/AuthLayout';
 
-// Auth & Routing Services
+// Auth, Error Handling & Recovery Navigation Services
 import { authService, type AuthStateSnapshot } from './services/authService';
+import {
+  FRIENDLY_ERROR_MESSAGES,
+  logSanitizedDiagnostic,
+  toFriendlyError,
+} from './services/errorHandlingService';
+import {
+  getAuthFlowOrigin,
+  popSafeReturnRoute,
+  pushSafeRoute,
+  scrubCallbackUrlFromHistory,
+} from './services/recoveryNavigationService';
 import {
   canAccessWorkspace,
   getPathForRoute,
@@ -82,8 +95,17 @@ import { studiosEngine } from './services/studiosEngine';
 import { conversationEngine } from './services/conversationEngine';
 import { voiceEngine } from './services/voiceEngine';
 import { geminiModelService } from './services/geminiModelService';
+import { cloudSyncCoordinator } from './services/cloudSyncCoordinator';
 
 import { ArrowLeft, Loader2 } from 'lucide-react';
+
+interface AuthErrorRecoveryState {
+  title: string;
+  message: string;
+  originRoute: 'signin' | 'signup';
+  provider?: 'google';
+  retryable: boolean;
+}
 
 export default function App() {
   const [authSnapshot, setAuthSnapshot] = React.useState<AuthStateSnapshot>(() => authService.getSnapshot());
@@ -96,11 +118,13 @@ export default function App() {
   const [verifySuccess, setVerifySuccess] = React.useState(false);
   const [recoveryError, setRecoveryError] = React.useState<string | null>(null);
   const [callbackProcessing, setCallbackProcessing] = React.useState(false);
+  const [authErrorState, setAuthErrorState] = React.useState<AuthErrorRecoveryState | null>(null);
 
   const navigateRoute = React.useCallback(
     (route: AppRoute, options?: { email?: string; notice?: string | null; replace?: boolean }) => {
       if (options?.email !== undefined) setPendingVerifyEmail(options.email);
-      setAuthNotice(options?.notice ?? null);
+      setAuthNotice(options?.notice ? toFriendlyError(options.notice, 'auth', { logDiagnostic: false }).userMessage : null);
+      setAuthErrorState(null);
       if (route !== 'verify-email') {
         setVerifyError(null);
         setVerifySuccess(false);
@@ -109,10 +133,15 @@ export default function App() {
         setRecoveryError(null);
       }
 
+      if (!options?.replace) {
+        pushSafeRoute(currentRoute);
+      }
+      pushSafeRoute(route);
+
       setCurrentRoute(route);
       if (typeof window !== 'undefined') {
         const targetPath = getPathForRoute(route);
-        if (window.location.pathname !== targetPath) {
+        if (window.location.pathname !== targetPath || window.location.search || window.location.hash) {
           if (options?.replace) {
             window.history.replaceState({}, '', targetPath);
           } else {
@@ -122,7 +151,7 @@ export default function App() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     },
-    []
+    [currentRoute]
   );
 
   const {
@@ -151,6 +180,15 @@ export default function App() {
     markNotificationsRead,
     deleteNotifications,
   } = useAngelState();
+
+  const prevWorkspaceTabRef = React.useRef<typeof activeTab>('home');
+  const lastWorkspaceTabRef = React.useRef<typeof activeTab>(activeTab);
+  React.useEffect(() => {
+    if (lastWorkspaceTabRef.current !== activeTab) {
+      prevWorkspaceTabRef.current = lastWorkspaceTabRef.current;
+      lastWorkspaceTabRef.current = activeTab;
+    }
+  }, [activeTab]);
 
   const [isMorePinned, setIsMorePinned] = React.useState(false);
   const moreLeaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -221,10 +259,18 @@ export default function App() {
 
   const [isAppReady, setIsAppReady] = React.useState(false);
 
-  // Sync browser back/forward navigation cleanly
+  // Sync browser back/forward navigation cleanly (excluding sensitive callback routes)
   React.useEffect(() => {
     const onPopState = () => {
-      setCurrentRoute(parseAppRoute(window.location.pathname));
+      const nextRoute = parseAppRoute(window.location.pathname);
+      if (nextRoute === 'auth-callback') {
+        const safeReturn = popSafeReturnRoute('auth-callback', getAuthFlowOrigin());
+        scrubCallbackUrlFromHistory(safeReturn);
+        setCurrentRoute(safeReturn);
+        return;
+      }
+      pushSafeRoute(nextRoute);
+      setCurrentRoute(nextRoute);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -238,63 +284,122 @@ export default function App() {
     });
 
     const bootstrapApp = async () => {
-      const search = typeof window !== 'undefined' ? window.location.search : '';
-      const hash = typeof window !== 'undefined' ? window.location.hash : '';
-      const initialRoute = typeof window !== 'undefined' ? parseAppRoute(window.location.pathname) : 'landing';
-      const parsedCallback = parseAuthCallbackParams(search, hash);
+      try {
+        const search = typeof window !== 'undefined' ? window.location.search : '';
+        const hash = typeof window !== 'undefined' ? window.location.hash : '';
+        const initialRoute = typeof window !== 'undefined' ? parseAppRoute(window.location.pathname) : 'landing';
+        const parsedCallback = parseAuthCallbackParams(search, hash);
 
-      if (parsedCallback.hasCallbackParams || initialRoute === 'auth-callback') {
-        if (active) setCallbackProcessing(true);
-        const cbResult = await authService.processAuthCallback(search, hash);
-        if (!active) return;
-        setCallbackProcessing(false);
+        if (initialRoute !== 'auth-callback') {
+          pushSafeRoute(initialRoute);
+        }
 
-        if (cbResult.outcome === 'authenticated') {
-          const safeNext = sanitizeRedirectPath(cbResult.parsed.nextPath, '/app');
-          setCurrentRoute(parseAppRoute(safeNext));
-          window.history.replaceState({}, '', safeNext);
-        } else if (cbResult.outcome === 'recovery') {
-          setCurrentRoute('reset-password');
-          window.history.replaceState({}, '', '/reset-password');
-        } else if (cbResult.outcome === 'verified') {
-          setVerifySuccess(true);
-          setCurrentRoute('verify-email');
-          window.history.replaceState({}, '', '/verify-email');
-        } else {
-          if (cbResult.parsed.type === 'recovery' || initialRoute === 'reset-password') {
-            setRecoveryError(cbResult.message);
+        if (parsedCallback.hasCallbackParams || initialRoute === 'auth-callback') {
+          if (active) setCallbackProcessing(true);
+          const cbResult = await authService.processAuthCallback(search, hash);
+          if (!active) return;
+
+          if (cbResult.outcome === 'authenticated') {
+            const safeNext = sanitizeRedirectPath(cbResult.parsed.nextPath, '/app');
+            const targetRoute = parseAppRoute(safeNext);
+            pushSafeRoute(targetRoute);
+            setCurrentRoute(targetRoute);
+            window.history.replaceState({}, '', safeNext);
+          } else if (cbResult.outcome === 'recovery') {
             setCurrentRoute('reset-password');
             window.history.replaceState({}, '', '/reset-password');
-          } else if (cbResult.parsed.type === 'signup' || cbResult.parsed.isExpiredOrInvalid) {
-            setVerifyError(cbResult.message);
+          } else if (cbResult.outcome === 'verified') {
+            setVerifySuccess(true);
             setCurrentRoute('verify-email');
             window.history.replaceState({}, '', '/verify-email');
           } else {
-            setAuthNotice(cbResult.message);
-            setCurrentRoute('signin');
-            window.history.replaceState({}, '', '/signin');
+            const originRoute = getAuthFlowOrigin();
+            const isRecoveryCallback = cbResult.parsed.type === 'recovery' || initialRoute === 'reset-password';
+            const isSignupVerifyCallback =
+              cbResult.parsed.type === 'signup' ||
+              (cbResult.parsed.isExpiredOrInvalid && !cbResult.parsed.error && !cbResult.parsed.code);
+
+            if (isRecoveryCallback) {
+              const classified = toFriendlyError(cbResult.message, 'auth');
+              setRecoveryError(classified.userMessage);
+              setCurrentRoute('reset-password');
+              scrubCallbackUrlFromHistory('reset-password');
+            } else if (isSignupVerifyCallback) {
+              const classified = toFriendlyError(cbResult.message, 'auth');
+              setVerifyError(classified.userMessage);
+              setCurrentRoute('verify-email');
+              scrubCallbackUrlFromHistory('verify-email');
+            } else {
+              const rawContextHint = `${search} ${hash} ${cbResult.message}`;
+              const isLikelyGoogleOrOAuth =
+                Boolean(cbResult.parsed.error || cbResult.parsed.code || /google|oauth|provider|access_denied/i.test(rawContextHint));
+              const context = isLikelyGoogleOrOAuth ? 'google_oauth' : 'auth';
+              const classified = toFriendlyError(
+                cbResult.parsed.errorDescription || cbResult.parsed.error || cbResult.message,
+                context,
+                { metadata: { originRoute, initialRoute } }
+              );
+              scrubCallbackUrlFromHistory(originRoute);
+              setAuthErrorState({
+                title: classified.title,
+                message: classified.userMessage,
+                originRoute,
+                provider: isLikelyGoogleOrOAuth ? 'google' : undefined,
+                retryable: classified.retryable,
+              });
+              setCurrentRoute(originRoute);
+            }
+          }
+        } else {
+          const restored = await authService.restoreVerifiedSession();
+          if (active && restored.status === 'authenticated') {
+            if (initialRoute === 'signin' || initialRoute === 'signup') {
+              pushSafeRoute('app');
+              setCurrentRoute('app');
+              window.history.replaceState({}, '', '/app');
+            }
           }
         }
-      } else {
-        const restored = await authService.restoreVerifiedSession();
-        if (active && restored.status === 'authenticated') {
-          if (initialRoute === 'signin' || initialRoute === 'signup') {
-            setCurrentRoute('app');
-            window.history.replaceState({}, '', '/app');
+
+        const minHydrationDelay = new Promise<void>((resolve) => setTimeout(resolve, 180));
+        const maxCapDelay = new Promise<void>((resolve) => setTimeout(resolve, 460));
+        const fontsReady =
+          typeof document !== 'undefined' && document.fonts?.ready
+            ? document.fonts.ready.then(() => undefined).catch(() => undefined)
+            : Promise.resolve();
+        const statusCheck = geminiModelService.checkStatus().then(() => undefined).catch(() => undefined);
+
+        await Promise.race([Promise.all([minHydrationDelay, fontsReady, statusCheck]), maxCapDelay]);
+      } catch (err) {
+        if (active) {
+          const originRoute = getAuthFlowOrigin();
+          const currentPath = typeof window !== 'undefined' ? parseAppRoute(window.location.pathname) : 'landing';
+          const classified = toFriendlyError(err, currentPath === 'auth-callback' ? 'google_oauth' : 'auth');
+          logSanitizedDiagnostic({
+            category: classified.category,
+            context: 'auth',
+            rawError: err,
+          });
+          if (currentPath === 'auth-callback') {
+            scrubCallbackUrlFromHistory(originRoute);
+            setAuthErrorState({
+              title: classified.title,
+              message: classified.userMessage,
+              originRoute,
+              provider: 'google',
+              retryable: true,
+            });
+            setCurrentRoute(originRoute);
+          } else {
+            setAuthNotice(classified.userMessage);
           }
+        }
+      } finally {
+        if (active) {
+          setCallbackProcessing(false);
+          setIsAppReady(true);
         }
       }
-
-      const minHydrationDelay = new Promise<void>((resolve) => setTimeout(resolve, 220));
-      const maxCapDelay = new Promise<void>((resolve) => setTimeout(resolve, 500));
-      const fontsReady =
-        typeof document !== 'undefined' && document.fonts?.ready
-          ? document.fonts.ready.then(() => undefined).catch(() => undefined)
-          : Promise.resolve();
-      const statusCheck = geminiModelService.checkStatus().then(() => undefined).catch(() => undefined);
-
-      await Promise.race([Promise.all([minHydrationDelay, fontsReady, statusCheck]), maxCapDelay]);
-      if (active) setIsAppReady(true);
     };
 
     bootstrapApp();
@@ -306,37 +411,64 @@ export default function App() {
     };
   }, []);
 
-  // Keep the conversation engine bound to the same verified Supabase identity as the UI.
-  // Its local cache is namespaced per user so one account can never merge another account's threads.
+  // Bind all Companion engines to the verified Supabase identity, migrate unowned local records safely,
+  // and reset all engine state on sign-out.
   React.useEffect(() => {
-    if (
-      authSnapshot.status === 'authenticated' &&
-      authSnapshot.session?.access_token &&
-      authSnapshot.user?.id
-    ) {
-      conversationEngine.setAccessToken(authSnapshot.session.access_token, authSnapshot.user.id);
-    } else if (authSnapshot.status === 'unauthenticated' || authSnapshot.status === 'unconfigured') {
-      conversationEngine.setAccessToken(null, null);
-    }
-  }, [authSnapshot.status, authSnapshot.session?.access_token, authSnapshot.user?.id]);
+    const displayName = authSnapshot.user?.fullName || authSnapshot.user?.email || null;
+
+    void cloudSyncCoordinator.handleAuthChange({
+      status: authSnapshot.status,
+      accessToken: authSnapshot.session?.access_token,
+      userId: authSnapshot.user?.id,
+      displayName,
+    });
+  }, [
+    authSnapshot.status,
+    authSnapshot.session?.access_token,
+    authSnapshot.user?.id,
+    authSnapshot.user?.fullName,
+    authSnapshot.user?.email,
+  ]);
 
   // Strict Route Guard enforcing verified Supabase session before allowing workspace rendering
   const isAuthenticated = canAccessWorkspace(authSnapshot.status);
 
   React.useEffect(() => {
-    if (!isAppReady || callbackProcessing || authSnapshot.status === 'loading') return;
+    if (!isAppReady || callbackProcessing || authSnapshot.status === 'loading' || authErrorState) return;
 
     if (!isAuthenticated && currentRoute === 'app') {
       navigateRoute('signin', {
         replace: true,
-        notice: 'Please sign in with a verified account to access your private Angel workspace.',
+        notice: FRIENDLY_ERROR_MESSAGES.SESSION,
       });
     } else if (isAuthenticated && (currentRoute === 'signin' || currentRoute === 'signup')) {
       navigateRoute('app', { replace: true });
     }
-  }, [isAppReady, callbackProcessing, authSnapshot.status, isAuthenticated, currentRoute, navigateRoute]);
+  }, [isAppReady, callbackProcessing, authSnapshot.status, authErrorState, isAuthenticated, currentRoute, navigateRoute]);
+
+  const handleToggleTheme = React.useCallback(() => {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+    toggleTheme();
+    if (isAuthenticated && authSnapshot.session?.access_token && authSnapshot.user?.id) {
+      const displayName = authSnapshot.user?.fullName || null;
+      void cloudSyncCoordinator.syncUserThemePreference(
+        authSnapshot.session.access_token,
+        authSnapshot.user.id,
+        nextTheme,
+        displayName
+      );
+    }
+  }, [
+    theme,
+    toggleTheme,
+    isAuthenticated,
+    authSnapshot.session?.access_token,
+    authSnapshot.user?.id,
+    authSnapshot.user?.fullName,
+  ]);
 
   const handleSignOut = async () => {
+    cloudSyncCoordinator.resetAllEnginesOnSignOut();
     await authService.signOut();
     setActiveTab('home');
     navigateRoute('landing', { replace: true });
@@ -388,9 +520,12 @@ export default function App() {
 
               <QuickAccessPanel
                 onSelectAction={(actionId) => {
-                  if (actionId === 'agents') handleNavClick('agents');
-                  else if (actionId === 'workspace') handleNavClick('workspace');
-                  else openFeatureDetails(actionId);
+                  if (actionId === 'new-conversation') {
+                    conversationEngine.createThread('general', undefined, 'New Conversation');
+                    handleNavClick('new-conversation');
+                  } else {
+                    handleNavClick(actionId);
+                  }
                 }}
               />
 
@@ -448,7 +583,7 @@ export default function App() {
             {activeTab === 'settings' && (
               <SettingsPage
                 theme={theme}
-                onToggleTheme={toggleTheme}
+                onToggleTheme={handleToggleTheme}
                 onOpenAccountSecurity={() => setActiveTab('account')}
               />
             )}
@@ -480,8 +615,8 @@ export default function App() {
   return (
     <div
       className={`${
-        showWorkspace ? 'h-screen overflow-hidden flex flex-col md:flex-row' : 'min-h-screen overflow-x-hidden flex flex-col'
-      } w-screen relative font-sans antialiased theme-transition ${
+        showWorkspace ? 'h-screen overflow-hidden flex flex-col md:flex-row' : 'min-h-screen overflow-x-clip flex flex-col'
+      } w-full relative font-sans antialiased theme-transition ${
         theme === 'light' ? 'theme-light bg-[#e0f2fe] text-slate-900' : 'bg-[#070815] text-slate-100'
       }`}
     >
@@ -518,26 +653,67 @@ export default function App() {
             </span>
           </div>
         )
+      ) : authErrorState ? (
+        <FriendlyErrorScreen
+          title={authErrorState.title}
+          message={authErrorState.message}
+          theme={theme}
+          variant="fullscreen"
+          goBackLabel="Go Back"
+          tryAgainLabel="Try Again"
+          showTryAgain={authErrorState.retryable}
+          onGoBack={() => {
+            const target = authErrorState.originRoute || 'signin';
+            setAuthErrorState(null);
+            navigateRoute(target, { replace: true });
+          }}
+          onTryAgain={
+            authErrorState.retryable
+              ? async () => {
+                  if (authErrorState.provider === 'google') {
+                    const retryRes = await authService.signInWithOAuthProvider('google', 'email profile');
+                    if (!retryRes.ok) {
+                      const target = authErrorState.originRoute || 'signin';
+                      setAuthErrorState(null);
+                      navigateRoute(target, {
+                        replace: true,
+                        notice: toFriendlyError(retryRes.message, 'google_oauth').userMessage,
+                      });
+                    }
+                  } else {
+                    const target = authErrorState.originRoute || 'signin';
+                    setAuthErrorState(null);
+                    navigateRoute(target, { replace: true });
+                  }
+                }
+              : undefined
+          }
+          secondaryActionLabel="Return to Angel Home"
+          onSecondaryAction={() => {
+            setAuthErrorState(null);
+            navigateRoute('landing', { replace: true });
+          }}
+        />
       ) : !showWorkspace ? (
         /* PUBLIC ENTRY & DEDICATED AUTHENTICATION ROUTES */
         <>
           {currentRoute === 'signin' ? (
             <SignInPage
               theme={theme}
-              onToggleTheme={toggleTheme}
+              onToggleTheme={handleToggleTheme}
               onNavigate={(r, opts) => navigateRoute(r, opts)}
               initialNotice={authNotice}
             />
           ) : currentRoute === 'signup' ? (
             <SignUpPage
               theme={theme}
-              onToggleTheme={toggleTheme}
+              onToggleTheme={handleToggleTheme}
               onNavigate={(r, opts) => navigateRoute(r, opts)}
             />
           ) : currentRoute === 'verify-email' ? (
             <EmailVerificationPage
               theme={theme}
-              onToggleTheme={toggleTheme}
+              onToggleTheme={handleToggleTheme}
               onNavigate={(r) => navigateRoute(r)}
               pendingEmail={pendingVerifyEmail}
               initialError={verifyError}
@@ -547,21 +723,21 @@ export default function App() {
             <PasswordRecoveryPage
               mode="request"
               theme={theme}
-              onToggleTheme={toggleTheme}
+              onToggleTheme={handleToggleTheme}
               onNavigate={(r) => navigateRoute(r)}
             />
           ) : currentRoute === 'reset-password' ? (
             <PasswordRecoveryPage
               mode="complete"
               theme={theme}
-              onToggleTheme={toggleTheme}
+              onToggleTheme={handleToggleTheme}
               onNavigate={(r) => navigateRoute(r)}
               initialError={recoveryError}
             />
           ) : (
             <LandingPage
               theme={theme}
-              onToggleTheme={toggleTheme}
+              onToggleTheme={handleToggleTheme}
               onNavigate={(r) => navigateRoute(r)}
             />
           )}
@@ -617,11 +793,7 @@ export default function App() {
               onMouseLeave={handleLeaveMore}
               onSelectSubItem={(subItem) => {
                 handleCloseAllMore();
-                if (subItem === 'activities' || subItem === 'workspace' || subItem === 'library' || subItem === 'tools') {
-                  handleNavClick(subItem);
-                } else {
-                  openFeatureDetails(subItem);
-                }
+                handleNavClick(subItem as any);
               }}
             />
           )}
@@ -657,7 +829,7 @@ export default function App() {
                 onOpenNotifications={() => setActiveModal('notifications')}
                 unreadCount={unreadNotificationCount}
                 theme={theme}
-                onToggleTheme={toggleTheme}
+                onToggleTheme={handleToggleTheme}
                 onOpenAuthModal={() => navigateRoute('signin')}
                 isIncognitoActive={activeTab === 'incognito-chat'}
                 onOpenIncognitoChat={() => handleNavClick('incognito-chat')}
@@ -672,9 +844,17 @@ export default function App() {
                   ? 'flex-1 p-0 w-full flex flex-col min-h-0'
                   : 'flex-1 px-3 sm:px-6 md:px-8 pb-12 max-w-7xl w-full mx-auto'
             }>
-              <Suspense fallback={<PageSkeleton variant={getPageSkeletonVariant()} />}>
-                {renderActivePage()}
-              </Suspense>
+              <ErrorBoundary
+                theme={theme}
+                variant="panel"
+                resetKey={activeTab}
+                goBackLabel="Go Back"
+                onGoBack={() => setActiveTab(prevWorkspaceTabRef.current || 'home')}
+              >
+                <Suspense fallback={<PageSkeleton variant={getPageSkeletonVariant()} />}>
+                  {renderActivePage()}
+                </Suspense>
+              </ErrorBoundary>
             </main>
           </div>
 

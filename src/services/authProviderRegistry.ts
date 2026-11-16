@@ -28,9 +28,18 @@ export interface AuthProviderDescriptor {
   missingRequirements: string[];
 }
 
+export type AuthProviderReadinessReason =
+  | 'verified_enabled'
+  | 'unverified_client_ready'
+  | 'provider_disabled_in_supabase'
+  | 'provider_not_allowlisted'
+  | 'supabase_unconfigured';
+
 export interface AuthProviderStatus extends AuthProviderDescriptor {
   supabaseConfigured: boolean;
   providerEnabledInEnv: boolean;
+  verifiedInSupabase: boolean | null;
+  readinessReason: AuthProviderReadinessReason;
   isReady: boolean;
 }
 
@@ -210,9 +219,9 @@ export function parseEnabledProvidersList(rawValue?: string | null): Set<AuthPro
 
 function readEnabledProvidersEnv(): string | null {
   try {
-    const viteEnv = (import.meta as unknown as { env?: Record<string, string | undefined> })?.env;
-    if (viteEnv?.VITE_SUPABASE_ENABLED_PROVIDERS) {
-      return viteEnv.VITE_SUPABASE_ENABLED_PROVIDERS;
+    const viteVal = import.meta.env?.VITE_SUPABASE_ENABLED_PROVIDERS;
+    if (viteVal && viteVal.trim().length > 0) {
+      return viteVal.trim();
     }
   } catch {
     // Ignore outside Vite
@@ -223,9 +232,28 @@ function readEnabledProvidersEnv(): string | null {
   return null;
 }
 
+function lookupExternalProviderState(
+  providerId: AuthProviderId,
+  liveExternalProviders?: Record<string, boolean> | null
+): boolean | null {
+  if (!liveExternalProviders) return null;
+  if (providerId in liveExternalProviders) {
+    return liveExternalProviders[providerId];
+  }
+  // Supabase GoTrue /settings uses `azure` for Microsoft, `linkedin_oidc` or `linkedin`, etc.
+  if (providerId === 'linkedin_oidc' && 'linkedin' in liveExternalProviders) {
+    return liveExternalProviders.linkedin;
+  }
+  if (providerId === 'slack_oidc' && 'slack' in liveExternalProviders) {
+    return liveExternalProviders.slack;
+  }
+  return null;
+}
+
 export function getAuthProviderStatuses(
   overrideEnabledCsv?: string | null,
-  overrideSupabaseConfigured?: boolean
+  overrideSupabaseConfigured?: boolean,
+  liveExternalProviders?: Record<string, boolean> | null
 ): AuthProviderStatus[] {
   const supabaseConfigured =
     typeof overrideSupabaseConfigured === 'boolean'
@@ -237,15 +265,40 @@ export function getAuthProviderStatuses(
   );
 
   return ALL_SUPPORTED_PROVIDERS.map((provider) => {
-    // Google is the first-class login route. When the Supabase client is configured,
-    // allow the real OAuth request to reach Supabase; Auth itself is the source of truth
-    // for whether Google is enabled. Other providers remain explicitly allow-listed.
     const providerEnabledInEnv = enabledSet.has(provider.id) || provider.id === 'google';
+    const liveEnabled = supabaseConfigured
+      ? lookupExternalProviderState(provider.id, liveExternalProviders)
+      : null;
+
+    let readinessReason: AuthProviderReadinessReason;
+    let isReady = false;
+
+    if (!supabaseConfigured) {
+      readinessReason = 'supabase_unconfigured';
+      isReady = false;
+    } else if (liveEnabled === false) {
+      readinessReason = 'provider_disabled_in_supabase';
+      isReady = false;
+    } else if (liveEnabled === true) {
+      readinessReason = 'verified_enabled';
+      isReady = true;
+    } else if (providerEnabledInEnv) {
+      // Live probe unavailable or pending: Google/allow-listed providers can initiate OAuth,
+      // and Supabase itself enforces whether the provider toggle + client secret are configured.
+      readinessReason = 'unverified_client_ready';
+      isReady = true;
+    } else {
+      readinessReason = 'provider_not_allowlisted';
+      isReady = false;
+    }
+
     return {
       ...provider,
       supabaseConfigured,
       providerEnabledInEnv,
-      isReady: supabaseConfigured && providerEnabledInEnv,
+      verifiedInSupabase: liveEnabled,
+      readinessReason,
+      isReady,
     };
   }).sort((a, b) => a.priority - b.priority);
 }
@@ -256,9 +309,10 @@ export function getAuthProviderStatuses(
  */
 export function getVisibleAuthProviders(
   overrideEnabledCsv?: string | null,
-  overrideSupabaseConfigured?: boolean
+  overrideSupabaseConfigured?: boolean,
+  liveExternalProviders?: Record<string, boolean> | null
 ): AuthProviderStatus[] {
-  const all = getAuthProviderStatuses(overrideEnabledCsv, overrideSupabaseConfigured);
+  const all = getAuthProviderStatuses(overrideEnabledCsv, overrideSupabaseConfigured, liveExternalProviders);
   return all.filter(
     (p) =>
       p.id === 'google' ||

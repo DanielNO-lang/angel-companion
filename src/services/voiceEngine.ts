@@ -1,5 +1,5 @@
 /**
- * Voice Engine - Real Web Speech Recognition (Continuous Dictation) & Instant Web Speech Synthesis (Angel Voice)
+ * Voice Engine - Real Web Speech Recognition & Web Speech Synthesis with hardened error and cleanup handling
  */
 
 export interface SpeechRecognitionListener {
@@ -11,11 +11,12 @@ export interface SpeechRecognitionListener {
 export class VoiceEngine {
   private static instance: VoiceEngine;
   private recognition: any = null;
-  private isListening: boolean = false;
-  private shouldKeepListening: boolean = false;
-  private isSynthesizing: boolean = false;
-  private baseTranscript: string = '';
+  private isListening = false;
+  private shouldKeepListening = false;
+  private isSynthesizing = false;
+  private baseTranscript = '';
   private activeListener: SpeechRecognitionListener | null = null;
+  private sessionSeq = 0;
 
   private constructor() {
     this.initSpeechRecognition();
@@ -26,6 +27,16 @@ export class VoiceEngine {
       VoiceEngine.instance = new VoiceEngine();
     }
     return VoiceEngine.instance;
+  }
+
+  public isRecognitionSupported(): boolean {
+    if (typeof window === 'undefined') return false;
+    return Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+  }
+
+  public isSynthesisSupported(): boolean {
+    if (typeof window === 'undefined') return false;
+    return Boolean(window.speechSynthesis && typeof SpeechSynthesisUtterance !== 'undefined');
   }
 
   private initSpeechRecognition() {
@@ -40,17 +51,36 @@ export class VoiceEngine {
           this.recognition.lang = 'en-US';
         } catch (e) {
           console.warn('[VoiceEngine] Could not initialize SpeechRecognition:', e);
+          this.recognition = null;
         }
       }
     }
   }
 
-  /**
-   * Start continuous dictation / speech-to-text without word truncation or auto-ending
-   */
-  public startListening(listener: SpeechRecognitionListener, initialText: string = ''): boolean {
+  private formatSpeechError(code?: string): string {
+    switch (code) {
+      case 'not-allowed':
+      case 'service-not-allowed':
+        return 'Microphone access was denied. Enable microphone permission in your browser settings to use voice dictation.';
+      case 'audio-capture':
+        return 'No working microphone device was detected.';
+      case 'network':
+        return 'Voice dictation requires a network connection to your browser speech service.';
+      case 'aborted':
+        return 'Voice dictation was stopped.';
+      default:
+        return code || 'Microphone capture error.';
+    }
+  }
+
+  public startListening(listener: SpeechRecognitionListener, initialText = ''): boolean {
     if (this.isListening) {
       this.stopListening();
+    }
+
+    if (!this.isRecognitionSupported()) {
+      listener.onError('Speech recognition is not supported in this browser. Please type your message or use a Chromium-based browser.');
+      return false;
     }
 
     if (!this.recognition) {
@@ -58,21 +88,24 @@ export class VoiceEngine {
     }
 
     if (!this.recognition) {
-      listener.onError('Speech recognition is not natively supported in this browser. Please type or use Chrome.');
+      listener.onError('Speech recognition could not be initialized on this device.');
       return false;
     }
 
+    this.sessionSeq += 1;
+    const currentSeq = this.sessionSeq;
     this.baseTranscript = initialText ? initialText.trim() + ' ' : '';
     this.activeListener = listener;
     this.shouldKeepListening = true;
 
     try {
       this.recognition.onresult = (event: any) => {
+        if (this.sessionSeq !== currentSeq || !this.shouldKeepListening) return;
         let finalChunk = '';
         let interimChunk = '';
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const trans = event.results[i][0].transcript;
+          const trans = event.results[i][0]?.transcript || '';
           if (event.results[i].isFinal) {
             finalChunk += trans + ' ';
           } else {
@@ -86,30 +119,38 @@ export class VoiceEngine {
 
         const fullText = (this.baseTranscript + interimChunk).replace(/\s+/g, ' ').trim();
         if (fullText && this.activeListener) {
-          this.activeListener.onTranscript(fullText, !!finalChunk);
+          this.activeListener.onTranscript(fullText, Boolean(finalChunk));
         }
       };
 
       this.recognition.onerror = (event: any) => {
-        console.warn('[VoiceEngine] Speech recognition event error:', event.error);
-        if (event.error !== 'no-speech' && this.activeListener) {
-          this.activeListener.onError(event.error || 'Microphone capture error');
+        if (this.sessionSeq !== currentSeq) return;
+        const errCode = event?.error;
+        if (errCode === 'not-allowed' || errCode === 'service-not-allowed' || errCode === 'audio-capture') {
+          this.shouldKeepListening = false;
+          this.isListening = false;
+        }
+        if (errCode !== 'no-speech' && errCode !== 'aborted' && this.activeListener) {
+          this.activeListener.onError(this.formatSpeechError(errCode));
         }
       };
 
       this.recognition.onend = () => {
-        // Auto-restart continuous dictation if user didn't explicitly hit stop or send
+        if (this.sessionSeq !== currentSeq) return;
         if (this.shouldKeepListening) {
           try {
             this.recognition.start();
             return;
-          } catch (e) {
-            console.warn('[VoiceEngine] Auto-restart failed:', e);
+          } catch {
+            // Fall through to clean end
           }
         }
         this.isListening = false;
-        if (this.activeListener) {
-          this.activeListener.onEnd();
+        this.shouldKeepListening = false;
+        const listenerRef = this.activeListener;
+        this.activeListener = null;
+        if (listenerRef) {
+          listenerRef.onEnd();
         }
       };
 
@@ -117,83 +158,93 @@ export class VoiceEngine {
       this.isListening = true;
       return true;
     } catch (err: any) {
-      console.warn('[VoiceEngine] Error starting speech recognition:', err);
-      listener.onError(err.message || 'Failed to start microphone');
+      listener.onError(err?.message || 'Failed to start microphone dictation.');
       this.isListening = false;
       this.shouldKeepListening = false;
+      this.activeListener = null;
       return false;
     }
   }
 
-  /**
-   * Stop dictation manually
-   */
   public stopListening() {
+    this.sessionSeq += 1;
     this.shouldKeepListening = false;
-    if (this.recognition && this.isListening) {
+    const listenerRef = this.activeListener;
+    this.activeListener = null;
+
+    if (this.recognition) {
       try {
-        this.recognition.stop();
-      } catch (err) {
-        console.warn('[VoiceEngine] Stop error:', err);
+        this.recognition.onresult = null;
+        this.recognition.onerror = null;
+        this.recognition.onend = null;
+        if (this.isListening) {
+          this.recognition.stop();
+        }
+      } catch {
+        // Ignore stop errors when recognition already ended
       }
     }
+    const wasListening = this.isListening;
     this.isListening = false;
+    if (wasListening && listenerRef) {
+      listenerRef.onEnd();
+    }
   }
 
   public getIsListening(): boolean {
     return this.isListening;
   }
 
-  /**
-   * Speak response aloud immediately using Angel's natural AI voice (0ms latency)
-   */
   public speak(
     text: string,
     onStart?: () => void,
     onEnd?: () => void
   ): boolean {
-    if (typeof window === 'undefined' || !window.speechSynthesis) {
+    if (!this.isSynthesisSupported()) {
+      if (onEnd) onEnd();
       return false;
     }
 
     try {
-      // Immediately cancel any pending/paused speech queue for zero-lag response
       window.speechSynthesis.cancel();
       if (window.speechSynthesis.paused) {
         window.speechSynthesis.resume();
       }
 
-      // Clean markdown tags and code snippets from spoken text
       const cleanText = text
         .replace(/```[\s\S]*?```/g, 'Code block omitted for speech.')
         .replace(/`([^`]+)`/g, '$1')
         .replace(/[#*_~>]/g, '')
         .trim();
 
-      if (!cleanText) return false;
+      if (!cleanText) {
+        if (onEnd) onEnd();
+        return false;
+      }
 
       const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.rate = 1.1; // Responsive, punchy cadence
+      utterance.rate = 1.1;
       utterance.pitch = 1.05;
 
-      // Select high quality voice if available
       const voices = window.speechSynthesis.getVoices();
-      const preferredVoice = voices.find(
-        (v) =>
-          (v.name.includes('Natural') ||
-            v.name.includes('Samantha') ||
-            v.name.includes('Karen') ||
-            v.name.includes('Victoria') ||
-            v.name.includes('Google UK English Female') ||
-            v.name.includes('Female')) &&
-          v.lang.startsWith('en')
-      ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
+      const preferredVoice =
+        voices.find(
+          (v) =>
+            (v.name.includes('Natural') ||
+              v.name.includes('Samantha') ||
+              v.name.includes('Karen') ||
+              v.name.includes('Victoria') ||
+              v.name.includes('Google UK English Female') ||
+              v.name.includes('Female')) &&
+            v.lang.startsWith('en')
+        ) ||
+        voices.find((v) => v.lang.startsWith('en')) ||
+        voices[0];
 
       if (preferredVoice) {
         utterance.voice = preferredVoice;
       }
 
-      // Synchronously trigger onStart & set synthesizing flag for instant visual feedback
       this.isSynthesizing = true;
       if (onStart) onStart();
 
@@ -206,25 +257,34 @@ export class VoiceEngine {
         if (onEnd) onEnd();
       };
 
-      utterance.onerror = (err) => {
-        console.warn('[VoiceEngine] Synthesis error:', err);
+      utterance.onerror = () => {
         this.isSynthesizing = false;
         if (onEnd) onEnd();
       };
 
       window.speechSynthesis.speak(utterance);
       return true;
-    } catch (err) {
-      console.warn('[VoiceEngine] Synthesis exception:', err);
+    } catch {
+      this.isSynthesizing = false;
+      if (onEnd) onEnd();
       return false;
     }
   }
 
   public stopSpeaking() {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-      this.isSynthesizing = false;
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // ignore cancel error
+      }
     }
+    this.isSynthesizing = false;
+  }
+
+  public stopAll() {
+    this.stopListening();
+    this.stopSpeaking();
   }
 
   public getIsSynthesizing(): boolean {

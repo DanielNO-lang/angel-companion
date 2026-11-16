@@ -69,6 +69,12 @@ export interface ChatMessage {
   attachmentDetails?: AttachmentRecord[];
   linkPreviews?: LinkPreview[];
   mode?: string;
+  status?: 'completed' | 'failed' | 'pending' | 'unsent';
+  error?: string;
+  modelUsed?: string;
+  requestedMode?: string;
+  appliedMode?: string;
+  thinkingLevel?: string;
 }
 
 export interface ActivityRecord {
@@ -119,9 +125,10 @@ export interface FeatureMeta {
 export interface SystemServiceStatus {
   id: string;
   name: string;
-  status: 'operational' | 'degraded' | 'standby';
-  latencyMs: number;
+  status: 'operational' | 'configured' | 'degraded' | 'unavailable' | 'standby';
+  latencyMs: number | null;
   lastChecked: string;
+  detail?: string;
 }
 
 export interface UserPreferences {

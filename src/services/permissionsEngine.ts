@@ -9,26 +9,46 @@ export interface PermissionRecord {
   lastRequestedAt?: string;
 }
 
-const DEFAULT_PERMISSIONS: PermissionRecord[] = [
-  { type: 'camera', label: 'Camera Vision Access', state: 'prompt' },
-  { type: 'microphone', label: 'Microphone Dictation & Audio', state: 'prompt' },
-  { type: 'screen_share', label: 'Screen Sharing Workspace Vision', state: 'prompt' },
-  { type: 'local_storage', label: 'Local Persistence Auto-Sync', state: 'granted' },
-  { type: 'network_fetch', label: 'External Provider Network API', state: 'granted' },
-];
+function createDefaultPermissions(): PermissionRecord[] {
+  return [
+    { type: 'camera', label: 'Camera Vision Access', state: 'prompt' },
+    { type: 'microphone', label: 'Microphone Dictation & Audio', state: 'prompt' },
+    { type: 'screen_share', label: 'Screen Sharing Workspace Vision', state: 'prompt' },
+    { type: 'local_storage', label: 'Local Persistence Auto-Sync', state: 'granted' },
+    { type: 'network_fetch', label: 'External Provider Network API', state: 'granted' },
+  ];
+}
 
 export class PermissionsEngine {
-  private permissions: PermissionRecord[];
+  private permissions: PermissionRecord[] = createDefaultPermissions();
+  private activeUserId: string | null = null;
 
   constructor() {
-    this.permissions = storageService.load<PermissionRecord[]>(
-      STORAGE_KEYS.permissions,
-      DEFAULT_PERMISSIONS
-    );
+    this.loadCurrentScope();
   }
 
-  private persist() {
-    storageService.save(STORAGE_KEYS.permissions, this.permissions);
+  private scopedKey(base: string): string {
+    return this.activeUserId ? `${base}:user:${this.activeUserId}` : base;
+  }
+
+  private loadCurrentScope(): void {
+    const defaults = createDefaultPermissions();
+    const loaded = storageService.load<PermissionRecord[]>(
+      this.scopedKey(STORAGE_KEYS.permissions),
+      defaults
+    );
+    this.permissions = Array.isArray(loaded) && loaded.length > 0 ? loaded : defaults;
+  }
+
+  public setUserContext(userId: string | null): void {
+    if (this.activeUserId !== userId) {
+      this.activeUserId = userId;
+      this.loadCurrentScope();
+    }
+  }
+
+  private persist(): void {
+    storageService.save(this.scopedKey(STORAGE_KEYS.permissions), this.permissions);
   }
 
   getPermissions(): PermissionRecord[] {
@@ -37,10 +57,57 @@ export class PermissionsEngine {
 
   isPermissionGranted(permission: string): boolean {
     if (permission === 'none') return true;
+    const mappedType: PermissionType | null =
+      permission === 'file_modification' ||
+      permission === 'read_files' ||
+      permission === 'write_files' ||
+      permission === 'execute_code'
+        ? 'local_storage'
+        : permission === 'device_control'
+          ? 'screen_share'
+          : (permission as PermissionType);
+
     const record = this.permissions.find(
-      (p) => p.type === permission || p.type.includes(permission) || (permission === 'file_modification' && p.type === 'local_storage')
+      (p) => p.type === permission || (mappedType && p.type === mappedType)
     );
     return record ? record.state === 'granted' : false;
+  }
+
+  setPermissionState(type: PermissionType, state: 'granted' | 'denied' | 'prompt'): boolean {
+    const record = this.permissions.find((p) => p.type === type);
+    if (!record) return false;
+    record.state = state;
+    record.lastRequestedAt = new Date().toISOString();
+    this.persist();
+    return true;
+  }
+
+  revokePermission(type: PermissionType): boolean {
+    return this.setPermissionState(type, 'denied');
+  }
+
+  async syncBrowserPermissionStates(): Promise<void> {
+    if (typeof navigator === 'undefined' || !navigator.permissions?.query) return;
+    const mapping: Array<{ name: PermissionName; type: PermissionType }> = [
+      { name: 'camera' as PermissionName, type: 'camera' },
+      { name: 'microphone' as PermissionName, type: 'microphone' },
+    ];
+    let changed = false;
+    for (const item of mapping) {
+      try {
+        const res = await navigator.permissions.query({ name: item.name });
+        const record = this.permissions.find((p) => p.type === item.type);
+        if (record && (res.state === 'granted' || res.state === 'denied' || res.state === 'prompt')) {
+          if (record.state !== res.state) {
+            record.state = res.state;
+            changed = true;
+          }
+        }
+      } catch {
+        // Browser may not support querying camera/microphone via permissions API
+      }
+    }
+    if (changed) this.persist();
   }
 
   async requestPermission(type: PermissionType): Promise<boolean> {
@@ -49,10 +116,9 @@ export class PermissionsEngine {
 
     record.lastRequestedAt = new Date().toISOString();
 
-    // Genuine Browser Permission Checks
     if (type === 'microphone') {
       try {
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
           stream.getTracks().forEach((track) => track.stop());
           record.state = 'granted';
@@ -65,9 +131,14 @@ export class PermissionsEngine {
         this.persist();
         return false;
       }
-    } else if (type === 'camera') {
+      record.state = 'denied';
+      this.persist();
+      return false;
+    }
+
+    if (type === 'camera') {
       try {
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
           const stream = await navigator.mediaDevices.getUserMedia({ video: true });
           stream.getTracks().forEach((track) => track.stop());
           record.state = 'granted';
@@ -80,9 +151,14 @@ export class PermissionsEngine {
         this.persist();
         return false;
       }
-    } else if (type === 'screen_share') {
+      record.state = 'denied';
+      this.persist();
+      return false;
+    }
+
+    if (type === 'screen_share') {
       try {
-        if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+        if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getDisplayMedia) {
           const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
           stream.getTracks().forEach((track) => track.stop());
           record.state = 'granted';
@@ -95,10 +171,12 @@ export class PermissionsEngine {
         this.persist();
         return false;
       }
+      record.state = 'denied';
+      this.persist();
+      return false;
     }
 
-    // Default toggle if no native API required
-    record.state = record.state === 'granted' ? 'prompt' : 'granted';
+    record.state = record.state === 'granted' ? 'denied' : 'granted';
     this.persist();
     return record.state === 'granted';
   }

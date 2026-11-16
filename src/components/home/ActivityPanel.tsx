@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Layers, TrendingUp, ArrowRight } from 'lucide-react';
+import { CheckCircle2, Layers, TrendingUp, ArrowRight, Sparkles } from 'lucide-react';
 import { ActivityItem } from '../../types/angel';
 
 interface ActivityPanelProps {
@@ -8,79 +8,75 @@ interface ActivityPanelProps {
 }
 
 export const ActivityPanel: React.FC<ActivityPanelProps> = ({
+  activities = [],
   onViewAll,
 }) => {
-  const activityList = [
-    {
-      id: 'act-1',
-      title: 'Research Analysis',
-      timestamp: '2m ago',
-      type: 'completed',
-    },
-    {
-      id: 'act-2',
-      title: 'Project Planning',
-      timestamp: '12m ago',
-      type: 'progress-cyan',
-    },
-    {
-      id: 'act-3',
-      title: 'Marketing Strategy',
-      timestamp: '1h ago',
-      type: 'progress-purple',
-    },
-  ];
+  const visibleActivities = activities.slice(0, 3);
 
   return (
-    <div className="rounded-3xl bg-[#070b20]/35 p-4 sm:p-5 backdrop-blur-2xl relative overflow-hidden flex flex-col justify-between min-h-[190px] h-full shadow-[0_8px_30px_rgba(0,0,0,0.35)] select-none">
+    <div className="rounded-3xl angel-blurred-surface bg-[#070b20]/35 p-4 sm:p-5 backdrop-blur-2xl relative overflow-hidden flex flex-col justify-between min-h-[190px] h-full select-none">
       {/* Header */}
       <div className="flex items-center justify-between mb-2 z-10">
         <h3 className="text-base font-bold font-heading text-white tracking-tight">Your Activity</h3>
         <button
           onClick={onViewAll}
-          className="text-xs font-medium text-slate-300 hover:text-white flex items-center gap-1 transition-colors group"
+          className="text-xs font-medium text-slate-300 hover:text-white flex items-center gap-1 transition-colors group cursor-pointer"
         >
           <span>View all</span>
           <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform text-cyan-400" />
         </button>
       </div>
 
-      {/* Activity List - Spanning full width to eliminate right gap */}
-      <div className="space-y-1.5 z-10 flex-1 my-auto w-full">
-        {activityList.map((act) => (
-          <div
-            key={act.id}
-            className="flex items-center justify-between p-2 rounded-2xl hover:bg-white/[0.04] transition-all group cursor-pointer"
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              {act.type === 'completed' && (
-                <div className="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(52,211,153,0.5)]">
-                  <CheckCircle2 className="w-4 h-4 stroke-[2.2]" />
-                </div>
-              )}
-              {act.type === 'progress-cyan' && (
-                <div className="w-7 h-7 rounded-full bg-cyan-500/20 text-cyan-300 flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(6,182,212,0.5)]">
-                  <Layers className="w-4 h-4 stroke-[2]" />
-                </div>
-              )}
-              {act.type === 'progress-purple' && (
-                <div className="w-7 h-7 rounded-full bg-purple-500/20 text-purple-300 flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(168,85,247,0.5)]">
-                  <TrendingUp className="w-4 h-4 stroke-[2]" />
-                </div>
-              )}
-
-              <div className="min-w-0">
-                <h4 className="text-xs font-semibold text-white group-hover:text-cyan-200 transition-colors truncate">
-                  {act.title}
-                </h4>
-              </div>
+      {/* Genuine Activity List or Honest Empty State */}
+      <div className="space-y-1.5 z-10 flex-1 my-auto w-full flex flex-col justify-center">
+        {visibleActivities.length === 0 ? (
+          <div className="p-3 rounded-2xl bg-white/[0.02] text-center space-y-1">
+            <div className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-cyan-500/15 text-cyan-300 mb-0.5">
+              <Sparkles className="w-3.5 h-3.5" />
             </div>
-
-            <span className="text-[11px] font-medium text-slate-400 group-hover:text-slate-200 transition-colors shrink-0 ml-2">
-              {act.timestamp}
-            </span>
+            <p className="text-xs font-semibold text-slate-200">No recorded activity yet</p>
+            <p className="text-[11px] text-slate-400 leading-snug">
+              Start a conversation or open a workspace to track real sessions here.
+            </p>
           </div>
-        ))}
+        ) : (
+          visibleActivities.map((act) => (
+            <div
+              key={act.id}
+              onClick={onViewAll}
+              className="flex items-center justify-between p-2 rounded-2xl hover:bg-white/[0.04] transition-all group cursor-pointer"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                {act.status === 'completed' && (
+                  <div className="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(52,211,153,0.4)]">
+                    <CheckCircle2 className="w-4 h-4 stroke-[2.2]" />
+                  </div>
+                )}
+                {act.status === 'in_progress' && (
+                  <div className="w-7 h-7 rounded-full bg-cyan-500/20 text-cyan-300 flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(6,182,212,0.4)]">
+                    <Layers className="w-4 h-4 stroke-[2]" />
+                  </div>
+                )}
+                {(act.status === 'queued' || act.status === 'standby') && (
+                  <div className="w-7 h-7 rounded-full bg-purple-500/20 text-purple-300 flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(168,85,247,0.4)]">
+                    <TrendingUp className="w-4 h-4 stroke-[2]" />
+                  </div>
+                )}
+
+                <div className="min-w-0">
+                  <h4 className="text-xs font-semibold text-white group-hover:text-cyan-200 transition-colors truncate">
+                    {act.title}
+                  </h4>
+                  <p className="text-[10px] text-slate-500 truncate">{act.category}</p>
+                </div>
+              </div>
+
+              <span className="text-[11px] font-medium text-slate-400 group-hover:text-slate-200 transition-colors shrink-0 ml-2">
+                {act.timestamp}
+              </span>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Cosmic background glow */}

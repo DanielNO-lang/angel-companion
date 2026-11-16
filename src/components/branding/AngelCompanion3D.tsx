@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { CompanionOrbState } from '../../types/angel';
+import { RenderLoopController } from '../../utils/renderLoopVisibility';
+import { getDevicePerformanceProfile } from '../../utils/devicePerformance';
 
 interface AngelCompanion3DProps {
   state?: CompanionOrbState;
@@ -19,18 +21,24 @@ export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
   showControls = true,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
+  const stateRef = useRef<CompanionOrbState>(state);
   const [webGlFailed, setWebGlFailed] = useState(false);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
 
+    const perf = getDevicePerformanceProfile();
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({
-        antialias: true,
+        antialias: perf.tier !== 'low',
         alpha: true,
-        powerPreference: 'high-performance',
+        powerPreference: perf.tier === 'high' ? 'high-performance' : 'default',
       });
     } catch {
       setWebGlFailed(true);
@@ -38,7 +46,7 @@ export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
     }
 
     renderer.setSize(size, size);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, perf.maxDpr));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.3;
@@ -147,51 +155,30 @@ export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
 
     scene.add(orbGroup);
 
-    // Render loop and state animation logic with reduced-motion and FPS cap
+    // Render loop controlled by RenderLoopController (pauses completely when hidden or offscreen)
     const prefersReducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    let animationFrameId = 0;
     const startTimeMs = performance.now();
     let lastRenderTime = 0;
     const minFrameIntervalMs = 1000 / 30;
     let firstFrameRendered = false;
-    let isVisibleInViewport = true;
 
-    const observer =
-      typeof IntersectionObserver !== 'undefined'
-        ? new IntersectionObserver(
-            (entries) => {
-              isVisibleInViewport = entries[0]?.isIntersecting ?? true;
-            },
-            { threshold: 0.05 }
-          )
-        : null;
-    observer?.observe(container);
-
-    const animate = (nowArg?: number) => {
-      if (!prefersReducedMotion) {
-        animationFrameId = requestAnimationFrame(animate);
-      }
+    const renderFrame = (nowArg: number) => {
       const now = typeof nowArg === 'number' ? nowArg : performance.now();
-      if (
-        firstFrameRendered &&
-        !prefersReducedMotion &&
-        (document.hidden || !isVisibleInViewport || now - lastRenderTime < minFrameIntervalMs)
-      ) {
+      if (firstFrameRendered && !prefersReducedMotion && now - lastRenderTime < minFrameIntervalMs) {
         return;
       }
       lastRenderTime = now;
 
       const elapsed = (now - startTimeMs) * 0.001;
+      const activeState = stateRef.current;
 
       if (!prefersReducedMotion) {
-        // Base Floating Motion
         orbGroup.position.y = Math.sin(elapsed * 1.2) * 0.12;
       }
 
-      // State-Driven Behavior
-      if (state === 'idle') {
+      if (activeState === 'idle') {
         coreMat.emissive.setHex(0x38bdf8);
         coreLight.color.setHex(0x38bdf8);
         if (!prefersReducedMotion) {
@@ -199,16 +186,15 @@ export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
           particleSystem.rotation.y += 0.008;
           coreMesh.scale.setScalar(1.0 + Math.sin(elapsed * 2) * 0.03);
         }
-      } else if (state === 'listening') {
+      } else if (activeState === 'listening') {
         coreMat.emissive.setHex(0x06b6d4);
         coreLight.color.setHex(0x06b6d4);
         if (!prefersReducedMotion) {
           ringMesh.rotation.z += 0.03;
           particleSystem.rotation.y += 0.015;
-          const pulse = 1.0 + Math.sin(elapsed * 6) * 0.12;
-          coreMesh.scale.setScalar(pulse);
+          coreMesh.scale.setScalar(1.0 + Math.sin(elapsed * 6) * 0.12);
         }
-      } else if (state === 'thinking') {
+      } else if (activeState === 'thinking') {
         coreMat.emissive.setHex(0xa855f7);
         coreLight.color.setHex(0xa855f7);
         if (!prefersReducedMotion) {
@@ -217,22 +203,20 @@ export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
           particleSystem.rotation.y += 0.05;
           coreMesh.scale.setScalar(1.0 + Math.sin(elapsed * 10) * 0.08);
         }
-      } else if (state === 'speaking') {
+      } else if (activeState === 'speaking') {
         coreMat.emissive.setHex(0xec4899);
         coreLight.color.setHex(0xec4899);
         if (!prefersReducedMotion) {
           ringMesh.rotation.z += 0.035;
           particleSystem.rotation.y += 0.02;
-          const wave = 1.0 + Math.abs(Math.sin(elapsed * 8)) * 0.18;
-          coreMesh.scale.setScalar(wave);
+          coreMesh.scale.setScalar(1.0 + Math.abs(Math.sin(elapsed * 8)) * 0.18);
         }
-      } else if (state === 'attention') {
+      } else if (activeState === 'attention') {
         coreMat.emissive.setHex(0xf59e0b);
         coreLight.color.setHex(0xf59e0b);
         if (!prefersReducedMotion) {
           ringMesh.rotation.z += 0.05;
-          const alertPulse = 1.0 + Math.sin(elapsed * 12) * 0.15;
-          coreMesh.scale.setScalar(alertPulse);
+          coreMesh.scale.setScalar(1.0 + Math.sin(elapsed * 12) * 0.15);
         }
       }
 
@@ -240,11 +224,39 @@ export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
       firstFrameRendered = true;
     };
 
-    animate(performance.now());
+    const loopController = new RenderLoopController({
+      reducedMotion: Boolean(prefersReducedMotion),
+      onFrame: renderFrame,
+    });
+
+    const observer =
+      typeof IntersectionObserver !== 'undefined'
+        ? new IntersectionObserver(
+            (entries) => {
+              loopController.setViewportVisible(entries[0]?.isIntersecting ?? true);
+            },
+            { threshold: 0.05 }
+          )
+        : null;
+    observer?.observe(container);
+
+    const handleVisibilityChange = () => {
+      loopController.handleVisibilityChange();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    // Render immediate first frame and start loop when visible
+    renderFrame(performance.now());
+    loopController.start();
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      loopController.dispose();
       observer?.disconnect();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
@@ -262,7 +274,7 @@ export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
       particleMat.dispose();
       renderer.dispose();
     };
-  }, [state, size]);
+  }, [size]);
 
   const stateLabels: Record<CompanionOrbState, string> = {
     idle: 'Idle',

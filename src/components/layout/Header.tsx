@@ -47,7 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
           title="Open Navigation"
         >
           <div className="w-7 h-7 flex items-center justify-center shrink-0">
-            <AngelEmblem3D size={28} rotationSpeed={10} tiltOnHover={true} />
+            <AngelEmblem3D size={28} seed="dashboard-header" rotationSpeed={10} tiltOnHover={true} />
           </div>
           <span className="text-xs font-bold font-heading text-white">ANGEL</span>
         </button>

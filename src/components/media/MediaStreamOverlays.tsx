@@ -20,10 +20,21 @@ export const MediaStreamOverlays: React.FC<MediaStreamOverlaysProps> = ({ onCapt
   }, []);
 
   useEffect(() => {
-    if (videoRef.current && cameraStream) {
-      videoRef.current.srcObject = cameraStream;
-      videoRef.current.play().catch((err) => console.warn('[CameraOverlay] Video play error:', err));
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
+
+    if (cameraStream) {
+      videoEl.srcObject = cameraStream;
+      videoEl.play().catch((err) => console.warn('[CameraOverlay] Video play error:', err));
+    } else {
+      videoEl.srcObject = null;
     }
+
+    return () => {
+      if (videoEl) {
+        videoEl.srcObject = null;
+      }
+    };
   }, [cameraStream]);
 
   const handleStopScreenShare = () => {

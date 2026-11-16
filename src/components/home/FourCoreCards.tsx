@@ -44,7 +44,7 @@ export const FourCoreCards: React.FC<FourCoreCardsProps> = ({
           <div
             key={card.id}
             onClick={() => onSelectDestination(card.id)}
-            className="group relative rounded-2xl sm:rounded-3xl p-3 sm:p-5 bg-[#070b20]/35 hover:bg-[#0a1030]/65 backdrop-blur-2xl transition-all duration-300 cursor-pointer flex flex-col justify-between min-h-[105px] sm:min-h-[135px] shadow-[0_8px_30px_rgba(0,0,0,0.35)] hover:shadow-[0_0_30px_rgba(59,130,246,0.25)] hover:-translate-y-1 overflow-hidden"
+            className="group relative rounded-2xl sm:rounded-3xl p-3 sm:p-5 angel-blurred-surface bg-[#070b20]/35 hover:bg-[#0a1030]/65 backdrop-blur-2xl transition-all duration-300 cursor-pointer flex flex-col justify-between min-h-[105px] sm:min-h-[135px] hover:shadow-[0_0_30px_rgba(59,130,246,0.25)] hover:-translate-y-1 overflow-hidden"
           >
             {/* Top Glowing Cyan Icon */}
             <div className="flex items-center justify-between z-10">

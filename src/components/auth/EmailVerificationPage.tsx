@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { MailCheck, RefreshCw, Edit3, AlertCircle, CheckCircle2, ArrowRight, Loader2 } from 'lucide-react';
 import { AuthLayout } from './AuthLayout';
 import { authService } from '../../services/authService';
+import { toFriendlyError } from '../../services/errorHandlingService';
 import { validateEmail, type AppRoute, type ThemeMode } from '../../services/authValidation';
 
 interface EmailVerificationPageProps {
@@ -26,7 +27,9 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
   const [isEditingEmail, setIsEditingEmail] = useState(false);
   const [newEmail, setNewEmail] = useState(pendingEmail);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(initialError);
+  const [errorMessage, setErrorMessage] = useState<string | null>(() =>
+    initialError ? toFriendlyError(initialError, 'auth', { logDiagnostic: false }).userMessage : null
+  );
   const [cooldownSec, setCooldownSec] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -55,16 +58,20 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
     }
 
     setIsLoading(true);
-    const result = await authService.resendVerificationEmail(email);
-    setIsLoading(false);
+    try {
+      const result = await authService.resendVerificationEmail(email);
+      if (!result.ok) {
+        setErrorMessage(toFriendlyError(result.message, 'auth').userMessage);
+        return;
+      }
 
-    if (!result.ok) {
-      setErrorMessage(result.message);
-      return;
+      setStatusMessage(result.message);
+      setCooldownSec(45);
+    } catch (err) {
+      setErrorMessage(toFriendlyError(err, 'network').userMessage);
+    } finally {
+      setIsLoading(false);
     }
-
-    setStatusMessage(result.message);
-    setCooldownSec(45);
   };
 
   const handleUpdateEmail = async (e: React.FormEvent) => {
@@ -78,22 +85,26 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
     }
 
     setIsLoading(true);
-    const result = await authService.updateAccountEmail(newEmail);
-    setIsLoading(false);
+    try {
+      const result = await authService.updateAccountEmail(newEmail);
+      if (!result.ok) {
+        setErrorMessage(toFriendlyError(result.message, 'auth').userMessage);
+        return;
+      }
 
-    if (!result.ok) {
-      setErrorMessage(result.message);
-      return;
+      setEmail(newEmail.trim());
+      setIsEditingEmail(false);
+      setStatusMessage(result.message);
+    } catch (err) {
+      setErrorMessage(toFriendlyError(err, 'network').userMessage);
+    } finally {
+      setIsLoading(false);
     }
-
-    setEmail(newEmail.trim());
-    setIsEditingEmail(false);
-    setStatusMessage(result.message);
   };
 
   const inputBaseClass = isLight
-    ? 'w-full min-h-[44px] bg-white/85 border border-slate-300 rounded-2xl py-2 px-3.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40'
-    : 'w-full min-h-[44px] bg-[#06091c]/80 border border-slate-700/80 rounded-2xl py-2 px-3.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/35';
+    ? 'w-full min-h-[44px] bg-white/80 hover:bg-white/95 rounded-2xl py-2 px-3.5 text-sm text-slate-900 placeholder-slate-400 angel-blurred-surface focus:outline-none focus:ring-2 focus:ring-blue-500/60 transition-all'
+    : 'w-full min-h-[44px] bg-white/[0.06] hover:bg-white/[0.09] rounded-2xl py-2 px-3.5 text-sm text-white placeholder-slate-500 angel-blurred-surface focus:outline-none focus:ring-2 focus:ring-cyan-400/60 transition-all';
 
   return (
     <AuthLayout
@@ -158,8 +169,8 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
         {!verifiedSuccess && (
           <>
             <div
-              className={`p-4 rounded-2xl border text-xs space-y-2.5 ${
-                isLight ? 'bg-slate-50/80 border-slate-200 text-slate-700' : 'bg-slate-900/60 border-slate-800 text-slate-300'
+              className={`p-4 rounded-2xl text-xs space-y-2.5 backdrop-blur-md ${
+                isLight ? 'bg-white/60 text-slate-700 ring-1 ring-slate-900/5' : 'bg-white/[0.05] text-slate-300 ring-1 ring-white/10'
               }`}
             >
               <div className="flex items-center gap-2 font-semibold">
@@ -239,10 +250,10 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
           <button
             type="button"
             onClick={() => onNavigate('signin')}
-            className={`flex-1 min-h-[44px] rounded-2xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
+            className={`flex-1 min-h-[44px] rounded-2xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
               isLight
-                ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
-                : 'bg-slate-900/70 hover:bg-slate-800 border-slate-700 text-slate-200'
+                ? 'bg-white/75 hover:bg-white text-slate-800 shadow-xs ring-1 ring-slate-900/10'
+                : 'bg-white/[0.06] hover:bg-white/[0.12] text-slate-200 ring-1 ring-white/10'
             }`}
           >
             <span>Return to Sign In</span>

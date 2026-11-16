@@ -31,14 +31,14 @@ The existing site configuration should retain:
 
 | Variable | Scope |
 | --- | --- |
-| `VITE_SUPABASE_URL` | Build |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Build |
+| `VITE_SUPABASE_URL` | Build (and GitHub Actions `vars`/`secrets` or Netlify production env) |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Build (and GitHub Actions `vars`/`secrets` or Netlify production env) |
 | `SUPABASE_URL` | Functions |
 | `SUPABASE_PUBLISHABLE_KEY` | Functions |
 | `GEMINI_API_KEY` | Functions only |
 | `GEMINI_MODEL` | Optional Functions setting |
 
-The app accepts `VITE_SUPABASE_ANON_KEY` as a legacy alias, but `VITE_SUPABASE_PUBLISHABLE_KEY` is the preferred configured name. Never add a service-role key to the frontend.
+For Google AI Studio / local preview, copy `.env.local.example` to `.env.local` (gitignored) and populate `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (or configure them in AI Studio project environment settings). In production deployments, `.github/workflows/production.yml` resolves `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (with fallback to `VITE_SUPABASE_ANON_KEY`) from GitHub variables/secrets or the Netlify site environment before executing `npm run build` so prebuilt `dist` assets always receive public Supabase configuration. The app accepts `VITE_SUPABASE_ANON_KEY` as a legacy alias, but `VITE_SUPABASE_PUBLISHABLE_KEY` is the preferred configured name. Never add a service-role key to the frontend.
 
 ## Google OAuth setup
 

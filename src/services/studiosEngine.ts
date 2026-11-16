@@ -1,5 +1,6 @@
 import { StudioId, StudioInfo } from '../types/angel';
 import { storageService, STORAGE_KEYS } from './storageService';
+import { companionData } from './companionData';
 
 export interface StudioState {
   studioId: StudioId;
@@ -83,9 +84,86 @@ export const APPROVED_EIGHT_STUDIOS: StudioInfo[] = [
   },
 ];
 
+function createFallbackStates(): Record<StudioId, StudioState> {
+  return {
+    'research-studio': { studioId: 'research-studio', activeTool: 'Paper Synthesizer', canvasBuffer: '', history: [] },
+    'development-studio': { studioId: 'development-studio', activeTool: 'Code Completion Engine', canvasBuffer: '', history: [] },
+    'creative-studio': { studioId: 'creative-studio', activeTool: '3D Mesh Generator', canvasBuffer: '', history: [] },
+    'learning-education-studio': { studioId: 'learning-education-studio', activeTool: 'Knowledge Graph Creator', canvasBuffer: '', history: [] },
+    'professional-intelligence-studio': { studioId: 'professional-intelligence-studio', activeTool: 'Financial Model Builder', canvasBuffer: '', history: [] },
+    'personal-life-studio': { studioId: 'personal-life-studio', activeTool: 'Travel Itinerary Builder', canvasBuffer: '', history: [] },
+    'agent-automation-studio': { studioId: 'agent-automation-studio', activeTool: 'Agent Pipeline Builder', canvasBuffer: '', history: [] },
+    'device-environment-studio': { studioId: 'device-environment-studio', activeTool: 'Peripheral Manager', canvasBuffer: '', history: [] },
+  };
+}
+
 export class StudiosEngine {
-  private studioStates: Record<StudioId, StudioState>;
+  private studioStates: Record<StudioId, StudioState> = createFallbackStates();
   private activeStudioId: StudioId = 'research-studio';
+  private accessToken: string | null = null;
+  private activeUserId: string | null = null;
+  private cloudHydrationToken: string | null = null;
+
+  constructor() {
+    this.loadCurrentScope();
+  }
+
+  private scopedKey(base: string): string {
+    return this.activeUserId ? `${base}:user:${this.activeUserId}` : base;
+  }
+
+  private loadCurrentScope(): void {
+    const fallback = createFallbackStates();
+    const loaded = storageService.load<Record<StudioId, StudioState>>(
+      this.scopedKey(STORAGE_KEYS.studiosState),
+      fallback
+    );
+    this.studioStates = { ...fallback, ...(loaded || {}) };
+    this.activeStudioId = 'research-studio';
+  }
+
+  public setAuthContext(token: string | null, userId?: string | null): void {
+    const nextUserId = token ? userId || null : null;
+    const identityChanged = this.activeUserId !== nextUserId;
+    this.accessToken = token;
+
+    if (identityChanged) {
+      this.activeUserId = nextUserId;
+      this.cloudHydrationToken = null;
+      this.loadCurrentScope();
+    }
+
+    if (!token) {
+      this.cloudHydrationToken = null;
+      return;
+    }
+
+    if ((this.cloudHydrationToken !== token || identityChanged) && companionData.isCloudConfigured()) {
+      this.cloudHydrationToken = token;
+      void this.restoreCloud(token);
+    }
+  }
+
+  private async restoreCloud(token: string): Promise<void> {
+    const ownerId = this.activeUserId;
+    if (!ownerId || !companionData.isCloudConfigured()) return;
+    try {
+      const cloudMap = await companionData.loadStudiosState(token);
+      if (this.accessToken !== token || this.activeUserId !== ownerId) return;
+
+      Object.entries(cloudMap).forEach(([k, v]) => {
+        if (v) {
+          this.studioStates[k as StudioId] = {
+            ...v,
+            canvasBuffer: this.studioStates[k as StudioId]?.canvasBuffer || v.canvasBuffer,
+          };
+        }
+      });
+      this.persist(false);
+    } catch (error) {
+      console.warn('[StudiosEngine] Cloud restore deferred:', error);
+    }
+  }
 
   getActiveStudioId(): StudioId {
     return this.activeStudioId;
@@ -95,26 +173,13 @@ export class StudiosEngine {
     this.activeStudioId = id;
   }
 
-  constructor() {
-    const fallbackStates: Record<StudioId, StudioState> = {
-      'research-studio': { studioId: 'research-studio', activeTool: 'Paper Synthesizer', canvasBuffer: '', history: [] },
-      'development-studio': { studioId: 'development-studio', activeTool: 'Code Completion Engine', canvasBuffer: '', history: [] },
-      'creative-studio': { studioId: 'creative-studio', activeTool: '3D Mesh Generator', canvasBuffer: '', history: [] },
-      'learning-education-studio': { studioId: 'learning-education-studio', activeTool: 'Knowledge Graph Creator', canvasBuffer: '', history: [] },
-      'professional-intelligence-studio': { studioId: 'professional-intelligence-studio', activeTool: 'Financial Model Builder', canvasBuffer: '', history: [] },
-      'personal-life-studio': { studioId: 'personal-life-studio', activeTool: 'Travel Itinerary Builder', canvasBuffer: '', history: [] },
-      'agent-automation-studio': { studioId: 'agent-automation-studio', activeTool: 'Agent Pipeline Builder', canvasBuffer: '', history: [] },
-      'device-environment-studio': { studioId: 'device-environment-studio', activeTool: 'Peripheral Manager', canvasBuffer: '', history: [] },
-    };
-
-    this.studioStates = storageService.load<Record<StudioId, StudioState>>(
-      STORAGE_KEYS.studiosState,
-      fallbackStates
-    );
-  }
-
-  private persist() {
-    storageService.save(STORAGE_KEYS.studiosState, this.studioStates);
+  private persist(syncToCloud = true): void {
+    storageService.save(this.scopedKey(STORAGE_KEYS.studiosState), this.studioStates);
+    if (syncToCloud && this.accessToken && this.activeUserId && companionData.isCloudConfigured()) {
+      void companionData.syncStudiosState(this.accessToken, this.studioStates, this.activeUserId).catch((error) => {
+        console.warn('[StudiosEngine] Cloud sync deferred:', error);
+      });
+    }
   }
 
   getStudioInfo(studioId: StudioId): StudioInfo {
@@ -146,6 +211,7 @@ export class StudiosEngine {
     state.canvasBuffer = text;
     if (text.trim()) {
       state.history.unshift(`${new Date().toLocaleTimeString()}: Updated canvas`);
+      if (state.history.length > 50) state.history.pop();
     }
     this.persist();
   }

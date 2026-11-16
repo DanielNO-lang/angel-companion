@@ -2,7 +2,8 @@ import { ChatMessage, StudioId } from '../types/angel';
 import { storageService, STORAGE_KEYS } from './storageService';
 import { memoryEngine } from './memoryEngine';
 import { companionData } from './companionData';
-import { extractIntelligentTitle } from './geminiModelService';
+import { extractIntelligentTitle, geminiModelService } from './geminiModelService';
+import { toFriendlyError } from './errorHandlingService';
 
 export type ConversationScope = 'general' | 'studio';
 
@@ -43,9 +44,28 @@ export class ConversationEngine {
   private cloudSyncRunning = false;
   private cloudSyncQueued = false;
   private cloudHydrationToken: string | null = null;
+  private inFlightThreads = new Set<string>();
+  private changeListeners = new Set<() => void>();
 
   constructor() {
     this.loadCurrentScope();
+  }
+
+  public subscribe(listener: () => void): () => void {
+    this.changeListeners.add(listener);
+    return () => {
+      this.changeListeners.delete(listener);
+    };
+  }
+
+  private notifyChange(): void {
+    this.changeListeners.forEach((listener) => {
+      try {
+        listener();
+      } catch {
+        // ignore listener failure
+      }
+    });
   }
 
   private scopedKey(base: string): string {
@@ -58,9 +78,11 @@ export class ConversationEngine {
       DEFAULT_CONVERSATIONS
     );
     const demoSeedIds = new Set(['conv_general_1', 'conv_studio_res_1', 'conv_studio_dev_1']);
-    this.threads = loaded
-      .filter((thread) => !demoSeedIds.has(thread.id))
-      .map((thread) => thread.scope ? thread : { ...thread, scope: 'general' as const });
+    this.threads = Array.isArray(loaded)
+      ? loaded
+          .filter((thread) => !demoSeedIds.has(thread.id))
+          .map((thread) => (thread.scope ? thread : { ...thread, scope: 'general' as const }))
+      : [];
 
     this.activeGeneralId = storageService.load<string>(
       this.scopedKey(STORAGE_KEYS.activeConversationId),
@@ -70,13 +92,17 @@ export class ConversationEngine {
       this.scopedKey('angel_active_studio_convs_v1'),
       {}
     );
+    this.notifyChange();
   }
 
   private persist(): void {
     storageService.save(this.scopedKey(STORAGE_KEYS.conversations), this.threads);
     storageService.save(this.scopedKey(STORAGE_KEYS.activeConversationId), this.activeGeneralId);
     storageService.save(this.scopedKey('angel_active_studio_convs_v1'), this.activeStudioIds);
-    if (this.accessToken) void this.syncCloud();
+    this.notifyChange();
+    if (this.accessToken && companionData.isCloudConfigured()) {
+      void this.syncCloud();
+    }
   }
 
   public setAccessToken(token: string | null, userId?: string | null): void {
@@ -87,6 +113,7 @@ export class ConversationEngine {
     if (identityChanged) {
       this.activeUserId = nextUserId;
       this.cloudHydrationToken = null;
+      this.inFlightThreads.clear();
       this.loadCurrentScope();
     }
 
@@ -95,14 +122,18 @@ export class ConversationEngine {
       return;
     }
 
-    if (this.cloudHydrationToken !== token || identityChanged) {
+    if ((this.cloudHydrationToken !== token || identityChanged) && companionData.isCloudConfigured()) {
       this.cloudHydrationToken = token;
       void this.restoreCloud(token);
     }
   }
 
+  public isGenerating(threadId: string): boolean {
+    return this.inFlightThreads.has(threadId);
+  }
+
   private async syncCloud(): Promise<void> {
-    if (!this.accessToken || !this.activeUserId) return;
+    if (!this.accessToken || !this.activeUserId || !companionData.isCloudConfigured()) return;
     if (this.cloudSyncRunning) {
       this.cloudSyncQueued = true;
       return;
@@ -113,8 +144,9 @@ export class ConversationEngine {
       do {
         this.cloudSyncQueued = false;
         const token = this.accessToken;
-        if (!token) break;
-        await companionData.syncThreads(token, this.threads);
+        const ownerId = this.activeUserId;
+        if (!token || !ownerId) break;
+        await companionData.syncThreads(token, this.threads, ownerId);
       } while (this.cloudSyncQueued && this.accessToken);
     } catch (error) {
       console.warn('[ConversationEngine] Cloud sync deferred:', error);
@@ -125,7 +157,7 @@ export class ConversationEngine {
 
   private async restoreCloud(token: string): Promise<void> {
     const ownerId = this.activeUserId;
-    if (!ownerId) return;
+    if (!ownerId || !companionData.isCloudConfigured()) return;
     try {
       const cloudThreads = await companionData.loadThreads(token);
       if (this.accessToken !== token || this.activeUserId !== ownerId) return;
@@ -153,17 +185,15 @@ export class ConversationEngine {
     }
   }
 
-  // Scoped Thread Retrieval
   getThreads(scope: ConversationScope = 'general', studioId?: StudioId, includeArchived = false): ConversationThread[] {
     return this.threads.filter((t) => {
       if (!includeArchived && t.isArchived) return false;
       if (scope === 'general') {
         return t.scope === 'general';
-      } else {
-        if (t.scope !== 'studio') return false;
-        if (studioId) return t.studioId === studioId;
-        return true;
       }
+      if (t.scope !== 'studio') return false;
+      if (studioId) return t.studioId === studioId;
+      return true;
     });
   }
 
@@ -176,17 +206,21 @@ export class ConversationEngine {
         this.persist();
       }
       return thread;
-    } else {
-      const targetStudio = studioId || 'research-studio';
-      const activeStudioThreadId = this.activeStudioIds[targetStudio];
-      let thread = this.threads.find((t) => t.id === activeStudioThreadId && t.scope === 'studio' && t.studioId === targetStudio && !t.isArchived);
-      if (!thread) {
-        thread = this.getThreads('studio', targetStudio)[0] || this.createThread('studio', targetStudio, `${this.formatStudioName(targetStudio)} Session`);
-        this.activeStudioIds[targetStudio] = thread.id;
-        this.persist();
-      }
-      return thread;
     }
+
+    const targetStudio = studioId || 'research-studio';
+    const activeStudioThreadId = this.activeStudioIds[targetStudio];
+    let thread = this.threads.find(
+      (t) => t.id === activeStudioThreadId && t.scope === 'studio' && t.studioId === targetStudio && !t.isArchived
+    );
+    if (!thread) {
+      thread =
+        this.getThreads('studio', targetStudio)[0] ||
+        this.createThread('studio', targetStudio, `${this.formatStudioName(targetStudio)} Session`);
+      this.activeStudioIds[targetStudio] = thread.id;
+      this.persist();
+    }
+    return thread;
   }
 
   setActiveThread(id: string): boolean {
@@ -204,11 +238,10 @@ export class ConversationEngine {
   }
 
   createThread(scope: ConversationScope = 'general', studioId?: StudioId, title?: string): ConversationThread {
-    const defaultTitle = scope === 'general' 
-      ? `General Conversation ${this.getThreads('general', undefined, true).length + 1}`
-      : `${this.formatStudioName(studioId || 'research-studio')} Session ${this.getThreads('studio', studioId, true).length + 1}`;
-
-
+    const defaultTitle =
+      scope === 'general'
+        ? `General Conversation ${this.getThreads('general', undefined, true).length + 1}`
+        : `${this.formatStudioName(studioId || 'research-studio')} Session ${this.getThreads('studio', studioId, true).length + 1}`;
 
     const newThread: ConversationThread = {
       id: createUniqueId(`conv_${scope}`),
@@ -231,7 +264,6 @@ export class ConversationEngine {
     return newThread;
   }
 
-  // Intentional User Handoff from General Conversation to Studio Conversation
   handoffToStudio(fromThreadId: string, targetStudioId: StudioId, customPrompt?: string): ConversationThread {
     const sourceThread = this.threads.find((t) => t.id === fromThreadId) || this.getActiveThread('general');
     const lastUserMsg = [...sourceThread.messages].reverse().find((m) => m.sender === 'user');
@@ -253,6 +285,7 @@ export class ConversationEngine {
       sender: 'system',
       content: `Context transferred from General Conversation ("${sourceThread.title}"). Ready to execute in ${this.formatStudioName(targetStudioId)}.`,
       timestamp: 'Just now',
+      status: 'completed',
     });
 
     this.persist();
@@ -275,6 +308,11 @@ export class ConversationEngine {
     const initialLen = this.threads.length;
     this.threads = this.threads.filter((t) => t.id !== id);
     if (this.threads.length < initialLen) {
+      if (this.accessToken && companionData.isCloudConfigured()) {
+        void companionData.deleteThread(this.accessToken, id).catch((error) => {
+          console.warn('[ConversationEngine] Cloud thread delete deferred:', error);
+        });
+      }
       this.persist();
       return true;
     }
@@ -323,14 +361,18 @@ export class ConversationEngine {
       attachments,
       attachmentDetails,
       linkPreviews,
+      status: 'completed',
     };
 
     thread.messages.push(userMessage);
     thread.updatedAt = new Date().toISOString();
 
-    if (!thread.isCustomTitle && sender === 'user' && !thread.messages.some((message) => message.sender === 'user' && message.id !== userMessage.id)) {
-      const generated = extractIntelligentTitle(content);
-      thread.title = generated;
+    const isFirstUserTurn =
+      sender === 'user' &&
+      !thread.messages.some((message) => message.sender === 'user' && message.id !== userMessage.id);
+
+    if (!thread.isCustomTitle && isFirstUserTurn) {
+      thread.title = extractIntelligentTitle(content);
     }
 
     if (sender === 'user' && content.toLowerCase().includes('remember')) {
@@ -339,7 +381,7 @@ export class ConversationEngine {
         scope: thread.scope,
         studioId: thread.studioId,
         title: content.length > 30 ? `${content.slice(0, 30)}...` : content,
-        content: content,
+        content,
         source: `User Conversation (${thread.title})`,
       });
     }
@@ -350,18 +392,44 @@ export class ConversationEngine {
 
   async retryLastTurn(threadId: string): Promise<ChatMessage | null> {
     const thread = this.threads.find((t) => t.id === threadId) || this.getActiveThread('general');
+    if (this.inFlightThreads.has(thread.id)) {
+      return null;
+    }
+
     if (thread.messages.length > 0 && thread.messages[thread.messages.length - 1].sender === 'angel') {
       thread.messages.pop();
+      thread.updatedAt = new Date().toISOString();
       this.persist();
     }
+
     return this.generateAssistantResponse(thread.id);
   }
 
   async generateAssistantResponse(threadId: string): Promise<ChatMessage> {
     const thread = this.threads.find((item) => item.id === threadId) || this.getActiveThread('general');
+
+    if (this.inFlightThreads.has(thread.id)) {
+      return {
+        id: createUniqueId('msg_dup'),
+        sender: 'angel',
+        content: 'A response is already being generated for this conversation.',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        status: 'failed',
+        error: 'Duplicate generation prevented while another turn is in progress.',
+      };
+    }
+
+    this.inFlightThreads.add(thread.id);
     const lastUserMsg = [...thread.messages].reverse().find((message) => message.sender === 'user');
     const promptText = lastUserMsg?.content || 'Hello';
+
     let responseText = '';
+    let status: 'completed' | 'failed' = 'completed';
+    let errorMessage: string | undefined;
+    let modelUsed: string | undefined;
+    let requestedMode: string | undefined = lastUserMsg?.mode;
+    let appliedMode: string | undefined;
+    let thinkingLevel: string | undefined;
 
     try {
       if (!this.accessToken || !this.activeUserId) {
@@ -373,13 +441,21 @@ export class ConversationEngine {
         thread.scope,
         thread.studioId
       );
-      const history = thread.messages
-        .filter((message) => message.sender === 'user' || message.sender === 'angel')
-        .slice(-30)
-        .map((message) => ({
-          role: message.sender === 'angel' ? 'assistant' : 'user',
-          content: message.content,
-        }));
+
+      // Include valid prior turns only (exclude failed/unsent placeholders) and avoid duplicating promptText
+      const validHistory = thread.messages
+        .filter(
+          (message) =>
+            (message.sender === 'user' || message.sender === 'angel') &&
+            message.status !== 'failed' &&
+            message.status !== 'unsent'
+        )
+        .slice(-30);
+
+      const priorHistory =
+        validHistory.length > 0 && validHistory[validHistory.length - 1].sender === 'user'
+          ? validHistory.slice(0, -1)
+          : validHistory;
 
       const systemInstruction = [
         'You are Angel, a thoughtful, natural, capable Universal Personal AI Companion.',
@@ -389,45 +465,52 @@ export class ConversationEngine {
           ? 'Stay aware of the specialised studio context while remaining able to explain your reasoning.'
           : 'Do not force the user into a project, workspace, or studio unless they ask.',
         memoryContext ? `Relevant user context available for this conversation:\n${memoryContext}` : '',
-      ].filter(Boolean).join('\n\n');
+      ]
+        .filter(Boolean)
+        .join('\n\n');
 
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${this.accessToken}`,
-        },
-        body: JSON.stringify({
-          messages: history,
-          mode: lastUserMsg?.mode,
-          systemInstruction,
-        }),
-      });
+      const result = await geminiModelService.generateChatResponse(
+        priorHistory,
+        promptText,
+        lastUserMsg?.mode,
+        systemInstruction,
+        this.accessToken
+      );
 
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(
-          typeof payload.error === 'string'
-            ? payload.error
-            : response.status === 401
-              ? 'Your Angel session has expired. Please sign in again.'
-              : 'Angel could not reach the conversation service. Please try again.'
-        );
+      if (!result.success || !result.text?.trim()) {
+        throw new Error(result.error || 'Angel could not reach the conversation service. Please try again.');
       }
 
-      responseText = typeof payload.reply === 'string'
-        ? payload.reply
-        : typeof payload.text === 'string'
-          ? payload.text
-          : '';
-      if (!responseText.trim()) {
-        throw new Error('Angel received an empty model response. Please try again.');
+      responseText = result.text.trim();
+      modelUsed = result.modelUsed;
+      requestedMode = result.requestedMode || lastUserMsg?.mode;
+      appliedMode = result.appliedMode;
+      thinkingLevel = result.thinkingLevel;
+
+      // Refine thread title via server AI endpoint on first completed turn when not custom-titled
+      const userTurns = thread.messages.filter((m) => m.sender === 'user');
+      if (!thread.isCustomTitle && userTurns.length === 1 && this.accessToken && typeof window !== 'undefined') {
+        const tokenSnapshot = this.accessToken;
+        void geminiModelService.generateTitle(promptText, tokenSnapshot).then((aiTitle) => {
+          const current = this.threads.find((t) => t.id === thread.id);
+          if (current && !current.isCustomTitle && aiTitle && aiTitle !== current.title) {
+            current.title = aiTitle;
+            current.updatedAt = new Date().toISOString();
+            this.persist();
+          }
+        });
       }
     } catch (error) {
-      console.error('[ConversationEngine] Authenticated Gemini request failed:', error);
-      responseText = error instanceof Error
-        ? error.message
-        : 'Angel could not complete that response. Please try again.';
+      status = 'failed';
+      const rawMsg = error instanceof Error ? error.message : String(error || '');
+      if (rawMsg.includes('Sign in to start a private conversation with Angel.')) {
+        errorMessage = rawMsg;
+      } else {
+        errorMessage = toFriendlyError(error, 'ai').userMessage;
+      }
+      responseText = errorMessage;
+    } finally {
+      this.inFlightThreads.delete(thread.id);
     }
 
     const assistantMessage: ChatMessage = {
@@ -435,6 +518,13 @@ export class ConversationEngine {
       sender: 'angel',
       content: responseText,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      mode: lastUserMsg?.mode,
+      status,
+      error: errorMessage,
+      modelUsed,
+      requestedMode,
+      appliedMode,
+      thinkingLevel,
     };
 
     thread.messages.push(assistantMessage);

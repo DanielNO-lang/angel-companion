@@ -1,0 +1,837 @@
+# ANGEL COMPANION: GOOGLE AUTH CALLBACK REPAIR, LANDING PAGE NAVIGATION, SIX-PHONE SHOWCASE, 3D BRAND MOTION AND APPLICATION-WIDE PERFORMANCE
+
+You are working on the existing **Angel Companion** codebase. This is the active project, not the old Angel-ai-New project.
+
+The current application already has a React/Vite frontend, Supabase authentication, a Netlify backend, a landing page, a dashboard, a 3D Angel emblem and an existing GitHub deployment workflow.
+
+Your job is to repair the current implementation and improve the experience. Do not rebuild the application.
+
+## ABSOLUTE REQUIREMENTS
+
+- Preserve the existing Angel Companion architecture, branding, working features, database, Supabase integration and Netlify Functions.
+- Do not redesign the authenticated Angel dashboard or change its established layout.
+- Do not replace the existing Angel logo with a different icon, generic symbol or newly invented logo.
+- Do not remove features simply to simplify implementation.
+- Do not simulate authentication, AI generation, video generation, task execution or live working.
+- Do not expose Gemini keys, Supabase secret keys, service-role keys or OAuth client secrets.
+- Never commit `.env`, `.env.local` or credentials.
+- Maintain authentication verification and database Row Level Security.
+- Preserve the existing GitHub Actions deployment pipeline.
+- Work on a feature branch, not directly on `main`.
+- Do not deploy incomplete or untested changes to production.
+- Do not claim a feature is working merely because the code compiles.
+- Keep the website responsive and performant on low-powered and high-powered devices.
+
+Start by inspecting the current working tree, GitHub `main`, recent commits and relevant earlier versions of the landing page. Do not blindly overwrite newer work with an older version.
+
+---
+
+# PRIORITY 1: FIX GOOGLE ACCOUNT SELECTION AND AUTHENTICATION COMPLETION
+
+Google sign-in and registration now initiate, but the expected Google account-selection experience is not appearing consistently.
+
+After Google authentication, Angel displays "Loading Angel Companion" and eventually returns the user to the public landing page instead of opening the authenticated dashboard.
+
+This is a blocking issue. Fix it before making visual changes.
+
+## 1.1 Force Google account selection
+
+Inspect:
+
+`src/services/authService.ts`
+
+The current Google OAuth request must explicitly request account selection.
+
+For Google only, add the correct Supabase OAuth option equivalent to:
+
+`queryParams: { prompt: 'select_account' }`
+
+Keep the existing secure Supabase OAuth redirect and PKCE flow.
+
+Do not apply Google's account-selection parameter indiscriminately to Microsoft, Apple, GitHub or other providers.
+
+The expected behaviour is:
+
+1. User clicks Continue with Google.
+2. The browser enters the Google authentication flow.
+3. Google shows an account-selection screen, even when an account has been used previously.
+4. User selects an account.
+5. Google returns to the configured Supabase callback.
+6. Supabase returns the user to Angel's `/auth/callback`.
+7. Angel validates the callback and restores the authenticated session.
+8. Angel opens the authenticated application at `/app`.
+
+A normal top-level redirect to Google's account chooser is acceptable. Do not introduce a fragile popup merely to make it look like a separate Google window. A popup implementation should only be considered if it is fully tested with Supabase PKCE, browser popup restrictions and session restoration.
+
+## 1.2 Repair the actual callback/session bug
+
+Inspect these functions carefully:
+
+- `AuthService.signInWithOAuthProvider()`
+- `AuthService.processAuthCallback()`
+- `AuthService.restoreVerifiedSession()`
+- `AuthService.ensureAuthListener()`
+
+There is a critical issue to address in the current callback implementation:
+
+After `exchangeCodeForSession()` succeeds, `processAuthCallback()` calls `restoreVerifiedSession()` but does not check its returned status before returning an authenticated callback result.
+
+Do not report authentication as successful when verified session restoration has failed.
+
+Correct the entire sequence:
+
+1. Parse the callback parameters safely.
+2. Validate OAuth errors and state.
+3. Exchange the authorization code for a Supabase session.
+4. Retrieve the current authenticated user from Supabase.
+5. Verify the returned user/session.
+6. Restore the application authentication snapshot.
+7. Confirm that the snapshot status is genuinely `authenticated`.
+8. Return the authenticated outcome only after those checks succeed.
+9. Otherwise return an informative error and retain no false authenticated state.
+
+Use `supabase.auth.exchangeCodeForSession()` exactly once for a given authorization code. Prevent duplicate callback processing and race conditions.
+
+Do not weaken PKCE or session verification to make redirection appear to work.
+
+## 1.3 Repair the redirect loop
+
+Inspect:
+
+- `src/App.tsx`
+- `src/services/authService.ts`
+- `src/services/authValidation.ts`
+- Protected route handling
+- Authentication callback routing
+- Session subscription and restoration
+- Application hydration state
+
+The application should not keep displaying "Loading Angel Companion" indefinitely.
+
+After successful authentication:
+
+- Route to `/app`.
+- Render the authenticated Angel home/dashboard.
+- Load the current user's verified session.
+- Preserve the session after refreshing the browser.
+- Keep the user inside Angel when navigating between internal sections.
+
+Do not send an authenticated user back to `/`, `/signin` or `/signup`.
+
+If authentication fails, show an understandable error and a retry action. Do not silently return the user to the landing page.
+
+If the user is genuinely unauthenticated, protect `/app` and direct them to sign in.
+
+Handle loading, unauthenticated, authenticated, unconfigured and error states explicitly. No infinite loading state and no redirect loop.
+
+## 1.4 Test the complete authentication journey
+
+Test:
+
+- Google account chooser appears.
+- Selecting a Google account completes authentication.
+- A first-time Google user can create an Angel account.
+- An existing Google user can sign in.
+- The callback succeeds on the correct origin.
+- The user reaches `/app`.
+- A browser refresh preserves the session.
+- The user can sign out.
+- A revoked or expired session does not grant workspace access.
+- Email/password login and registration still work.
+- Email verification, magic link and password recovery remain functional.
+
+Test both the Google AI Studio preview and production Netlify origin where the required provider configuration permits.
+
+Do not claim the Google OAuth roundtrip is verified if you only tested the button click.
+
+---
+
+# PRIORITY 2: RESTORE THE AUTHENTIC ANGEL BRAND MARK AND REPAIR ALL LANDING-PAGE LOGOS
+
+The current landing-page header logo does not match the original Angel logo used inside the authenticated application.
+
+This must be corrected.
+
+## 2.1 Canonical logo identity
+
+Inspect the existing Angel branding components and assets.
+
+Use the exact same canonical Angel emblem used by the authenticated application and home dashboard.
+
+All landing-page logo instances must share:
+
+- The same emblem geometry.
+- The same proportions.
+- The same visual identity.
+- The same chrome/material appearance where supported.
+- The same colour identity.
+- Consistent rendering at different sizes.
+
+Do not substitute a generic infinity icon, random Lucide icon, circle, unrelated SVG or newly invented symbol.
+
+The landing-page header must display the original Angel emblem. Check the footer, mobile navigation, hero and other branding locations as well.
+
+## 2.2 Visible 3D rotational movement across every landing-page logo
+
+Every logo instance on the landing page should have visible three-dimensional rotation.
+
+This includes:
+
+- Sticky landing-page header.
+- Hero emblem.
+- About Angel section.
+- Feature and capability sections.
+- Footer emblem.
+- Mobile versions of the logo.
+- Any other repeated Angel mark.
+
+The motion must be genuinely dimensional, not simply moving the logo up and down or changing its position.
+
+Use a tasteful combination of:
+
+- Y-axis rotation.
+- X-axis tilt.
+- Subtle Z-axis roll.
+- Perspective depth.
+- Natural easing.
+- Gentle floating where appropriate.
+- Subtle chrome reflections or aura where suitable.
+
+Each instance may have its own stable variation in direction, duration, phase and timing, so they do not all rotate in perfect synchrony.
+
+Random variations must be generated once per instance, not on every React render.
+
+### Performance rule
+
+Do not create a new expensive Three.js WebGL renderer for every tiny logo if that causes excessive GPU usage.
+
+Use the most efficient implementation that preserves the original emblem appearance and genuine 3D movement. A shared component with lightweight CSS 3D transformations around the canonical emblem asset is acceptable for smaller repeated instances. Keep the main hero emblem's richer 3D treatment where it is appropriate.
+
+The animation must be visible without requiring hover.
+
+Check for:
+
+- Parent transforms cancelling child transforms.
+- Overflow clipping.
+- CSS animation overrides.
+- Hidden elements.
+- Zero-size render containers.
+- Canvas initialisation errors.
+- Reduced-motion settings.
+- Multiple render loops.
+- Inactive WebGL contexts.
+
+Verify the movement visually on desktop and mobile. Do not simply add a CSS class and assume the animation works.
+
+---
+
+# PRIORITY 3: FIX AND COMPLETE THE STICKY LANDING-PAGE HEADER
+
+The landing-page navigation currently does not remain properly visible while scrolling.
+
+Inspect:
+
+`src/components/landing/LandingNav.tsx`
+
+The page already defines these navigation categories:
+
+- Home
+- Capabilities
+- Experience
+- About Angel
+- Privacy
+
+Keep these as the main landing-page categories. Add another category only if a real landing-page section requires it.
+
+## 3.1 Make the header genuinely sticky
+
+The header must remain visible at the top while the user scrolls through the landing page.
+
+Investigate parent layout and overflow rules. In particular, inspect the landing-page wrapper and its `overflow-x-hidden` behaviour, since an ancestor's overflow can change the scroll container used by CSS sticky positioning.
+
+Fix the actual cause.
+
+Requirements:
+
+- Correct sticky positioning.
+- Correct z-index.
+- No content overlap.
+- Smooth background and backdrop transition while scrolling.
+- No horizontal page overflow.
+- Correct spacing below the header.
+- Correct behaviour on desktop and mobile.
+
+Use fixed positioning only if it is necessary to solve the actual layout issue and account for the resulting content offset.
+
+## 3.2 Put all landing-page categories in the top navigation
+
+Do not hide the categories inside a More option.
+
+On desktop, display the category links directly in the sticky top bar.
+
+On mobile and tablet, use a compact, horizontally scrollable navigation strip or another responsive layout that keeps all categories directly accessible.
+
+Do not force visitors to open a More menu to find the landing-page categories.
+
+Keep Sign In and Get Started accessible.
+
+Clicking a category must:
+
+1. Ensure its destination section is loaded.
+2. Scroll smoothly to the correct anchor.
+3. Highlight the active category.
+4. Account for the sticky header height.
+5. Work with keyboard navigation.
+6. Work when the visitor clicks a category before its section has finished loading.
+
+Use the actual section IDs. Do not create broken or duplicate anchors.
+
+---
+
+# PRIORITY 4: CLEAN UP LANDING-PAGE CALLS TO ACTION
+
+Inspect the landing-page hero and every duplicated entry action.
+
+Remove the **"Enter Angel Environment"** option.
+
+The landing page already has **"Explore Angel"**, so these two actions should not compete with each other.
+
+Keep the actions distinct:
+
+- **Explore Angel:** scrolls to the capabilities or exploration content.
+- **Get Started:** takes the user to registration.
+- **Sign In:** takes the user to login.
+
+Do not remove the useful Explore Angel action.
+
+Ensure every button performs its intended action.
+
+---
+
+# PRIORITY 5: RESTORE THE SIX-SECTION MOBILE EXPERIENCE AND MAKE IT A REAL PHONE-CARD SHOWCASE
+
+The mobile section must contain the six original mobile experiences, not just three.
+
+Inspect the current `MOBILE_SCREENS` data and Git history. The current main-branch reference has six mobile experiences. Restore all six if the AI Studio working version has reduced them.
+
+The six experience categories currently represented are:
+
+1. Home
+2. Conversation
+3. Navigation
+4. Adaptive Workspace
+5. Studios
+6. Account
+
+Preserve their useful descriptions and screenshots. Do not reduce the section count to three.
+
+Restore the heading exactly as:
+
+**Built for mobile from the inside out!**
+
+Use the earlier version of the section in Git history as the reference for its intended presentation. Restore the heading and six-section structure without reverting unrelated landing-page improvements.
+
+## 5.1 Six different real smartphone devices
+
+Show six distinct real-looking smartphone devices, one associated with each mobile experience.
+
+Use different physical smartphone designs. Do not show the phone manufacturer or model name as a heading, caption, label or badge.
+
+The visitor should see the phone itself, not a list of phone brands.
+
+Requirements:
+
+- Genuine device imagery or high-quality, realistic phone mockups.
+- Different device silhouettes, camera arrangements and hardware details.
+- Consistent visual quality.
+- Realistic screen proportions.
+- Angel Companion interface visible on the screen.
+- No manufacturer-name labels.
+- No repeated generic phone frame pretending to be six devices.
+- No distorted or stretched hardware.
+- Optimised local production assets where possible.
+- Document asset sources and licensing.
+
+Do not use six copies of the same image.
+
+## 5.2 Playing-card fan arrangement
+
+The six-phone experience should have a visually attractive card-stack arrangement inspired by holding playing cards in a hand.
+
+Show three phones at a time in a layered composition:
+
+- One active phone in the foreground.
+- One phone behind on the left.
+- One phone behind on the right.
+
+The three visible phones represent a rotating window into the six experiences.
+
+Use slight rotations, perspective, vertical offsets and different depth levels. Keep the active phone clearly readable.
+
+The six devices must all be reachable through the showcase.
+
+## 5.3 Six-step transitions
+
+The showcase must transition through all six mobile experiences.
+
+When moving forward:
+
+- The active device moves out of the front position.
+- The next device moves forward.
+- The other devices rearrange into the fan.
+- The interface preview changes to the corresponding experience.
+- The transition settles naturally.
+
+Use a considered mixture of:
+
+- Fan rotation.
+- Layered slide transitions.
+- 3D Y-axis flips where appropriate.
+- Depth zoom.
+- Spring-style settling.
+- Soft crossfades between screen contents.
+- Small parallax effects.
+
+Do not apply every effect at once.
+
+The showcase should feel fluid, premium and responsive.
+
+## 5.4 Universal swipe interaction
+
+Swipe must work across the entire mobile showcase area, not only when the user touches the drawn phone outline.
+
+Attach the gesture logic to the overall showcase interaction region.
+
+Support:
+
+- Touch swipe.
+- Pointer drag.
+- Previous and next controls.
+- Six pagination indicators.
+- Direct selection of a section.
+- Keyboard-accessible controls.
+
+Use horizontal gesture detection carefully. Do not hijack ordinary vertical page scrolling.
+
+Make sure:
+
+- Left/right swipes work from the text, card stage and surrounding mobile showcase region where appropriate.
+- Controls remain clickable.
+- A touch gesture does not accidentally activate a button.
+- The active screen changes correctly.
+- The last section can transition back to the first if looping is enabled.
+- The experience works on narrow phones and larger tablets.
+
+## 5.5 Automatic showcase movement
+
+The mobile experience should also be able to advance automatically.
+
+Use a measured interval and smooth animation.
+
+Pause automatic movement when:
+
+- The showcase is outside the viewport.
+- The browser tab is hidden.
+- The user is actively dragging.
+- The user has manually interacted and a short pause is appropriate.
+- Reduced motion is requested.
+
+Resume safely when appropriate.
+
+Do not autoplay six large images simultaneously.
+
+Load the active phone image and the next adjacent image first. Load remaining device assets progressively.
+
+---
+
+# PRIORITY 6: MAKE LANDING-PAGE PREVIEWS INTERACTIVE AND AUTOMATIC
+
+The landing-page preview images and content examples should change automatically, similar to a carefully designed rotating showcase.
+
+We do not want the visitor to have to press a button just to see the next example.
+
+Create a coordinated preview experience demonstrating what Angel can produce and work with.
+
+Include examples such as:
+
+- AI image creation.
+- Video creation or video outputs.
+- Writing and documents.
+- Tasks and structured plans.
+- Research and organised knowledge.
+- Workspace and project activity.
+- Live working or workflow progress where the existing implementation supports it.
+
+### Automatic preview behaviour
+
+- Rotate through examples automatically.
+- Use smooth crossfades, slide transitions or other suitable motion.
+- Keep the active preview visually clear.
+- Include subtle progress indicators.
+- Allow manual selection.
+- Pause when outside the viewport.
+- Pause or slow down when the user interacts.
+- Resume safely.
+- Respect reduced-motion preferences.
+
+### Interactive preview behaviour
+
+The preview must respond to user interaction.
+
+Support appropriate interactions such as:
+
+- Clicking a preview to enlarge it.
+- Opening an image or media lightbox.
+- Navigating between preview examples.
+- Zooming where appropriate.
+- Closing the preview using Escape or a visible control.
+- Touch interaction on mobile.
+
+Do not create inert preview controls.
+
+### Accuracy rule
+
+The previews must not pretend that a backend capability is connected when it is not.
+
+Prepared sample outputs may be shown as illustrative product previews. Clearly distinguish examples from actual live generation or live task execution.
+
+Do not simulate a completed task and present it as a real Angel action.
+
+The motion, transitions and interactive previews must work in the Google AI Studio preview and in the production Netlify build.
+
+---
+
+# PRIORITY 7: REMOVE THE COMPANION ORB AND ORBITAL RINGS FROM SIGN-UP VISUALS
+
+Inspect:
+
+- `src/components/auth/AuthLayout.tsx`
+- `src/components/auth/SignUpPage.tsx`
+- `src/components/auth/SignInPage.tsx`
+- Shared auth branding components.
+
+On the registration page:
+
+- Remove the small companion orb positioned close to the Angel logo.
+- Remove the orbital ring surrounding the Angel emblem.
+- Remove redundant decorative rings and satellites from the authentication visual.
+- Keep the real canonical Angel logo.
+- Keep the authentication page clean and elegant.
+
+Keep the main Angel emblem itself. Do not delete or replace the brand mark.
+
+Apply consistent treatment to sign-in where the same redundant decoration is shared.
+
+## 7.1 Authentication page transparency
+
+The sign-in and sign-up screens should look more transparent and less like a stack of outlined boxes.
+
+Reduce or remove unnecessary visible borders from:
+
+- Authentication sections.
+- Social sign-in options.
+- Panels.
+- Buttons and secondary options.
+- Decorative containers.
+
+Use translucent surfaces, subtle blur, restrained shadows and soft separation.
+
+Do not sacrifice:
+
+- Input readability.
+- Form clarity.
+- Keyboard focus indicators.
+- Error visibility.
+- Accessible colour contrast.
+- Button affordance.
+
+The objective is a refined transparent interface, not a collection of borderless elements that are hard to understand.
+
+Keep Google and other provider status messages accurate.
+
+---
+
+# PRIORITY 8: PROGRESSIVE SECTION LOADING AND RESPONSIVE PERFORMANCE
+
+The website currently loads too much content and motion at once.
+
+Optimise it so sections and heavy assets load when they are relevant.
+
+## 8.1 Use progressive loading, not click-only loading
+
+My preferred loading strategy is:
+
+- Keep the page structure, section headings and navigation anchors available.
+- Load lightweight section shells first.
+- Load heavier content when the section approaches the viewport.
+- Load large image previews when they become relevant.
+- Load expensive 3D scenes only when required.
+- If a visitor clicks a navigation category, immediately prioritise and load that target section.
+- Once a section has been loaded, retain it appropriately so navigation remains fast.
+
+Do not make sections permanently inaccessible until a user clicks something.
+
+Do not leave large blank areas or broken scroll positions while a section loads.
+
+## 8.2 Lazy-load images globally
+
+Inspect every image-bearing component across the web application, including:
+
+- Landing page images.
+- Smartphone images.
+- Preview images.
+- Branding images.
+- User-uploaded images.
+- Studio thumbnails.
+- Library previews.
+- Workspace images.
+- Agent images.
+- Generated media.
+- Any other image assets.
+
+Implement a consistent image-loading strategy.
+
+Requirements:
+
+- Lazy-load below-the-fold images.
+- Eagerly load genuinely critical above-the-fold assets.
+- Load only active and nearby carousel items first.
+- Reserve image dimensions to prevent layout shift.
+- Use responsive asset sizes.
+- Optimise file formats and image quality.
+- Add meaningful alt text for informative images.
+- Use empty alt text for decorative images.
+- Provide loading and failure fallbacks.
+- Avoid unnecessary duplicate downloads.
+- Do not turn important local assets into fragile remote dependencies.
+
+The existing mobile showcase preloads all screen images on mount. Replace this eager preload with progressive, relevance-based loading.
+
+## 8.3 Adaptive animation quality
+
+Angel must adapt to different devices and graphics capabilities.
+
+Create sensible performance tiers:
+
+**High-performance devices**
+- Richer 3D emblem rendering.
+- Higher visual detail.
+- Smooth transitions.
+- Controlled particle and lighting effects.
+
+**Mid-range devices**
+- Reduced particle counts.
+- Lower canvas resolution.
+- Reduced motion complexity.
+- Efficient CSS transforms.
+
+**Low-powered devices or unsupported WebGL**
+- Lightweight CSS 3D or 2D fallback.
+- Fewer simultaneous animations.
+- Smaller image assets.
+- No unnecessary real-time WebGL rendering.
+
+Do not rely on a single hardware property to determine device quality. Use actual rendering capability checks and safe fallbacks.
+
+Do not make high-performance mode the only way the website looks correct.
+
+## 8.4 GPU, CPU and animation efficiency
+
+Inspect every `requestAnimationFrame` loop and animation-heavy component.
+
+This includes:
+
+- `AngelEmblem3D`.
+- `AngelCompanion3D`.
+- Cosmic environment.
+- Background effects.
+- Landing-page animations.
+- Mobile card showcase.
+- Automatic preview components.
+
+Requirements:
+
+- Pause offscreen animation loops.
+- Pause animations when the browser tab is hidden.
+- Resume without creating duplicate loops.
+- Clean up animation frames, listeners and observers.
+- Avoid unnecessary React re-renders during animation.
+- Avoid creating multiple WebGL contexts unnecessarily.
+- Limit device pixel ratio on high-density screens.
+- Reduce unnecessary backdrop filters and large blur layers.
+- Avoid rendering hidden 3D components.
+- Avoid loading all sections and previews simultaneously.
+- Avoid unnecessary GPU-intensive filters.
+
+Use CSS compositor-friendly transforms and opacity for simple transitions.
+
+Keep animations smooth without wasting CPU or GPU resources.
+
+Respect `prefers-reduced-motion`.
+
+**Important:** Do not promise literally zero lag across every device. Deliver measurable performance improvements, robust fallbacks and a smooth experience within each device's capabilities.
+
+## 8.5 Preserve the existing web application
+
+Do not use this performance task as a reason to strip features, remove animations indiscriminately or replace the visual identity with a static page.
+
+Improve efficiency while retaining the intended Angel experience.
+
+---
+
+# PRIORITY 9: TESTING AND PRODUCTION PARITY
+
+Everything implemented in Google AI Studio must also work in the live Netlify website.
+
+Do not assume that success in AI Studio proves production success.
+
+### Authentication tests
+
+- Google account selection.
+- Google OAuth callback.
+- Session exchange.
+- Verified user restoration.
+- Redirect to `/app`.
+- Refresh after login.
+- Sign-out.
+- Expired-session handling.
+- Email login.
+- Email registration.
+- Magic link.
+- Password recovery.
+- Protected-route enforcement.
+
+### Navigation tests
+
+- Sticky header during page scrolling.
+- All five landing categories visible and accessible.
+- Correct anchor targets.
+- Correct active-category indication.
+- Mobile navigation behaviour.
+- No hidden More-only categories.
+- Explore Angel action works.
+- Enter Angel Environment is removed.
+- Get Started and Sign In work.
+
+### Mobile showcase tests
+
+- All six sections exist.
+- All six device images are distinct.
+- No phone manufacturer/model names are displayed.
+- Three-device fan composition works.
+- All six experiences can be reached.
+- Swipe works across the entire showcase region.
+- Pointer, keyboard and touch controls work.
+- Automatic rotation works and pauses appropriately.
+- Image loading does not create layout shifts.
+
+### Branding and animation tests
+
+- Header logo matches the canonical Angel emblem.
+- Every landing-page logo has visible 3D motion.
+- Motion is not merely positional movement.
+- Sign-up visual has no redundant companion orb or orbital ring.
+- Animations work on desktop and mobile.
+- Reduced-motion fallback works.
+- No duplicated animation loops or WebGL resource leaks.
+
+### Preview tests
+
+- Automatic preview rotation works.
+- Manual selection works.
+- Image enlargement works.
+- Lightbox closes correctly.
+- Motion works in the AI Studio preview.
+- Preview assets load correctly in production.
+- Examples do not falsely imply unimplemented live capabilities.
+
+### Performance tests
+
+Test on:
+
+- Desktop.
+- Mobile viewport.
+- Tablet viewport.
+- Low-powered rendering profile.
+- WebGL available.
+- WebGL unavailable.
+- Reduced-motion preference.
+- Browser tab hidden and restored.
+- Long scrolling session.
+
+Check for console errors, layout shifts, excessive network requests, unnecessary re-renders, uncleaned listeners and GPU resource leaks.
+
+Run:
+
+- TypeScript checks.
+- Lint.
+- All existing tests.
+- New regression tests.
+- Production build.
+
+Do not weaken or delete tests to get a passing result.
+
+---
+
+# PRIORITY 10: GITHUB AND NETLIFY DELIVERY
+
+Preserve the current deployment architecture.
+
+1. Create a feature branch from the current `main`.
+2. Implement the changes.
+3. Run validation.
+4. Open a pull request.
+5. Review the actual changes.
+6. Merge only after the checks pass.
+7. Let the existing deployment pipeline publish the approved version to Netlify.
+8. Verify the production website after deployment.
+
+Keep the production Supabase configuration intact.
+
+Do not commit `.env.local`.
+
+Do not expose the Gemini API key or OAuth client secret.
+
+If a manual provider configuration or external credential is still required, report it clearly.
+
+---
+
+# FINAL REPORT
+
+Provide a factual implementation report with:
+
+1. Starting branch and commit SHA.
+2. Feature branch name.
+3. Exact files changed.
+4. Root cause of the Google account selection issue.
+5. Root cause of the loading/redirect problem.
+6. What changed in callback processing and session verification.
+7. Google OAuth test results.
+8. Whether successful authentication reaches `/app`.
+9. Whether session persistence after refresh works.
+10. Canonical logo component or asset restored.
+11. Every landing-page logo instance repaired.
+12. Sticky header and category navigation changes.
+13. Confirmation that Explore Angel remains and Enter Angel Environment is removed.
+14. The six mobile experience sections restored.
+15. The six distinct device assets used and their sources.
+16. Swipe and automatic transition behaviour.
+17. Interactive and automatic preview behaviour.
+18. Authentication-page visual changes.
+19. Progressive loading and performance improvements.
+20. TypeScript, lint, test and production-build results.
+21. Live Netlify validation results.
+22. Any unresolved issues or manual configuration needed.
+23. Pull request link.
+24. Whether the work is safe to merge and deploy.
+
+Use these exact status categories:
+
+- IMPLEMENTED AND VERIFIED
+- IMPLEMENTED BUT NOT LIVE-VERIFIED
+- BLOCKED BY EXTERNAL CONFIGURATION
+- NOT IMPLEMENTED
+
+Do not mark something verified simply because it compiles.
+
+**FINAL OBJECTIVE:** A visitor can select their Google account, complete authentication and enter the actual Angel dashboard without getting stuck or being returned to the landing page. The landing page must have the correct Angel identity, visible 3D logo motion, sticky category navigation, six real-looking phone experiences, interactive automatic previews and smoother progressive loading. The same approved implementation must work in Google AI Studio preview and the live Netlify application.

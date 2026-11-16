@@ -2,6 +2,7 @@ import { storageService, STORAGE_KEYS } from './storageService';
 import { capabilityRegistry } from './capabilityRegistry';
 import { permissionsEngine } from './permissionsEngine';
 import { eventBus } from './AngelEventBus';
+import { companionData } from './companionData';
 
 export type AgentStatus = 'idle' | 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'blocked';
 
@@ -42,81 +43,161 @@ export interface WorkflowRule {
   isActive: boolean;
 }
 
-// Predefined agent definitions with initial status idle and 0 fabricated executions
-const DEFAULT_AGENTS: AgentDefinition[] = [
-  {
-    id: 'agent_research',
-    name: 'Research Synthesis Agent',
-    role: 'Literature Mining & Synthesis',
-    objective: 'Analyze research topics, extract key methodologies, and formulate structured literature overviews.',
-    status: 'idle',
-    toolRequirements: ['Paper Synthesizer', 'Dataset Extraction'],
-    requiredCapabilities: ['cap_research_synthesis'],
-    permissionBoundaries: ['read_files', 'network_fetch'],
-    executionCount: 0,
-  },
-  {
-    id: 'agent_code',
-    name: 'Code Generation Orchestrator',
-    role: 'TypeScript & Architecture Specialist',
-    objective: 'Generate TypeScript architectural scaffolds and verify source specifications.',
-    status: 'idle',
-    toolRequirements: ['AST Linter', 'Code Completion Engine'],
-    requiredCapabilities: ['cap_code_generator'],
-    permissionBoundaries: ['read_files', 'write_files', 'execute_code'],
-    executionCount: 0,
-  },
-  {
-    id: 'agent_data',
-    name: 'Data & Analytics Agent',
-    role: 'Telemetry & Visualization Specialist',
-    objective: 'Analyze application metric datasets and compute telemetry distribution points.',
-    status: 'idle',
-    toolRequirements: ['Telemetry Parser', 'Chart Generator'],
-    requiredCapabilities: ['cap_prof_intel_workflow'],
-    permissionBoundaries: ['read_files'],
-    executionCount: 0,
-  },
-  {
-    id: 'agent_workflow',
-    name: 'Workflow Automation Agent',
-    role: 'Task Scheduler & Webhook Listener',
-    objective: 'Coordinate multi-step event triggers and execution plan dispatches.',
-    status: 'idle',
-    toolRequirements: ['Webhook Listener', 'Cron Task Scheduler'],
-    requiredCapabilities: ['cap_agent_workflow_trigger'],
-    permissionBoundaries: ['network_fetch'],
-    executionCount: 0,
-  },
-];
+function createDefaultAgents(): AgentDefinition[] {
+  return [
+    {
+      id: 'agent_research',
+      name: 'Research Synthesis Agent',
+      role: 'Literature Mining & Synthesis',
+      objective: 'Analyze research topics, extract key methodologies, and formulate structured literature overviews.',
+      status: 'idle',
+      toolRequirements: ['Paper Synthesizer', 'Dataset Extraction'],
+      requiredCapabilities: ['cap_research_synthesis'],
+      permissionBoundaries: ['read_files', 'network_fetch'],
+      executionCount: 0,
+    },
+    {
+      id: 'agent_code',
+      name: 'Code Generation Orchestrator',
+      role: 'TypeScript & Architecture Specialist',
+      objective: 'Generate TypeScript architectural scaffolds and verify source specifications.',
+      status: 'idle',
+      toolRequirements: ['AST Linter', 'Code Completion Engine'],
+      requiredCapabilities: ['cap_code_generator'],
+      permissionBoundaries: ['read_files', 'write_files', 'execute_code'],
+      executionCount: 0,
+    },
+    {
+      id: 'agent_data',
+      name: 'Data & Analytics Agent',
+      role: 'Telemetry & Visualization Specialist',
+      objective: 'Analyze application metric datasets and compute telemetry distribution points.',
+      status: 'idle',
+      toolRequirements: ['Telemetry Parser', 'Chart Generator'],
+      requiredCapabilities: ['cap_prof_intel_workflow'],
+      permissionBoundaries: ['read_files'],
+      executionCount: 0,
+    },
+    {
+      id: 'agent_workflow',
+      name: 'Workflow Automation Agent',
+      role: 'Task Scheduler & Webhook Listener',
+      objective: 'Coordinate multi-step event triggers and execution plan dispatches.',
+      status: 'idle',
+      toolRequirements: ['Webhook Listener', 'Cron Task Scheduler'],
+      requiredCapabilities: ['cap_agent_workflow_trigger'],
+      permissionBoundaries: ['network_fetch'],
+      executionCount: 0,
+    },
+  ];
+}
+
+const HISTORY_KEY = 'angel_agent_execution_history_v1';
 
 export class AgentEngine {
-  private agents: AgentDefinition[];
+  private agents: AgentDefinition[] = createDefaultAgents();
   private executionHistory: AgentExecutionRecord[] = [];
+  private cancelledRunTokens = new Set<string>();
+  private accessToken: string | null = null;
+  private activeUserId: string | null = null;
+  private cloudHydrationToken: string | null = null;
 
   constructor() {
+    this.loadCurrentScope();
+  }
+
+  private scopedKey(base: string): string {
+    return this.activeUserId ? `${base}:user:${this.activeUserId}` : base;
+  }
+
+  private loadCurrentScope(): void {
+    const defaults = createDefaultAgents();
     const loaded = storageService.load<AgentDefinition[]>(
-      STORAGE_KEYS.agentsState,
-      DEFAULT_AGENTS
+      this.scopedKey(STORAGE_KEYS.agentsState),
+      defaults
     );
 
-    // Sanitize any stale fabricated running counts if loaded from previous mock sessions
-    this.agents = loaded.map((a) => {
-      // Find matching default for fresh metadata
-      const def = DEFAULT_AGENTS.find((d) => d.id === a.id);
+    this.agents = (Array.isArray(loaded) && loaded.length > 0 ? loaded : defaults).map((a) => {
+      const def = defaults.find((d) => d.id === a.id);
       return {
         ...a,
-        status: (['idle', 'queued', 'running', 'paused', 'completed', 'failed', 'blocked'].includes(a.status) ? a.status : 'idle') as AgentStatus,
+        status: (['idle', 'queued', 'running', 'paused', 'completed', 'failed', 'blocked'].includes(a.status)
+          ? a.status
+          : 'idle') as AgentStatus,
         requiredCapabilities: a.requiredCapabilities || def?.requiredCapabilities || [],
+        permissionBoundaries: a.permissionBoundaries || def?.permissionBoundaries || [],
       };
     });
 
-    this.executionHistory = storageService.load<AgentExecutionRecord[]>('angel_agent_execution_history_v1', []);
+    const hist = storageService.load<AgentExecutionRecord[]>(this.scopedKey(HISTORY_KEY), []);
+    this.executionHistory = Array.isArray(hist) ? hist : [];
   }
 
-  private persist() {
-    storageService.save(STORAGE_KEYS.agentsState, this.agents);
-    storageService.save('angel_agent_execution_history_v1', this.executionHistory);
+  public setAuthContext(token: string | null, userId?: string | null): void {
+    const nextUserId = token ? userId || null : null;
+    const identityChanged = this.activeUserId !== nextUserId;
+    this.accessToken = token;
+
+    if (identityChanged) {
+      this.activeUserId = nextUserId;
+      this.cloudHydrationToken = null;
+      this.cancelledRunTokens.clear();
+      this.loadCurrentScope();
+    }
+
+    if (!token) {
+      this.cloudHydrationToken = null;
+      return;
+    }
+
+    if ((this.cloudHydrationToken !== token || identityChanged) && companionData.isCloudConfigured()) {
+      this.cloudHydrationToken = token;
+      void this.restoreCloud(token);
+    }
+  }
+
+  private async restoreCloud(token: string): Promise<void> {
+    const ownerId = this.activeUserId;
+    if (!ownerId || !companionData.isCloudConfigured()) return;
+    try {
+      const cloudRecords = await companionData.loadAgentExecutions(token);
+      if (this.accessToken !== token || this.activeUserId !== ownerId) return;
+
+      const byId = new Map<string, AgentExecutionRecord>();
+      cloudRecords.forEach((r) => byId.set(r.id, r));
+      this.executionHistory.forEach((local) => {
+        if (!byId.has(local.id)) byId.set(local.id, local);
+      });
+
+      this.executionHistory = Array.from(byId.values())
+        .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+        .slice(0, 50);
+
+      // Recompute honest executionCount from completed history records when cloud records exist
+      if (cloudRecords.length > 0) {
+        this.agents.forEach((agent) => {
+          const completedCount = this.executionHistory.filter(
+            (r) => r.agentId === agent.id && r.status === 'completed'
+          ).length;
+          if (completedCount > agent.executionCount) {
+            agent.executionCount = completedCount;
+          }
+        });
+      }
+      this.persist(false);
+    } catch (error) {
+      console.warn('[AgentEngine] Cloud restore deferred:', error);
+    }
+  }
+
+  private persist(syncToCloud = true): void {
+    storageService.save(this.scopedKey(STORAGE_KEYS.agentsState), this.agents);
+    storageService.save(this.scopedKey(HISTORY_KEY), this.executionHistory);
+    if (syncToCloud && this.accessToken && this.activeUserId && companionData.isCloudConfigured() && this.executionHistory.length > 0) {
+      void companionData.syncAgentExecutions(this.accessToken, this.executionHistory, this.activeUserId).catch((error) => {
+        console.warn('[AgentEngine] Cloud sync deferred:', error);
+      });
+    }
   }
 
   getAgents(): AgentDefinition[] {
@@ -169,21 +250,17 @@ export class AgentEngine {
   stopAgent(id: string): boolean {
     const agent = this.agents.find((a) => a.id === id);
     if (!agent) return false;
+    this.cancelledRunTokens.add(id);
     agent.status = 'idle';
     this.persist();
     eventBus.publish('agent:execution_stopped', { agentId: id });
     return true;
   }
 
-  /**
-   * Honest Execution:
-   * 1. Requires an actual task description.
-   * 2. Validates that required capabilities are registered and available.
-   * 3. Checks permissions.
-   * 4. Executes only through real registered capability handlers.
-   * 5. Increments executionCount ONLY on genuine execution.
-   * 6. Records actual execution results and failure logs.
-   */
+  cancelAgent(id: string): boolean {
+    return this.stopAgent(id);
+  }
+
   async executeTask(
     agentId: string,
     taskDescription: string,
@@ -201,12 +278,23 @@ export class AgentEngine {
       return { success: false, error: 'Task description cannot be empty.' };
     }
 
-    // Lifecycle transition: queued
+    this.cancelledRunTokens.delete(agentId);
     agent.status = 'queued';
     agent.lastTask = taskDescription;
     this.persist();
 
-    // Check required capabilities
+    // Check explicit agent permission boundaries
+    for (const boundary of agent.permissionBoundaries || []) {
+      if (!permissionsEngine.isPermissionGranted(boundary)) {
+        agent.status = 'blocked';
+        agent.lastError = `Missing required permission boundary: ${boundary}`;
+        this.recordHistory(agent.id, taskDescription, 'blocked', undefined, agent.lastError);
+        this.persist();
+        return { success: false, error: agent.lastError };
+      }
+    }
+
+    // Check required capabilities and capability permission levels
     const reqCaps = agent.requiredCapabilities || [];
     for (const capId of reqCaps) {
       const cap = capabilityRegistry.getCapability(capId);
@@ -226,9 +314,8 @@ export class AgentEngine {
         return { success: false, error: agent.lastError };
       }
 
-      // Check permissions
       if (cap.permissionLevel !== 'none') {
-        const isGranted = permissionsEngine.isPermissionGranted(cap.permissionLevel as any);
+        const isGranted = permissionsEngine.isPermissionGranted(cap.permissionLevel as string);
         if (!isGranted) {
           agent.status = 'blocked';
           agent.lastError = `Missing required permission: ${cap.permissionLevel}`;
@@ -239,7 +326,6 @@ export class AgentEngine {
       }
     }
 
-    // Lifecycle transition: running
     agent.status = 'running';
     agent.lastExecutionAt = new Date().toISOString();
     this.persist();
@@ -248,9 +334,11 @@ export class AgentEngine {
     try {
       let executionOutput: any = null;
 
-      // Execute through registered capabilities
       if (reqCaps.length > 0) {
         for (const capId of reqCaps) {
+          if (this.cancelledRunTokens.has(agentId)) {
+            throw new Error('Agent execution was cancelled.');
+          }
           const capResult = await capabilityRegistry.executeCapability(
             capId,
             { text: taskDescription, ...inputs },
@@ -263,7 +351,6 @@ export class AgentEngine {
           executionOutput = capResult.outputData || capResult.summaryText;
         }
       } else {
-        // Fallback to general conversational handler
         const fallbackRes = await capabilityRegistry.executeCapability(
           'cap_general_chat',
           { text: taskDescription },
@@ -275,7 +362,14 @@ export class AgentEngine {
         executionOutput = fallbackRes.outputData;
       }
 
-      // Successful Genuine Execution
+      if (this.cancelledRunTokens.has(agentId)) {
+        agent.status = 'idle';
+        agent.lastError = 'Agent execution was cancelled.';
+        this.recordHistory(agent.id, taskDescription, 'failed', undefined, agent.lastError);
+        this.persist();
+        return { success: false, error: agent.lastError };
+      }
+
       agent.status = 'completed';
       agent.executionCount += 1;
       agent.lastResult = executionOutput;
@@ -286,8 +380,8 @@ export class AgentEngine {
 
       return { success: true, result: executionOutput };
     } catch (err: any) {
-      agent.status = 'failed';
-      agent.lastError = err.message || 'Execution error';
+      agent.status = this.cancelledRunTokens.has(agentId) ? 'idle' : 'failed';
+      agent.lastError = err?.message || 'Execution error';
       this.recordHistory(agent.id, taskDescription, 'failed', undefined, agent.lastError);
       this.persist();
       eventBus.publish('task:failed', { agentId: agent.id, errorMsg: agent.lastError });

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { getDevicePerformanceProfile } from '../../utils/devicePerformance';
 
 interface CloudCluster {
   x: number;
@@ -20,17 +21,24 @@ export const CloudySkyEnvironment: React.FC = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const prefersReducedMotion =
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const perf = getDevicePerformanceProfile();
+    const prefersReducedMotion = perf.prefersReducedMotion;
+    const dpr = Math.min(window.devicePixelRatio || 1, perf.maxDpr);
 
     let animationFrameId = 0;
-    let width = (canvas.width = window.innerWidth);
-    let height = (canvas.height = window.innerHeight);
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+    canvas.width = Math.max(1, Math.floor(width * dpr));
+    canvas.height = Math.max(1, Math.floor(height * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const handleResize = () => {
-      width = canvas.width = window.innerWidth;
-      height = canvas.height = window.innerHeight;
+      width = window.innerWidth;
+      height = window.innerHeight;
+      const currentDpr = Math.min(window.devicePixelRatio || 1, perf.maxDpr);
+      canvas.width = Math.max(1, Math.floor(width * currentDpr));
+      canvas.height = Math.max(1, Math.floor(height * currentDpr));
+      ctx.setTransform(currentDpr, 0, 0, currentDpr, 0, 0);
     };
     window.addEventListener('resize', handleResize);
 
@@ -59,7 +67,8 @@ export const CloudySkyEnvironment: React.FC = () => {
       };
     };
 
-    const clouds: CloudCluster[] = Array.from({ length: 10 }, (_, idx) => createCloud(idx, 10));
+    const cloudTotal = perf.cloudCount;
+    const clouds: CloudCluster[] = Array.from({ length: cloudTotal }, (_, idx) => createCloud(idx, cloudTotal));
 
     const drawFrame = (elapsedSec: number) => {
       ctx.clearRect(0, 0, width, height);
@@ -157,11 +166,13 @@ export const CloudySkyEnvironment: React.FC = () => {
     };
 
     let lastFrameTime = performance.now();
-    const fpsInterval = 1000 / 28; // Gentle daylight drift with minimal GPU overhead
+    const fpsInterval = perf.targetFps > 0 ? 1000 / Math.min(28, perf.targetFps) : 1000;
 
     const renderLoop = (nowTime: number) => {
-      if (!prefersReducedMotion) {
+      if (!prefersReducedMotion && !document.hidden) {
         animationFrameId = requestAnimationFrame(renderLoop);
+      } else {
+        animationFrameId = 0;
       }
       if (document.hidden) return;
       const delta = nowTime - lastFrameTime;
@@ -170,13 +181,28 @@ export const CloudySkyEnvironment: React.FC = () => {
       drawFrame(nowTime * 0.001);
     };
 
+    const handleVisibilityChange = () => {
+      if (prefersReducedMotion) return;
+      if (document.hidden) {
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+          animationFrameId = 0;
+        }
+      } else if (!animationFrameId) {
+        lastFrameTime = performance.now();
+        animationFrameId = requestAnimationFrame(renderLoop);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     drawFrame(0);
-    if (!prefersReducedMotion) {
+    if (!prefersReducedMotion && !document.hidden) {
       animationFrameId = requestAnimationFrame(renderLoop);
     }
 
     return () => {
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('resize', handleResize);
     };
   }, []);

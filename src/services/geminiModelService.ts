@@ -1,11 +1,36 @@
 import { ChatMessage } from '../types/angel';
 
+export const DEFAULT_GEMINI_MODEL = 'gemini-4-hydrogen';
+
+export type ModelHealthState =
+  | 'credentials_missing'
+  | 'credentials_configured'
+  | 'provider_reachable'
+  | 'generation_successful'
+  | 'provider_unavailable';
+
+export interface ModelHealthStatus {
+  state: ModelHealthState;
+  connected: boolean;
+  credentialsConfigured: boolean;
+  providerReachable: boolean;
+  generationVerified: boolean;
+  model: string;
+  thinkModeSupported: boolean;
+  checkedAt: string;
+  latencyMs: number | null;
+  message: string;
+}
+
 export interface ModelChatResponse {
   success: boolean;
   text?: string;
   error?: string;
   status?: string;
+  statusCode?: number;
   modelUsed?: string;
+  requestedMode?: string;
+  appliedMode?: string;
   thinkingLevel?: string;
 }
 
@@ -13,12 +38,10 @@ export function extractIntelligentTitle(input: string): string {
   const trimmed = input.trim();
   const lower = trimmed.toLowerCase();
 
-  // Simple greetings keep clean default
   if (/^(hi|hello|hey|greetings|howdy|good morning|good evening|good afternoon)\b/i.test(lower) && trimmed.length < 30) {
     return 'General Conversation';
   }
 
-  // Specific domain intent titles
   if (lower.includes('photography') || (lower.includes('portfolio') && (lower.includes('photo') || lower.includes('picture')))) {
     return 'Photography Portfolio Website';
   }
@@ -41,7 +64,6 @@ export function extractIntelligentTitle(input: string): string {
     return 'Brainstorming Session';
   }
 
-  // Meaningful keywords extraction (2 to 4 words, never truncating with ellipsis)
   const words = trimmed
     .replace(/[^\w\s-]/g, '')
     .split(/\s+/)
@@ -64,39 +86,108 @@ export function extractIntelligentTitle(input: string): string {
 }
 
 export class GeminiModelService {
-  private statusCache: { connected: boolean; checkedAt: number } | null = null;
+  private lastStatus: ModelHealthStatus = {
+    state: 'credentials_missing',
+    connected: false,
+    credentialsConfigured: false,
+    providerReachable: false,
+    generationVerified: false,
+    model: DEFAULT_GEMINI_MODEL,
+    thinkModeSupported: true,
+    checkedAt: new Date().toISOString(),
+    latencyMs: null,
+    message: 'Model status has not been checked yet.',
+  };
+  private listeners = new Set<(status: ModelHealthStatus) => void>();
 
-  public async checkStatus(): Promise<{ connected: boolean; model: string; message: string }> {
+  public getCachedStatus(): ModelHealthStatus {
+    return this.lastStatus;
+  }
+
+  public subscribeStatus(listener: (status: ModelHealthStatus) => void): () => void {
+    this.listeners.add(listener);
+    listener(this.lastStatus);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private publishStatus(next: ModelHealthStatus): void {
+    this.lastStatus = next;
+    this.listeners.forEach((listener) => listener(next));
+  }
+
+  public async checkStatus(forceRefresh = false, liveProbe = false): Promise<ModelHealthStatus> {
     if (typeof window === 'undefined') {
-      const hasKey = typeof process !== 'undefined' && Boolean(process.env.GEMINI_API_KEY);
-      return {
+      const hasKey = typeof process !== 'undefined' && Boolean(process.env.GEMINI_API_KEY?.trim());
+      const model = (typeof process !== 'undefined' && process.env.GEMINI_MODEL?.trim()) || DEFAULT_GEMINI_MODEL;
+      const status: ModelHealthStatus = {
+        state: hasKey ? 'credentials_configured' : 'credentials_missing',
         connected: hasKey,
-        model: 'gemini-3.8-flash',
+        credentialsConfigured: hasKey,
+        providerReachable: false,
+        generationVerified: false,
+        model,
+        thinkModeSupported: true,
+        checkedAt: new Date().toISOString(),
+        latencyMs: null,
         message: hasKey
-          ? 'Gemini 3.8 Flash model connected with Think mode support.'
-          : 'GEMINI_API_KEY not configured in environment. Integration boundary is ready.',
+          ? `Gemini (${model}) server credentials are configured.`
+          : 'GEMINI_API_KEY is not configured in server environment.',
       };
+      this.publishStatus(status);
+      return status;
     }
 
+    const startedAt = performance.now();
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 1500);
-      const res = await fetch('/api/model/status', { signal: controller.signal });
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const params = new URLSearchParams();
+      if (forceRefresh) params.set('refresh', '1');
+      if (liveProbe) params.set('probe', 'generate');
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const res = await fetch(`/api/model/status${query}`, { signal: controller.signal });
       clearTimeout(timeout);
+
       if (res.ok) {
-        const data = await res.json();
-        this.statusCache = { connected: Boolean(data.connected), checkedAt: Date.now() };
-        return data;
+        const data = (await res.json()) as Partial<ModelHealthStatus>;
+        const latencyMs = typeof data.latencyMs === 'number'
+          ? data.latencyMs
+          : Math.round(performance.now() - startedAt);
+        const normalized: ModelHealthStatus = {
+          state: data.state || (data.connected ? 'credentials_configured' : 'credentials_missing'),
+          connected: Boolean(data.connected),
+          credentialsConfigured: Boolean(data.credentialsConfigured ?? data.connected),
+          providerReachable: Boolean(data.providerReachable),
+          generationVerified: Boolean(data.generationVerified),
+          model: data.model || DEFAULT_GEMINI_MODEL,
+          thinkModeSupported: data.thinkModeSupported ?? true,
+          checkedAt: data.checkedAt || new Date().toISOString(),
+          latencyMs,
+          message: data.message || 'Model status checked.',
+        };
+        this.publishStatus(normalized);
+        return normalized;
       }
     } catch {
-      // Fallback
+      // Network or timeout reaching server endpoint
     }
 
-    return {
+    const unavailable: ModelHealthStatus = {
+      state: 'provider_unavailable',
       connected: false,
-      model: 'gemini-3.8-flash',
-      message: 'Server endpoint unreachable or running in isolated testing environment.',
+      credentialsConfigured: false,
+      providerReachable: false,
+      generationVerified: false,
+      model: DEFAULT_GEMINI_MODEL,
+      thinkModeSupported: true,
+      checkedAt: new Date().toISOString(),
+      latencyMs: Math.round(performance.now() - startedAt),
+      message: 'Server model status endpoint unreachable.',
     };
+    this.publishStatus(unavailable);
+    return unavailable;
   }
 
   public async generateChatResponse(
@@ -107,22 +198,26 @@ export class GeminiModelService {
     accessToken?: string
   ): Promise<ModelChatResponse> {
     if (typeof window === 'undefined') {
-      // In server or test runtime
-      if (typeof process !== 'undefined' && process.env.GEMINI_API_KEY) {
+      if (typeof process !== 'undefined' && process.env.GEMINI_API_KEY?.trim()) {
         try {
           const { GoogleGenAI, ThinkingLevel } = await import('@google/genai');
+          const modelUsed = process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
           const ai = new GoogleGenAI({
-            apiKey: process.env.GEMINI_API_KEY,
+            apiKey: process.env.GEMINI_API_KEY.trim(),
             httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
           });
 
-          const isThink = mode === 'Think';
-          const config: any = {
-            systemInstruction:
-              systemInstruction ||
-              'You are Angel, a universal personal AI companion. You communicate naturally, concisely, and substantively. You remember conversation history, understand references such as "that", "it", and "the previous one", and respond directly without canned formulas.',
+          const requestedMode = mode || 'Standard Intelligent';
+          const isThink = requestedMode === 'Think';
+          const resolvedSystemInstruction =
+            systemInstruction ||
+            'You are Angel, a universal personal AI companion. You communicate naturally, concisely, and substantively.';
+          const config: {
+            systemInstruction: string;
+            thinkingConfig?: { thinkingLevel: typeof ThinkingLevel.HIGH };
+          } = {
+            systemInstruction: resolvedSystemInstruction,
           };
-
           if (isThink) {
             config.thinkingConfig = { thinkingLevel: ThinkingLevel.HIGH };
           }
@@ -135,115 +230,162 @@ export class GeminiModelService {
             { role: 'user', parts: [{ text: newMessage }] },
           ];
 
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.8-flash',
-            contents,
-            config,
-          });
+          let appliedMode = requestedMode;
+          let thinkingLevel = isThink ? 'HIGH' : 'DEFAULT';
+          let response;
+          try {
+            response = await ai.models.generateContent({ model: modelUsed, contents, config });
+          } catch (innerErr: any) {
+            if (isThink && String(innerErr?.message || '').toLowerCase().includes('thinking')) {
+              const fallbackConfig = { systemInstruction: resolvedSystemInstruction };
+              response = await ai.models.generateContent({ model: modelUsed, contents, config: fallbackConfig });
+              appliedMode = 'Standard Intelligent';
+              thinkingLevel = 'DEFAULT';
+            } else {
+              throw innerErr;
+            }
+          }
 
           return {
             success: true,
             text: response.text,
-            modelUsed: 'gemini-3.8-flash',
-            thinkingLevel: isThink ? 'HIGH' : 'DEFAULT',
+            modelUsed,
+            requestedMode,
+            appliedMode,
+            thinkingLevel,
           };
         } catch (err: any) {
           return {
             success: false,
             error: err?.message || 'Direct model call failed',
-            status: 'error',
+            status: 'provider_unavailable',
           };
         }
       }
 
       return {
         success: false,
-        error: 'GEMINI_API_KEY not configured in environment. Integration boundary ready.',
-        status: 'integration_pending',
+        error: 'GEMINI_API_KEY is not configured in the server environment.',
+        status: 'credentials_missing',
       };
     }
 
-    // Browser runtime calls the authenticated server-side API. Never send Gemini credentials from the browser.
     if (!accessToken) {
-      return { success: false, error: 'Sign in to use Angel conversations.', status: 'unauthenticated' };
+      return {
+        success: false,
+        error: 'Sign in with a verified account to start a private conversation with Angel.',
+        status: 'unauthenticated',
+        statusCode: 401,
+      };
     }
 
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 26000);
 
+    try {
       const messagesPayload = [
-        ...history.map((m) => ({ sender: m.sender, content: m.content })),
-        { sender: 'user', content: newMessage },
+        ...history
+          .filter((m) => (m.sender === 'user' || m.sender === 'angel') && m.status !== 'failed' && m.status !== 'unsent')
+          .map((m) => ({
+            role: m.sender === 'angel' ? 'assistant' : 'user',
+            content: m.content,
+          })),
+        ...(newMessage.trim() ? [{ role: 'user', content: newMessage }] : []),
       ];
 
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${accessToken}` },
+        headers: {
+          'Content-Type': 'application/json',
+          authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
-          messages: messagesPayload.map((message) => ({
-            role: message.sender === 'angel' ? 'assistant' : 'user',
-            content: message.content,
-          })),
+          messages: messagesPayload,
           mode,
           systemInstruction,
         }),
         signal: controller.signal,
       });
 
-      clearTimeout(timeout);
-
-      if (res.ok) {
-        const data = await res.json();
+      const payload = await res.json().catch(() => ({}));
+      if (res.ok && (payload.reply || payload.text)) {
+        const reply = (payload.reply || payload.text || '').trim();
+        this.publishStatus({
+          ...this.lastStatus,
+          state: 'generation_successful',
+          connected: true,
+          credentialsConfigured: true,
+          providerReachable: true,
+          generationVerified: true,
+          model: payload.modelUsed || this.lastStatus.model,
+          checkedAt: new Date().toISOString(),
+          message: `Gemini (${payload.modelUsed || this.lastStatus.model}) responding normally.`,
+        });
         return {
           success: true,
-          text: data.reply || data.text,
-          modelUsed: data.modelUsed,
-          thinkingLevel: data.thinkingLevel,
+          text: reply,
+          modelUsed: payload.modelUsed,
+          requestedMode: payload.requestedMode || mode,
+          appliedMode: payload.appliedMode || mode,
+          thinkingLevel: payload.thinkingLevel,
         };
       }
 
-      const errData = await res.json().catch(() => ({}));
       return {
         success: false,
-        error: errData.error || `HTTP ${res.status} from model server`,
-        status: errData.status || 'error',
+        statusCode: res.status,
+        error:
+          typeof payload.error === 'string'
+            ? payload.error
+            : res.status === 401
+              ? 'Your Angel session has expired. Please sign in again.'
+              : res.status === 429
+                ? 'Too many requests. Please wait a moment before sending again.'
+                : 'Angel could not reach the conversation service. Please try again.',
+        status: payload.code || payload.status || (res.status === 401 ? 'unauthenticated' : 'provider_unavailable'),
       };
     } catch (err: any) {
+      const isAbort = err?.name === 'AbortError';
       return {
         success: false,
-        error: err?.message || 'Model API fetch error',
-        status: 'network_fallback',
+        error: isAbort
+          ? 'The conversation request timed out. Please retry.'
+          : err?.message || 'Unable to reach Angel conversation service.',
+        status: isAbort ? 'timeout' : 'network_error',
       };
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
   public async generateTitle(firstMessage: string, accessToken?: string): Promise<string> {
-    if (typeof window !== 'undefined' && accessToken) {
+    if (typeof window !== 'undefined' && accessToken && firstMessage.trim()) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000);
-
         const res = await fetch('/api/title', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', authorization: `Bearer ${accessToken}` },
+          headers: {
+            'Content-Type': 'application/json',
+            authorization: `Bearer ${accessToken}`,
+          },
           body: JSON.stringify({ message: firstMessage }),
           signal: controller.signal,
         });
 
-        clearTimeout(timeout);
         if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.title && data.title.trim()) {
+          const data = await res.json().catch(() => ({}));
+          if (data.success && typeof data.title === 'string' && data.title.trim()) {
             return data.title.trim().replace(/^["']|["']$/g, '');
           }
         }
       } catch {
-        // Fallback
+        // Fall through to deterministic concise title
+      } finally {
+        clearTimeout(timeout);
       }
     }
 
-    // Safe, high quality deterministic fallback (2-4 words, never truncated with ...)
     return extractIntelligentTitle(firstMessage);
   }
 }

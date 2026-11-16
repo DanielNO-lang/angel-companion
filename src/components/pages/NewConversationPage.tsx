@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bot, User, Volume2, Copy, Check, RotateCw, ArrowDown } from 'lucide-react';
+import { Bot, User, Volume2, Copy, Check, RotateCw, ArrowDown, AlertCircle } from 'lucide-react';
 import { CompanionOrbState, StudioId } from '../../types/angel';
 import { conversationEngine, ConversationThread } from '../../services/conversationEngine';
 import { voiceEngine } from '../../services/voiceEngine';
@@ -197,9 +197,13 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
   };
 
   useEffect(() => {
-    // Keep activeThread synced with engine
-    const current = conversationEngine.getActiveThread('general');
-    setActiveThread({ ...current });
+    // Keep activeThread live-synced with conversationEngine (handles async AI titles, cloud sync, retries)
+    const syncThread = () => {
+      const current = conversationEngine.getActiveThread('general');
+      setActiveThread({ ...current });
+    };
+    syncThread();
+    return conversationEngine.subscribe(syncThread);
   }, []);
 
   useEffect(() => {
@@ -214,9 +218,9 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
     setIsRetrying(true);
     setStatusNotice('Re-attempting response...');
     try {
-      await conversationEngine.retryLastTurn(activeThread.id);
+      const retried = await conversationEngine.retryLastTurn(activeThread.id);
       setActiveThread({ ...conversationEngine.getActiveThread('general') });
-      setStatusNotice('Response refreshed');
+      setStatusNotice(retried?.status === 'failed' ? 'Retry failed. Please check connection.' : 'Response refreshed');
     } catch {
       setStatusNotice('Retry failed. Please check connection.');
     } finally {
@@ -277,11 +281,31 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
                   className={`p-3.5 sm:p-4 rounded-3xl text-xs sm:text-sm leading-relaxed ${
                     msg.sender === 'user'
                       ? 'bg-blue-600/90 text-white rounded-tr-none shadow-lg'
-                      : 'bg-[#090e26]/40 backdrop-blur-xl text-slate-200 rounded-tl-none shadow-md border border-cyan-500/10'
+                      : msg.status === 'failed'
+                        ? 'bg-rose-950/50 backdrop-blur-xl text-rose-100 rounded-tl-none shadow-md border border-rose-500/40'
+                        : 'bg-[#090e26]/40 backdrop-blur-xl text-slate-200 rounded-tl-none shadow-md border border-cyan-500/10'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-1.5 opacity-60 text-[10px]">
-                    <span className="font-bold uppercase tracking-wider">{msg.sender === 'angel' ? 'Angel' : 'You'}</span>
+                  <div className="flex items-center justify-between gap-2 mb-1.5 opacity-75 text-[10px] flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold uppercase tracking-wider">{msg.sender === 'angel' ? 'Angel' : 'You'}</span>
+                      {isAngel && msg.status === 'failed' && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-900/70 text-rose-200 font-semibold">
+                          <AlertCircle className="w-3 h-3" />
+                          <span>Delivery failed</span>
+                        </span>
+                      )}
+                      {isAngel && msg.status !== 'failed' && msg.appliedMode === 'Think' && (
+                        <span className="px-1.5 py-0.5 rounded bg-purple-950/80 border border-purple-500/30 text-purple-200 font-semibold">
+                          Think{msg.thinkingLevel ? ` • ${msg.thinkingLevel}` : ''}
+                        </span>
+                      )}
+                      {isAngel && msg.status !== 'failed' && msg.modelUsed && (
+                        <span className="px-1.5 py-0.5 rounded bg-slate-900/70 border border-slate-700/60 text-slate-300 font-mono">
+                          {msg.modelUsed}
+                        </span>
+                      )}
+                    </div>
                     <span>{msg.timestamp}</span>
                   </div>
                   <RichMessageContent content={msg.content} />
@@ -295,27 +319,35 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
                 {/* Per-Message Toolbar */}
                 {isAngel && (
                   <div className="flex items-center gap-1.5 mt-1.5 pl-2 opacity-80 hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => handleSpeakMessage(msg.content)}
-                      className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-cyan-300 hover:text-white transition-colors cursor-pointer"
-                      title="Read out loud"
-                    >
-                      <Volume2 className="w-3.5 h-3.5" />
-                    </button>
+                    {msg.status !== 'failed' && (
+                      <>
+                        <button
+                          onClick={() => handleSpeakMessage(msg.content)}
+                          className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-cyan-300 hover:text-white transition-colors cursor-pointer"
+                          title="Read out loud"
+                        >
+                          <Volume2 className="w-3.5 h-3.5" />
+                        </button>
 
-                    <button
-                      onClick={() => fallbackCopyText(msg.content)}
-                      className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
-                      title="Copy response"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
+                        <button
+                          onClick={() => fallbackCopyText(msg.content)}
+                          className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                          title="Copy response"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
 
-                    {isLastMessage && (
+                    {(isLastMessage || msg.status === 'failed') && (
                       <button
                         onClick={handleRetry}
                         disabled={isRetrying}
-                        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-cyan-300 hover:text-white text-[11px] transition-colors cursor-pointer disabled:opacity-50"
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 ${
+                          msg.status === 'failed'
+                            ? 'bg-rose-600/80 hover:bg-rose-500 text-white'
+                            : 'bg-white/5 hover:bg-white/10 text-cyan-300 hover:text-white'
+                        }`}
                         title="Retry response"
                       >
                         <RotateCw className={`w-3 h-3 ${isRetrying ? 'animate-spin' : ''}`} />

@@ -1,23 +1,23 @@
 import React from 'react';
-import { Bot, Folder, BarChart3, Plus } from 'lucide-react';
+import { Bot, Folder, MessageSquarePlus, ActivitySquare } from 'lucide-react';
 import { PrimaryNavItem } from '../../types/angel';
 
 interface QuickAccessPanelProps {
-  onSelectAction: (navId: PrimaryNavItem | 'analytics' | 'create') => void;
+  onSelectAction: (navId: PrimaryNavItem) => void;
 }
 
 export const QuickAccessPanel: React.FC<QuickAccessPanelProps> = ({
   onSelectAction,
 }) => {
-  const items = [
-    { id: 'agents' as const, label: 'Agents', icon: Bot },
-    { id: 'workspace' as const, label: 'Files', icon: Folder },
-    { id: 'analytics' as const, label: 'Analytics', icon: BarChart3 },
-    { id: 'create' as const, label: 'Create', icon: Plus },
+  const items: { id: PrimaryNavItem; label: string; icon: React.FC<{ className?: string }> }[] = [
+    { id: 'agents', label: 'Agents', icon: Bot },
+    { id: 'workspace', label: 'Files', icon: Folder },
+    { id: 'new-conversation', label: 'New Chat', icon: MessageSquarePlus },
+    { id: 'system-status', label: 'System Status', icon: ActivitySquare },
   ];
 
   return (
-    <div className="rounded-3xl bg-[#070b20]/35 p-4 sm:p-5 backdrop-blur-2xl flex flex-col justify-between min-h-[190px] h-full shadow-[0_8px_30px_rgba(0,0,0,0.35)] select-none">
+    <div className="rounded-3xl angel-blurred-surface bg-[#070b20]/35 p-4 sm:p-5 backdrop-blur-2xl flex flex-col justify-between min-h-[190px] h-full select-none">
       {/* Header */}
       <h3 className="text-base font-bold font-heading text-white tracking-tight mb-2">Quick Access</h3>
 
@@ -27,7 +27,8 @@ export const QuickAccessPanel: React.FC<QuickAccessPanelProps> = ({
           const Icon = item.icon;
           return (
             <button
-              key={item.label}
+              key={item.id}
+              type="button"
               onClick={() => onSelectAction(item.id)}
               className="flex flex-col items-center justify-center gap-1.5 group cursor-pointer p-2.5 sm:p-3 rounded-2xl bg-transparent hover:bg-cyan-500/10 border-0 transition-all duration-300 hover:shadow-[0_0_20px_rgba(56,189,248,0.25)]"
             >

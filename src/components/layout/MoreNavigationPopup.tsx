@@ -1,23 +1,20 @@
 import React, { useEffect, useRef } from 'react';
-import { 
+import {
   Activity,
   Folder,
   BookOpen,
   Wrench,
-  AppWindow, 
-  Smartphone, 
-  CalendarDays, 
-  Lock, 
-  Archive, 
-  Trash2, 
-  X 
+  Bot,
+  Clapperboard,
+  EyeOff,
+  ActivitySquare,
 } from 'lucide-react';
-import { MoreSubNavItem } from '../../types/angel';
+import { PrimaryNavItem } from '../../types/angel';
 
 interface MoreNavigationPopupProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectSubItem: (subItem: MoreSubNavItem) => void;
+  onSelectSubItem: (subItem: PrimaryNavItem) => void;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }
@@ -44,26 +41,24 @@ export const MoreNavigationPopup: React.FC<MoreNavigationPopupProps> = ({
 
   if (!isOpen) return null;
 
-  const items: { id: MoreSubNavItem; label: string; icon: React.FC<{ className?: string }> }[] = [
+  const items: { id: PrimaryNavItem; label: string; icon: React.FC<{ className?: string }> }[] = [
     { id: 'activities', label: 'Activities', icon: Activity },
     { id: 'workspace', label: 'Workspace', icon: Folder },
     { id: 'library', label: 'Library', icon: BookOpen },
     { id: 'tools', label: 'Tools', icon: Wrench },
-    { id: 'apps', label: 'Apps', icon: AppWindow },
-    { id: 'devices', label: 'Devices', icon: Smartphone },
-    { id: 'schedules', label: 'Schedules', icon: CalendarDays },
-    { id: 'locked-chats', label: 'Locked Chats', icon: Lock },
-    { id: 'archive', label: 'Archive', icon: Archive },
-    { id: 'recycle-bin', label: 'Recycle Bin', icon: Trash2 },
+    { id: 'agents', label: 'Agents', icon: Bot },
+    { id: 'studios', label: 'Studios', icon: Clapperboard },
+    { id: 'incognito-chat', label: 'Incognito Session', icon: EyeOff },
+    { id: 'system-status', label: 'System Status', icon: ActivitySquare },
   ];
 
   return (
-    <div 
+    <div
       ref={popupRef}
       id="angel-more-popup"
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className="fixed left-16 md:left-60 lg:left-64 top-1/2 -translate-y-1/2 z-50 w-56 max-h-[85vh] overflow-y-auto p-2 rounded-2xl bg-[#080c22]/95 border-0 text-slate-100 shadow-[0_12px_45px_rgba(0,0,0,0.9),0_0_20px_rgba(56,189,248,0.18)] backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-150 scrollbar-thin scrollbar-thumb-slate-800"
+      className="fixed left-16 md:left-60 lg:left-64 top-1/2 -translate-y-1/2 z-50 w-56 max-h-[85vh] overflow-y-auto p-2 rounded-2xl angel-blurred-surface bg-[#080c22]/92 text-slate-100 backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-150 scrollbar-thin scrollbar-thumb-slate-800"
     >
       <div className="space-y-0.5">
         {items.map((item) => {
@@ -71,11 +66,12 @@ export const MoreNavigationPopup: React.FC<MoreNavigationPopupProps> = ({
           return (
             <button
               key={item.id}
+              type="button"
               onClick={() => {
                 onSelectSubItem(item.id);
                 onClose();
               }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-cyan-300 bg-transparent transition-all text-left group"
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-cyan-300 bg-transparent transition-all text-left group cursor-pointer"
             >
               <div className="p-1 rounded-lg bg-transparent text-slate-400 group-hover:text-cyan-300 transition-colors">
                 <Icon className="w-4 h-4" />

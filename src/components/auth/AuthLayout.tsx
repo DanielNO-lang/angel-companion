@@ -1,8 +1,15 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Moon, Sun, AlertTriangle } from 'lucide-react';
 import { AngelEmblem3D } from '../branding/AngelEmblem3D';
-import { AngelCompanion3D } from '../branding/AngelCompanion3D';
-import { getSupabaseConfigState } from '../../services/supabaseClient';
+import {
+  getSupabaseConfigState,
+  probeSupabaseAuthSettings,
+  type SupabaseLiveHealthProbe,
+} from '../../services/supabaseClient';
+import {
+  FRIENDLY_ERROR_MESSAGES,
+  logSanitizedDiagnostic,
+} from '../../services/errorHandlingService';
 import type { AppRoute, ThemeMode } from '../../services/authValidation';
 
 interface AuthLayoutProps {
@@ -28,6 +35,38 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
 }) => {
   const isLight = theme === 'light';
   const supabaseConfig = getSupabaseConfigState();
+  const [liveProbe, setLiveProbe] = useState<SupabaseLiveHealthProbe | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!supabaseConfig.isConfigured) {
+      setLiveProbe(null);
+      logSanitizedDiagnostic({
+        category: 'missing_config',
+        context: 'auth',
+        rawError: supabaseConfig.diagnosticDetail,
+        metadata: {
+          code: supabaseConfig.diagnosticCode,
+        },
+      });
+      return;
+    }
+    probeSupabaseAuthSettings().then((result) => {
+      if (!mounted) return;
+      setLiveProbe(result);
+      if (!result.reachable) {
+        logSanitizedDiagnostic({
+          category: result.diagnosticCode === 'auth_rejected' ? 'missing_config' : 'supabase_unreachable',
+          context: 'auth',
+          rawError: result.message,
+          statusCode: result.statusCode ?? undefined,
+        });
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [supabaseConfig.isConfigured, supabaseConfig.supabaseUrl, supabaseConfig.diagnosticCode, supabaseConfig.diagnosticDetail]);
 
   return (
     <div className="relative z-10 min-h-screen w-full flex flex-col">
@@ -36,10 +75,10 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
         <button
           type="button"
           onClick={() => onNavigate('landing')}
-          className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all cursor-pointer min-h-[40px] ${
+          className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all cursor-pointer min-h-[40px] backdrop-blur-xl angel-blurred-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
             isLight
-              ? 'bg-white/75 hover:bg-white text-slate-800 border border-slate-200/80 shadow-sm'
-              : 'glass-panel text-slate-200 hover:text-white border border-indigo-500/20 hover:border-cyan-400/40'
+              ? 'bg-white/75 hover:bg-white/95 text-slate-800 shadow-[0_8px_24px_rgba(30,64,175,0.12)]'
+              : 'bg-white/[0.06] hover:bg-white/[0.12] text-slate-200 hover:text-white shadow-[0_8px_28px_rgba(0,0,0,0.3)]'
           }`}
         >
           <ArrowLeft className="w-4 h-4" />
@@ -50,10 +89,10 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
           type="button"
           onClick={onToggleTheme}
           aria-label={`Switch to ${isLight ? 'dark cosmic' : 'cloudy light'} mode`}
-          className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all cursor-pointer min-h-[40px] ${
+          className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl text-xs font-semibold transition-all cursor-pointer min-h-[40px] backdrop-blur-xl angel-blurred-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
             isLight
-              ? 'bg-white/75 hover:bg-white text-slate-800 border border-slate-200/80 shadow-sm'
-              : 'glass-panel text-slate-200 hover:text-white border border-indigo-500/20'
+              ? 'bg-white/75 hover:bg-white/95 text-slate-800 shadow-[0_8px_24px_rgba(30,64,175,0.12)]'
+              : 'bg-white/[0.06] hover:bg-white/[0.12] text-slate-200 hover:text-white shadow-[0_8px_28px_rgba(0,0,0,0.3)]'
           }`}
         >
           {isLight ? (
@@ -73,49 +112,37 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
       {/* Main Split Desktop / Purpose-Built Compact Mobile Composition */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 flex items-center justify-center">
         <div className="w-full grid grid-cols-1 lg:grid-cols-[1.08fr_1fr] gap-6 lg:gap-10 items-center">
-          {/* DESKTOP VISUAL SIDE (Two-part split on lg+, replaced by compact top header on mobile/tablet) */}
+          {/* DESKTOP VISUAL SIDE */}
           <section
             aria-label="Angel Companion Visual Identity"
-            className={`hidden lg:flex flex-col items-center justify-center text-center relative rounded-[32px] p-10 min-h-[600px] overflow-hidden ${
+            className={`hidden lg:flex flex-col items-center justify-center text-center relative rounded-[32px] p-10 min-h-[580px] overflow-hidden backdrop-blur-2xl angel-blurred-surface ${
               isLight
-                ? 'glass-panel-glow border border-sky-200/80'
-                : 'glass-panel-glow border border-indigo-500/20'
+                ? 'bg-white/45 shadow-[0_0_64px_rgba(30,64,175,0.16)]'
+                : 'bg-[#080d22]/45 shadow-[0_0_72px_rgba(56,189,248,0.12)]'
             }`}
           >
-            {/* Orbital depth rings */}
+            {/* Clean Subtle Atmospheric Glow Behind Canonical Emblem (No Orbital Rings or Companion Orb) */}
             <div className="relative flex items-center justify-center mb-8">
               <div
-                className={`absolute w-72 h-72 rounded-full border animate-spin-slow pointer-events-none ${
-                  isLight ? 'border-sky-400/35' : 'border-cyan-400/25'
-                }`}
-              />
-              <div
-                className={`absolute w-56 h-56 rounded-full border pointer-events-none ${
-                  isLight ? 'border-violet-400/30' : 'border-purple-400/30'
-                }`}
-                style={{ animation: 'spinSlow 32s linear infinite reverse' }}
-              />
-              <div
-                className={`absolute w-44 h-44 rounded-full blur-2xl pointer-events-none animate-pulse-glow ${
+                aria-hidden="true"
+                className={`absolute w-52 h-52 rounded-full blur-3xl pointer-events-none animate-pulse-glow ${
                   isLight
                     ? 'bg-gradient-to-tr from-sky-300/45 via-indigo-200/35 to-purple-300/45'
                     : 'bg-gradient-to-tr from-cyan-500/25 via-indigo-500/20 to-purple-500/25'
                 }`}
               />
 
-              {/* Reused Existing Animated 3D Emblem */}
               <div className="relative z-10">
-                <AngelEmblem3D size={190} rotationSpeed={22} pointerTracking={true} />
-              </div>
-
-              {/* Softly floating Companion Orb beside the Emblem */}
-              <div className="absolute -bottom-5 -right-8 z-20 animate-float">
-                <AngelCompanion3D size={108} state="idle" showControls={false} />
+                <AngelEmblem3D size={196} seed="auth-visual" rotationSpeed={20} pointerTracking={true} />
               </div>
             </div>
 
-            <div className="max-w-md space-y-3 relative z-10 mt-4">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-semibold tracking-wider uppercase border border-cyan-400/30 bg-cyan-500/10 text-cyan-400">
+            <div className="max-w-md space-y-3 relative z-10 mt-2">
+              <div
+                className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-semibold tracking-wider uppercase ${
+                  isLight ? 'bg-sky-500/10 text-indigo-700' : 'bg-cyan-500/10 text-cyan-300'
+                }`}
+              >
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
                 <span>Angel Companion Environment</span>
               </div>
@@ -135,16 +162,16 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
           {/* AUTHENTICATION FORM SIDE */}
           <section className="w-full max-w-md mx-auto lg:max-w-lg">
             <div
-              className={`rounded-[28px] p-5 sm:p-8 relative overflow-hidden ${
+              className={`rounded-[28px] p-5 sm:p-8 relative overflow-hidden backdrop-blur-2xl angel-blurred-surface ${
                 isLight
-                  ? 'glass-panel-glow border border-white/90 text-slate-900'
-                  : 'glass-panel-glow border border-indigo-500/25 text-slate-100'
+                  ? 'bg-white/70 text-slate-900 shadow-[0_0_64px_rgba(30,64,175,0.16)]'
+                  : 'bg-[#080d22]/65 text-slate-100 shadow-[0_0_72px_rgba(56,189,248,0.12)]'
               }`}
             >
               {/* Purpose-Built Compact Mobile Presentation of Angel Branding */}
-              <div className="flex lg:hidden items-center gap-3.5 mb-5 pb-4 border-b border-slate-500/20">
+              <div className="flex lg:hidden items-center gap-3.5 mb-5 pb-4">
                 <div className="shrink-0 flex items-center justify-center">
-                  <AngelEmblem3D size={54} rotationSpeed={18} tiltOnHover={true} />
+                  <AngelEmblem3D size={50} seed="auth-mobile" rotationSpeed={16} tiltOnHover={true} />
                 </div>
                 <div className="min-w-0">
                   <span
@@ -160,8 +187,9 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
                 </div>
               </div>
 
-              {/* Desktop subtle emblem mark in form header */}
+              {/* Desktop subtle canonical emblem mark in form header */}
               <div className="hidden lg:flex items-center gap-2.5 mb-3">
+                <AngelEmblem3D size={24} seed="auth-header-desktop" renderMode="svg" rotationSpeed={16} />
                 <span
                   className={`text-xs font-bold tracking-[0.22em] uppercase font-heading ${
                     isLight ? 'text-indigo-700' : 'text-cyan-300'
@@ -182,25 +210,37 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
                 {subtitle}
               </p>
 
-              {/* Honest Supabase Configuration Warning when env vars are missing */}
+              {/* Calm User-Friendly Service Notice (Never Exposing Technical Codes or Env Names) */}
               {!supabaseConfig.isConfigured && (
                 <div
                   role="alert"
-                  className={`mb-5 p-3.5 rounded-2xl border text-xs leading-relaxed flex items-start gap-2.5 ${
+                  className={`mb-5 p-3.5 rounded-2xl text-xs leading-relaxed flex items-start gap-2.5 angel-blurred-surface ${
                     isLight
-                      ? 'bg-amber-50/90 border-amber-300 text-amber-900'
-                      : 'bg-amber-950/50 border-amber-500/40 text-amber-100'
+                      ? 'bg-amber-50/90 text-amber-900 shadow-sm'
+                      : 'bg-amber-950/50 text-amber-100 shadow-md'
                   }`}
                 >
                   <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-bold">Supabase authentication not yet configured</p>
-                    <p className="mt-0.5 opacity-90">
-                      Live sign-in, registration, verification, and OAuth require{' '}
-                      <code className="font-mono font-semibold">VITE_SUPABASE_URL</code> and{' '}
-                      <code className="font-mono font-semibold">VITE_SUPABASE_PUBLISHABLE_KEY</code> (or legacy <code className="font-mono font-semibold">VITE_SUPABASE_ANON_KEY</code>). Workspace access
-                      remains protected until a verified Supabase session is established.
-                    </p>
+                  <div className="min-w-0">
+                    <p className="font-bold">Sign-in temporarily unavailable</p>
+                    <p className="mt-0.5 opacity-95">{FRIENDLY_ERROR_MESSAGES.SERVICE_UNAVAILABLE}</p>
+                  </div>
+                </div>
+              )}
+
+              {supabaseConfig.isConfigured && liveProbe && !liveProbe.reachable && (
+                <div
+                  role="alert"
+                  className={`mb-5 p-3.5 rounded-2xl text-xs leading-relaxed flex items-start gap-2.5 angel-blurred-surface ${
+                    isLight
+                      ? 'bg-rose-50/90 text-rose-900 shadow-sm'
+                      : 'bg-rose-950/50 text-rose-100 shadow-md'
+                  }`}
+                >
+                  <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="font-bold">Connection interrupted</p>
+                    <p className="mt-0.5 opacity-90">{FRIENDLY_ERROR_MESSAGES.NETWORK}</p>
                   </div>
                 </div>
               )}

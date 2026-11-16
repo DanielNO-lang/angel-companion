@@ -156,6 +156,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           <Suspense fallback={<EmblemSkeleton size={typeof window !== 'undefined' && window.innerWidth < 640 ? 150 : 210} />}>
             <AngelEmblem3D 
               size={typeof window !== 'undefined' && window.innerWidth < 640 ? 150 : 210} 
+              seed="dashboard-hero"
               rotationSpeed={isDragging ? 4 : orbState === 'sleeping' ? 48 : 12} 
               tiltOnHover={true}
               pointerTracking={true}

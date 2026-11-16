@@ -1,4 +1,5 @@
 import { storageService, STORAGE_KEYS } from './storageService';
+import { companionData } from './companionData';
 
 export type WorkspaceFileType = 'document' | 'code' | 'note' | 'research' | 'generated_content';
 
@@ -24,9 +25,12 @@ export interface WorkspaceProject {
   files: WorkspaceFile[];
 }
 
+const STARTER_PROJECT_ID = 'proj_default';
+const STARTER_FILE_IDS = new Set(['file_1', 'file_2']);
+
 const DEFAULT_PROJECTS: WorkspaceProject[] = [
   {
-    id: 'proj_default',
+    id: STARTER_PROJECT_ID,
     name: 'Angel Foundation System',
     description: 'Core application system architecture and knowledge base',
     createdAt: new Date().toISOString(),
@@ -34,7 +38,7 @@ const DEFAULT_PROJECTS: WorkspaceProject[] = [
     files: [
       {
         id: 'file_1',
-        projectId: 'proj_default',
+        projectId: STARTER_PROJECT_ID,
         name: 'Angel System Architecture.md',
         type: 'document',
         content: '# Angel AI System Architecture\n\nUnified personal AI companion and intelligent work environment featuring 3D Three.js rendering, multi-layer motion canvas, and 8 specialized Studio environments.',
@@ -45,7 +49,7 @@ const DEFAULT_PROJECTS: WorkspaceProject[] = [
       },
       {
         id: 'file_2',
-        projectId: 'proj_default',
+        projectId: STARTER_PROJECT_ID,
         name: 'Supabase Migration Schema.sql',
         type: 'code',
         content: '-- PostgreSQL Migration Blueprint\nCREATE TABLE profiles (id UUID PRIMARY KEY, full_name TEXT);\nALTER TABLE profiles ENABLE ROW LEVEL SECURITY;',
@@ -58,18 +62,118 @@ const DEFAULT_PROJECTS: WorkspaceProject[] = [
   },
 ];
 
+function isUntouchedStarter(project: WorkspaceProject): boolean {
+  return (
+    project.id === STARTER_PROJECT_ID &&
+    project.name === 'Angel Foundation System' &&
+    project.files.every((f) => STARTER_FILE_IDS.has(f.id))
+  );
+}
+
 export class WorkspaceEngine {
-  private projects: WorkspaceProject[];
+  private projects: WorkspaceProject[] = [];
+  private accessToken: string | null = null;
+  private activeUserId: string | null = null;
+  private cloudHydrationToken: string | null = null;
 
   constructor() {
-    this.projects = storageService.load<WorkspaceProject[]>(
-      STORAGE_KEYS.workspaceProjects,
-      DEFAULT_PROJECTS
-    );
+    this.loadCurrentScope();
   }
 
-  private persist() {
-    storageService.save(STORAGE_KEYS.workspaceProjects, this.projects);
+  private scopedKey(base: string): string {
+    return this.activeUserId ? `${base}:user:${this.activeUserId}` : base;
+  }
+
+  private loadCurrentScope(): void {
+    const defaultProjects = this.activeUserId
+      ? [
+          {
+            id: STARTER_PROJECT_ID,
+            name: 'General Workspace',
+            description: 'Your private project files and instructions',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            files: [],
+          },
+        ]
+      : DEFAULT_PROJECTS;
+
+    const loaded = storageService.load<WorkspaceProject[]>(
+      this.scopedKey(STORAGE_KEYS.workspaceProjects),
+      defaultProjects
+    );
+    this.projects = Array.isArray(loaded) && loaded.length > 0 ? loaded : defaultProjects;
+  }
+
+  public setAuthContext(token: string | null, userId?: string | null): void {
+    const nextUserId = token ? userId || null : null;
+    const identityChanged = this.activeUserId !== nextUserId;
+    this.accessToken = token;
+
+    if (identityChanged) {
+      this.activeUserId = nextUserId;
+      this.cloudHydrationToken = null;
+      this.loadCurrentScope();
+    }
+
+    if (!token) {
+      this.cloudHydrationToken = null;
+      return;
+    }
+
+    if ((this.cloudHydrationToken !== token || identityChanged) && companionData.isCloudConfigured()) {
+      this.cloudHydrationToken = token;
+      void this.restoreCloud(token);
+    }
+  }
+
+  private async restoreCloud(token: string): Promise<void> {
+    const ownerId = this.activeUserId;
+    if (!ownerId || !companionData.isCloudConfigured()) return;
+    try {
+      const cloudProjects = await companionData.loadWorkspaceProjects(token);
+      if (this.accessToken !== token || this.activeUserId !== ownerId) return;
+
+      const byId = new Map<string, WorkspaceProject>();
+      cloudProjects.forEach((p) => byId.set(p.id, p));
+      this.projects.forEach((local) => {
+        if (isUntouchedStarter(local) && cloudProjects.length > 0) return;
+        const existing = byId.get(local.id);
+        if (!existing || local.updatedAt > existing.updatedAt) {
+          byId.set(local.id, local);
+        }
+      });
+
+      const merged = Array.from(byId.values()).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      if (merged.length > 0) {
+        this.projects = merged;
+        this.persist(false);
+      }
+    } catch (error) {
+      console.warn('[WorkspaceEngine] Cloud restore deferred:', error);
+    }
+  }
+
+  private persist(syncToCloud = true): void {
+    storageService.save(this.scopedKey(STORAGE_KEYS.workspaceProjects), this.projects);
+    if (syncToCloud && this.accessToken && this.activeUserId && companionData.isCloudConfigured()) {
+      const toSync = this.projects.filter((p) => !isUntouchedStarter(p));
+      if (toSync.length > 0) {
+        void companionData.syncWorkspaceProjects(this.accessToken, toSync, this.activeUserId).catch((error) => {
+          console.warn('[WorkspaceEngine] Cloud sync deferred:', error);
+        });
+      }
+    }
+  }
+
+  cleanupSampleRecords(): number {
+    const before = this.projects.length;
+    this.projects = this.projects.filter((p) => !isUntouchedStarter(p));
+    const removed = before - this.projects.length;
+    if (removed > 0) {
+      this.persist(false);
+    }
+    return removed;
   }
 
   getProjects(): WorkspaceProject[] {
@@ -102,7 +206,7 @@ export class WorkspaceEngine {
     if (!proj) return null;
 
     const newFile: WorkspaceFile = {
-      id: `file_${Date.now()}`,
+      id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       projectId: proj.id,
       name,
       type,
@@ -208,7 +312,12 @@ export class WorkspaceEngine {
     const initialLen = this.projects.length;
     this.projects = this.projects.filter((p) => p.id !== projectId);
     if (this.projects.length < initialLen) {
-      this.persist();
+      this.persist(false);
+      if (this.accessToken && companionData.isCloudConfigured()) {
+        void companionData.deleteWorkspaceProject(this.accessToken, projectId).catch((error) => {
+          console.warn('[WorkspaceEngine] Cloud delete deferred:', error);
+        });
+      }
       return true;
     }
     return false;

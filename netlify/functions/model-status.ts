@@ -1,20 +1,22 @@
-export default async (request: Request): Promise<Response> => {
-  if (request.method !== "GET") {
-    return new Response(JSON.stringify({ error: "Method not allowed." }), {
-      status: 405,
-      headers: { "content-type": "application/json", "cache-control": "no-store" },
-    });
-  }
+import { handleModelStatusRequest } from "../../server/geminiBackend";
 
-  const configured = Boolean(process.env.GEMINI_API_KEY);
-  return new Response(JSON.stringify({
-    connected: configured,
-    model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
-    message: configured
-      ? "Gemini server credentials are configured."
-      : "Gemini server credentials are not configured.",
-  }), {
-    status: 200,
-    headers: { "content-type": "application/json", "cache-control": "no-store" },
+export default async (request: Request): Promise<Response> => {
+  const url = new URL(request.url);
+  const forceRefresh = url.searchParams.get("refresh") === "1" || url.searchParams.get("refresh") === "true";
+  const probeParam = url.searchParams.get("probe");
+  const liveProbe = probeParam === "generate" ? true : probeParam !== "none";
+
+  const result = await handleModelStatusRequest({
+    method: request.method,
+    forceRefresh,
+    liveProbe,
+  });
+
+  return new Response(JSON.stringify(result.body), {
+    status: result.statusCode,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+    },
   });
 };

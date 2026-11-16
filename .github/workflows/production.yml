@@ -70,8 +70,59 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
+      - name: Resolve public build variables from GitHub or Netlify site configuration
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          GH_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL || secrets.VITE_SUPABASE_URL }}
+          GH_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          GH_SUPABASE_ANON: ${{ vars.VITE_SUPABASE_ANON_KEY || secrets.VITE_SUPABASE_ANON_KEY }}
+          GH_ENABLED_PROVIDERS: ${{ vars.VITE_SUPABASE_ENABLED_PROVIDERS || '' }}
+        run: |
+          resolve_public_var() {
+            local current="$1"
+            local key="$2"
+            if [ -n "$current" ]; then
+              printf '%s' "$current"
+              return 0
+            fi
+            if [ -n "$NETLIFY_AUTH_TOKEN" ] && [ -n "$NETLIFY_SITE_ID" ]; then
+              npx --yes netlify-cli env:get "$key" --context production --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" 2>/dev/null || true
+            fi
+          }
+
+          RESOLVED_URL="$(resolve_public_var "$GH_SUPABASE_URL" "VITE_SUPABASE_URL")"
+          RESOLVED_KEY="$(resolve_public_var "$GH_SUPABASE_KEY" "VITE_SUPABASE_PUBLISHABLE_KEY")"
+          RESOLVED_ANON="$(resolve_public_var "$GH_SUPABASE_ANON" "VITE_SUPABASE_ANON_KEY")"
+
+          if [ -z "$RESOLVED_URL" ] || { [ -z "$RESOLVED_KEY" ] && [ -z "$RESOLVED_ANON" ]; }; then
+            echo "::error::Missing VITE_SUPABASE_URL or VITE_SUPABASE_PUBLISHABLE_KEY/VITE_SUPABASE_ANON_KEY for production Vite build."
+            exit 1
+          fi
+
+          {
+            echo "VITE_SUPABASE_URL=$RESOLVED_URL"
+            echo "VITE_SUPABASE_PUBLISHABLE_KEY=$RESOLVED_KEY"
+            echo "VITE_SUPABASE_ANON_KEY=$RESOLVED_ANON"
+            if [ -n "$GH_ENABLED_PROVIDERS" ]; then
+              echo "VITE_SUPABASE_ENABLED_PROVIDERS=$GH_ENABLED_PROVIDERS"
+            fi
+          } >> "$GITHUB_ENV"
       - name: Build production assets
         run: npm run build
+      - name: Verify production bundle contains Supabase config and zero server secrets
+        run: |
+          SUPABASE_HOST="${VITE_SUPABASE_URL#https://}"
+          SUPABASE_HOST="${SUPABASE_HOST#http://}"
+          SUPABASE_HOST="${SUPABASE_HOST%%/*}"
+          if [ -n "$SUPABASE_HOST" ] && ! grep -rqF "$SUPABASE_HOST" dist/assets/; then
+            echo "::error::Expected VITE_SUPABASE_URL host ($SUPABASE_HOST) was not bundled into dist/assets/!"
+            exit 1
+          fi
+          if grep -rqE 'sb_secret_[A-Za-z0-9]{12,}|AIzaSy[A-Za-z0-9_-]{20,}' dist/assets/; then
+            echo "::error::Sensitive secret token pattern found in client bundle!"
+            exit 1
+          fi
       - name: Publish prebuilt assets to Netlify
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}

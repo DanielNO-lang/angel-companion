@@ -90,7 +90,6 @@ const ECOSYSTEM_NODES: ArchitectureNode[] = [
   },
 ];
 
-// Normalized 4x2 grid center coordinates for SVG directional relationship overlay (viewBox 0 0 400 200)
 const NODE_POSITIONS: Record<string, { x: number; y: number }> = {
   conversations: { x: 50, y: 50 },
   adaptive: { x: 150, y: 50 },
@@ -114,42 +113,35 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
   const selectedPos = NODE_POSITIONS[selectedNode.id];
 
   return (
-    <div id="about" className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-20 py-14 sm:py-20">
-      {/* 1. ABOUT ANGEL & THE TREFOIL EMBLEM IN MOTION */}
+    <div className="landing-section-about w-full py-14 sm:py-20">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-20">
+      {/* 1. ABOUT ANGEL & THE 3D EMBLEM IN MOTION */}
       <section aria-labelledby="emblem-story-heading">
         <div
-          className={`landing-glass-card rounded-[28px] sm:rounded-[32px] p-6 sm:p-10 lg:p-12 grid grid-cols-1 lg:grid-cols-[0.95fr_1.15fr] gap-8 lg:gap-12 items-center ${
+          className={`landing-glass-card angel-blurred-surface rounded-[28px] sm:rounded-[36px] p-6 sm:p-10 lg:p-12 grid grid-cols-1 lg:grid-cols-[0.95fr_1.15fr] gap-8 lg:gap-12 items-center ${
             isLight ? 'text-slate-900' : 'text-slate-100'
           }`}
         >
-          {/* Animated Emblem Motion Stage */}
+          {/* Animated 3D Motion Emblem (Exact dashboard rotation, zero outlines) */}
           <div className="relative flex flex-col items-center justify-center py-6">
             <div className="relative flex items-center justify-center">
               <div
-                className={`w-60 h-60 sm:w-72 sm:h-72 rounded-full border animate-spin-slow pointer-events-none ${
-                  isLight ? 'border-sky-500/35' : 'border-cyan-400/25'
-                }`}
-              />
-              <div
-                className={`absolute w-48 h-48 rounded-full blur-2xl pointer-events-none ${
+                className={`absolute w-48 h-48 rounded-full blur-3xl pointer-events-none ${
                   isLight
-                    ? 'bg-gradient-to-tr from-sky-300/45 via-indigo-300/35 to-purple-300/45'
-                    : 'bg-gradient-to-tr from-cyan-500/25 via-indigo-500/20 to-purple-500/25'
+                    ? 'bg-gradient-to-tr from-sky-400/40 via-indigo-300/30 to-purple-400/40'
+                    : 'bg-gradient-to-tr from-cyan-400/35 via-indigo-500/25 to-purple-500/30 drop-shadow-[0_0_35px_rgba(56,189,248,0.5)]'
                 }`}
               />
-              <div className="absolute z-10 flex items-center justify-center">
-                {isLight && (
-                  <div className="absolute w-36 h-36 rounded-full bg-gradient-to-br from-slate-900/85 via-indigo-950/85 to-slate-900/85 blur-xl opacity-25 pointer-events-none" />
-                )}
-                <AngelEmblem3D size={168} rotationSpeed={18} pointerTracking={true} />
+              <div className="relative z-10 flex items-center justify-center transition-transform duration-300 hover:scale-105">
+                <AngelEmblem3D size={180} seed="landing-about" rotationSpeed={20} pointerTracking={true} tiltOnHover={true} />
               </div>
             </div>
-            <p className={`mt-4 text-xs font-mono uppercase tracking-widest text-center ${isLight ? 'text-slate-600' : 'text-cyan-300/80'}`}>
+            <p className={`mt-5 text-xs font-mono uppercase tracking-widest text-center ${isLight ? 'text-slate-600' : 'text-cyan-300/80'}`}>
               Continuous 3D Intertwined Trefoil Form
             </p>
           </div>
 
-          {/* Grounded Symbolism Explanation (no invented history) */}
+          {/* Grounded Symbolism Explanation */}
           <div className="space-y-5 text-left">
             <p className={`text-xs font-bold uppercase tracking-[0.24em] font-heading ${isLight ? 'text-indigo-700' : 'text-cyan-300'}`}>
               About Angel & The Emblem
@@ -165,27 +157,27 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
               of thinking, building, and organizing remain distinct yet seamlessly connected inside one companion.
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
               {[
                 {
                   title: 'Connection',
-                  text: 'Three interwoven loops meeting without hard breaks mirror Dialogue, Workspace, and Specialized Studios working together.',
+                  text: 'Three interwoven loops meeting without hard breaks mirror Dialogue, Workspace, and Specialized Studios.',
                 },
                 {
                   title: 'Continuity',
-                  text: 'Its unbroken metallic geometry reflects preserving project context and organized knowledge across tasks.',
+                  text: 'Its unbroken geometry reflects preserving project context and organized knowledge across tasks.',
                 },
                 {
                   title: 'Balance',
-                  text: 'Blue and violet ambient highlights represent calm everyday guidance paired with structured technical execution.',
+                  text: 'Blue and violet ambient highlights represent calm guidance paired with technical execution.',
                 },
               ].map((pillar) => (
                 <div
                   key={pillar.title}
-                  className={`p-4 rounded-2xl border transition-all duration-300 hover:-translate-y-0.5 ${
+                  className={`p-4 rounded-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-lg ${
                     isLight
-                      ? 'bg-white/80 hover:bg-white border-slate-200 hover:border-blue-300 text-slate-800 shadow-xs'
-                      : 'bg-slate-950/50 hover:bg-slate-900/65 border-indigo-500/20 hover:border-cyan-400/40 text-slate-200'
+                      ? 'bg-white/65 hover:bg-white text-slate-800 shadow-xs backdrop-blur-xl'
+                      : 'bg-slate-950/38 hover:bg-slate-900/65 text-slate-200 shadow-md backdrop-blur-xl'
                   }`}
                 >
                   <h3 className={`text-sm font-bold font-heading ${isLight ? 'text-indigo-700' : 'text-cyan-300'}`}>
@@ -201,7 +193,7 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
         </div>
       </section>
 
-      {/* 2. HOW ANGEL WORKS TOGETHER (INTERACTIVE ARCHITECTURE DIAGRAM) */}
+      {/* 2. HOW ANGEL WORKS TOGETHER (INTERACTIVE ARCHITECTURE DIAGRAM - NO OUTLINES) */}
       <section aria-labelledby="ecosystem-diagram-heading" className="space-y-8">
         <div className="text-center max-w-3xl mx-auto space-y-3">
           <p className={`text-xs font-bold uppercase tracking-[0.24em] font-heading ${isLight ? 'text-indigo-700' : 'text-cyan-300'}`}>
@@ -214,15 +206,13 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
             How Angel&apos;s Environments Work Together
           </h2>
           <p className={`text-sm sm:text-base leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-            Each area in Angel has a distinct responsibility—not overlapping clones. Select any environment below to
-            inspect how it connects without collapsing boundaries.
+            Select any environment below to inspect how it connects without collapsing boundaries.
           </p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1.25fr_1fr] gap-6 items-stretch">
-          {/* Interactive Spatial Node Grid with Animated Relationship Connectors */}
+          {/* Interactive Spatial Node Grid */}
           <div className="relative">
-            {/* Desktop/Wide SVG Connection Beams Behind 4x2 Node Grid */}
             <svg
               aria-hidden="true"
               viewBox="0 0 400 200"
@@ -240,7 +230,7 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
                         y1={selectedPos.y}
                         x2={targetPos.x}
                         y2={targetPos.y}
-                        stroke={isLight ? 'rgba(59, 130, 246, 0.25)' : 'rgba(56, 189, 248, 0.22)'}
+                        stroke={isLight ? 'rgba(59, 130, 246, 0.25)' : 'rgba(56, 189, 248, 0.25)'}
                         strokeWidth="2.5"
                       />
                       <line
@@ -268,25 +258,25 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
                     type="button"
                     onClick={() => setSelectedNodeId(node.id)}
                     aria-pressed={isSelected}
-                    className={`group p-4 rounded-2xl border text-left transition-all duration-300 cursor-pointer flex flex-col justify-between min-h-[126px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
+                    className={`group p-4 rounded-2xl text-left transition-all duration-300 cursor-pointer flex flex-col justify-between min-h-[126px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
                       isSelected
-                        ? 'bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white border-cyan-300/70 shadow-[0_10px_30px_rgba(79,70,229,0.45)] -translate-y-0.5 scale-[1.02]'
+                        ? 'bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white shadow-[0_12px_32px_rgba(79,70,229,0.45)] -translate-y-1 scale-[1.03]'
                         : isLinked
                           ? isLight
-                            ? 'bg-sky-50/95 hover:bg-white border-sky-400/80 text-slate-900 shadow-[0_6px_20px_rgba(59,130,246,0.14)] backdrop-blur-xl'
-                            : 'bg-indigo-950/75 hover:bg-indigo-900/75 border-cyan-400/55 text-slate-100 shadow-[0_0_22px_rgba(56,189,248,0.2)] backdrop-blur-xl'
+                            ? 'bg-sky-100/90 hover:bg-white text-slate-900 shadow-[0_8px_24px_rgba(59,130,246,0.18)] backdrop-blur-2xl'
+                            : 'bg-indigo-950/80 hover:bg-indigo-900/90 text-slate-100 shadow-[0_0_25px_rgba(56,189,248,0.25)] backdrop-blur-2xl'
                           : isLight
-                            ? 'bg-white/70 hover:bg-white/95 border-slate-200/90 hover:border-blue-300 text-slate-800 backdrop-blur-xl'
-                            : 'bg-[#090e26]/55 hover:bg-[#0e1538]/75 border-indigo-500/20 hover:border-cyan-400/40 text-slate-300 backdrop-blur-xl'
+                            ? 'bg-white/70 hover:bg-white text-slate-800 shadow-[0_6px_20px_rgba(30,64,175,0.06)] hover:shadow-md backdrop-blur-2xl'
+                            : 'bg-[#090e26]/50 hover:bg-[#0e1538]/80 text-slate-300 shadow-[0_6px_24px_rgba(0,0,0,0.25)] hover:shadow-[0_0_20px_rgba(56,189,248,0.2)] backdrop-blur-2xl'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <Icon
                         className={`w-5 h-5 transition-transform duration-300 group-hover:scale-110 ${
                           isSelected
-                            ? 'text-cyan-200 scale-110'
+                            ? 'text-cyan-200 scale-110 drop-shadow-[0_0_8px_rgba(56,189,248,0.8)]'
                             : isLinked
-                              ? 'text-cyan-400'
+                              ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(56,189,248,0.6)]'
                               : isLight
                                 ? 'text-indigo-600'
                                 : 'text-indigo-400'
@@ -315,19 +305,19 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
             </div>
           </div>
 
-          {/* Selected Node Relationship Inspector */}
+          {/* Selected Node Inspector (Blurred Edges) */}
           <div
-            className={`landing-glass-card rounded-3xl p-6 flex flex-col justify-between ${
+            className={`landing-glass-card angel-blurred-surface rounded-[28px] p-6 sm:p-8 flex flex-col justify-between ${
               isLight ? 'text-slate-900' : 'text-slate-100'
             }`}
           >
             <div key={selectedNode.id} className="animate-landing-reveal space-y-4">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3.5">
                 <div
-                  className={`p-3 rounded-2xl border ${
+                  className={`p-3 rounded-2xl transition-transform duration-300 hover:scale-110 hover:shadow-[0_0_16px_rgba(56,189,248,0.5)] ${
                     isLight
-                      ? 'bg-sky-50 border-sky-200 text-indigo-600'
-                      : 'bg-indigo-500/15 border-indigo-400/30 text-cyan-400'
+                      ? 'bg-sky-100/80 text-indigo-600'
+                      : 'bg-indigo-500/20 text-cyan-400 shadow-[0_0_16px_rgba(56,189,248,0.25)]'
                   }`}
                 >
                   <SelectedIcon className="w-6 h-6" />
@@ -345,8 +335,8 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
               </p>
             </div>
 
-            <div className="pt-5 mt-5 border-t border-slate-500/20">
-              <span className={`text-[11px] font-bold uppercase tracking-wider block mb-2 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+            <div className="pt-5 mt-5">
+              <span className={`text-[11px] font-bold uppercase tracking-wider block mb-2.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 Directly Interacts With
               </span>
               <div className="flex flex-wrap gap-2">
@@ -358,10 +348,10 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
                       key={target.id}
                       type="button"
                       onClick={() => setSelectedNodeId(target.id)}
-                      className={`min-h-[36px] px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-all hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
+                      className={`min-h-[36px] px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
                         isLight
-                          ? 'bg-sky-100 hover:bg-sky-200 text-sky-900 border border-sky-200'
-                          : 'bg-cyan-950/70 hover:bg-cyan-900/80 text-cyan-200 border border-cyan-500/30 hover:border-cyan-400/60'
+                          ? 'bg-sky-100 hover:bg-sky-200 text-sky-900 shadow-xs'
+                          : 'bg-cyan-950/80 hover:bg-cyan-900 text-cyan-200 shadow-[0_0_15px_rgba(56,189,248,0.2)]'
                       }`}
                     >
                       {target.label}
@@ -374,7 +364,7 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
         </div>
       </section>
 
-      {/* 3. WHAT MAKES ANGEL DIFFERENT */}
+      {/* 3. WHAT MAKES ANGEL DIFFERENT (NO OUTLINES) */}
       <section aria-labelledby="different-heading" className="space-y-8">
         <div className="text-center max-w-3xl mx-auto space-y-3">
           <p className={`text-xs font-bold uppercase tracking-[0.24em] font-heading ${isLight ? 'text-indigo-700' : 'text-cyan-300'}`}>
@@ -390,7 +380,7 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div
-            className={`landing-glass-card rounded-3xl p-6 sm:p-8 space-y-4 ${
+            className={`landing-glass-card angel-blurred-surface rounded-[28px] p-6 sm:p-8 space-y-4 transition-transform duration-300 hover:scale-[1.01] ${
               isLight ? 'text-slate-800' : 'text-slate-300'
             }`}
           >
@@ -413,10 +403,8 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
           </div>
 
           <div
-            className={`landing-glass-card rounded-3xl p-6 sm:p-8 space-y-4 ${
-              isLight
-                ? '!border-sky-300 text-slate-900'
-                : '!border-cyan-400/35 text-slate-100'
+            className={`landing-glass-card angel-blurred-surface rounded-[28px] p-6 sm:p-8 space-y-4 transition-transform duration-300 hover:scale-[1.01] ${
+              isLight ? 'text-slate-900' : 'text-slate-100'
             }`}
           >
             <h3 className="text-lg font-bold font-heading gradient-text-angel">
@@ -430,7 +418,7 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
                 'Built to expand methodically—clearly distinguishing live features from connectors awaiting configuration.',
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+                  <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5 drop-shadow-[0_0_8px_rgba(56,189,248,0.8)]" />
                   <span>{item}</span>
                 </li>
               ))}
@@ -438,6 +426,7 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
           </div>
         </div>
       </section>
+      </div>
     </div>
   );
 };

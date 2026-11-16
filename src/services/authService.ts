@@ -45,8 +45,19 @@ export interface AuthStateSnapshot {
   error: string | null;
 }
 
+export type AuthDiagnosticCategory =
+  | 'ok'
+  | 'unconfigured'
+  | 'provider_disabled'
+  | 'oauth_incomplete'
+  | 'network_unreachable'
+  | 'invalid_credentials'
+  | 'email_not_confirmed'
+  | 'auth_request_failure';
+
 export interface AuthActionResult {
   ok: boolean;
+  diagnosticCategory?: AuthDiagnosticCategory;
   code?:
     | 'AUTHENTICATED'
     | 'CONFIRMATION_REQUIRED'
@@ -60,6 +71,50 @@ export interface AuthActionResult {
   message: string;
   email?: string;
   user?: AuthUser;
+}
+
+export function classifySupabaseAuthError(
+  rawMessage: string,
+  providerLabel?: string
+): { category: AuthDiagnosticCategory; message: string } {
+  const lower = (rawMessage || '').toLowerCase();
+  const providerPrefix = providerLabel ? `${providerLabel} ` : '';
+
+  if (/provider.*(not enabled|disabled|unsupported)|unsupported provider/i.test(lower)) {
+    return {
+      category: 'provider_disabled',
+      message: `${providerPrefix}authentication provider is disabled in Supabase. Enable it in Supabase Authentication → Providers and add its OAuth Client ID and Client Secret.`,
+    };
+  }
+  if (/invalid_client|redirect_uri|oauth.*secret|client_id|missing.*secret|redirect url/i.test(lower)) {
+    return {
+      category: 'oauth_incomplete',
+      message: `${providerPrefix}OAuth configuration is incomplete in Supabase or your identity provider console (${rawMessage}).`,
+    };
+  }
+  if (/failed to fetch|networkerror|network request failed|timed out|abort/i.test(lower)) {
+    return {
+      category: 'network_unreachable',
+      message: 'Could not reach Supabase Auth from the browser. Check network connectivity and VITE_SUPABASE_URL.',
+    };
+  }
+  if (/email not confirmed|confirm your email/i.test(lower)) {
+    return {
+      category: 'email_not_confirmed',
+      message: rawMessage,
+    };
+  }
+  if (/invalid login credentials|invalid email or password/i.test(lower)) {
+    return {
+      category: 'invalid_credentials',
+      message: rawMessage,
+    };
+  }
+
+  return {
+    category: 'auth_request_failure',
+    message: rawMessage || 'Authentication request failed.',
+  };
 }
 
 function mapSupabaseUser(user: User): AuthUser {
@@ -107,6 +162,57 @@ function getCallbackUrl(path: string = '/auth/callback'): string {
   return `${window.location.origin}${path}`;
 }
 
+export interface BuiltOAuthSignInOptions {
+  redirectTo: string;
+  scopes?: string;
+  queryParams?: Record<string, string>;
+}
+
+/**
+ * Builds Supabase signInWithOAuth options.
+ * Sets `prompt: 'select_account'` exclusively for Google so account selection is always offered
+ * without injecting non-standard prompt parameters into Apple, Microsoft, or GitHub flows.
+ */
+export function buildOAuthSignInOptions(
+  provider: AuthProviderId,
+  redirectTo: string = getCallbackUrl('/auth/callback'),
+  scopes?: string
+): BuiltOAuthSignInOptions {
+  const options: BuiltOAuthSignInOptions = {
+    redirectTo,
+    ...(scopes ? { scopes } : {}),
+  };
+
+  if (provider === 'google') {
+    options.queryParams = { prompt: 'select_account' };
+  }
+
+  return options;
+}
+
+export interface CallbackOutcome {
+  outcome: 'authenticated' | 'recovery' | 'verified' | 'error';
+  parsed: ParsedAuthCallback;
+  message: string;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+  if (timeoutMs <= 0) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 class AuthService {
   private listeners = new Set<(snapshot: AuthStateSnapshot) => void>();
   private snapshot: AuthStateSnapshot = {
@@ -117,6 +223,8 @@ class AuthService {
     error: null,
   };
   private authSubscriptionInitialized = false;
+  private callbackInProgress = false;
+  private codeExchangeCache = new Map<string, Promise<CallbackOutcome>>();
 
   private emit() {
     for (const cb of this.listeners) {
@@ -136,6 +244,10 @@ class AuthService {
     };
   }
 
+  public resetCallbackDedupeForTests(): void {
+    this.codeExchangeCache.clear();
+  }
+
   private ensureAuthListener() {
     if (this.authSubscriptionInitialized) return;
     const supabase = getSupabaseClient();
@@ -144,6 +256,9 @@ class AuthService {
 
     supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
       if (!session || !session.user) {
+        if (this.callbackInProgress && event === 'INITIAL_SESSION') {
+          return;
+        }
         this.snapshot = {
           status: 'unauthenticated',
           user: null,
@@ -202,7 +317,11 @@ class AuthService {
     this.ensureAuthListener();
 
     try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const { data: sessionData, error: sessionError } = await withTimeout(
+        supabase.auth.getSession(),
+        10000,
+        'Timed out reading authentication session. Please sign in again.'
+      );
       if (sessionError || !sessionData.session) {
         this.snapshot = {
           status: 'unauthenticated',
@@ -215,10 +334,18 @@ class AuthService {
         return this.snapshot;
       }
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
+      const { data: userData, error: userError } = await withTimeout(
+        supabase.auth.getUser(),
+        10000,
+        'Timed out verifying user identity with Supabase. Please sign in again.'
+      );
       if (userError || !userData.user) {
         // Stale or revoked session token — sign out locally to clear corrupted session
-        await supabase.auth.signOut({ scope: 'local' });
+        try {
+          await supabase.auth.signOut({ scope: 'local' });
+        } catch {
+          // Ignore local cleanup error
+        }
         this.snapshot = {
           status: 'unauthenticated',
           user: null,
@@ -566,35 +693,42 @@ class AuthService {
   }
 
   public async signInWithOAuthProvider(provider: AuthProviderId, scopes?: string): Promise<AuthActionResult> {
+    const config = getSupabaseConfigState();
     const supabase = getSupabaseClient();
-    if (!supabase) {
+    if (!supabase || !config.isConfigured) {
       return {
         ok: false,
+        diagnosticCategory: 'unconfigured',
         code: 'UNCONFIGURED',
-        message: 'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY before signing in.',
+        message: config.statusMessage,
       };
     }
 
     this.ensureAuthListener();
 
+    const providerName =
+      provider === 'azure'
+        ? 'Microsoft'
+        : provider.charAt(0).toUpperCase() + provider.slice(1);
+
     try {
+      const oauthOptions = buildOAuthSignInOptions(provider, getCallbackUrl('/auth/callback'), scopes);
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: provider as Parameters<typeof supabase.auth.signInWithOAuth>[0]['provider'],
-        options: {
-          redirectTo: getCallbackUrl('/auth/callback'),
-          scopes,
-        },
+        options: oauthOptions,
       });
 
       if (error) {
-        const detail = error.message || `Failed to initiate ${provider} sign-in.`;
-        const providerName = provider === 'azure'
-          ? 'Microsoft'
-          : provider.charAt(0).toUpperCase() + provider.slice(1);
-        const message = /provider.*(not enabled|unsupported)|unsupported provider/i.test(detail)
-          ? `${providerName} sign-in is not enabled in Supabase yet. Enable it under Authentication → Providers and add the provider's OAuth Client ID and Client Secret.`
-          : detail;
-        return { ok: false, code: 'ERROR', message };
+        const classified = classifySupabaseAuthError(
+          error.message || `Failed to initiate ${providerName} sign-in.`,
+          providerName
+        );
+        return {
+          ok: false,
+          diagnosticCategory: classified.category,
+          code: 'ERROR',
+          message: classified.message,
+        };
       }
 
       if (data?.url && typeof window !== 'undefined') {
@@ -602,40 +736,44 @@ class AuthService {
       } else {
         return {
           ok: false,
+          diagnosticCategory: 'oauth_incomplete',
           code: 'ERROR',
-          message: `Supabase did not return an authorization URL for ${provider}.`,
+          message: `Supabase did not return an authorization URL for ${providerName}. Verify OAuth configuration in Supabase Authentication → Providers.`,
         };
       }
 
       return {
         ok: true,
+        diagnosticCategory: 'ok',
         code: 'OAUTH_REDIRECT',
-        message: `Redirecting to ${provider}...`,
+        message: `Redirecting to ${providerName}...`,
       };
     } catch (error) {
+      const raw = error instanceof Error ? error.message : `Unable to start ${providerName} sign-in.`;
+      const classified = classifySupabaseAuthError(raw, providerName);
       return {
         ok: false,
+        diagnosticCategory: classified.category,
         code: 'ERROR',
-        message: error instanceof Error ? error.message : `Unable to start ${provider} sign-in.`,
+        message: classified.message,
       };
     }
   }
 
-  public async processAuthCallback(search: string, hash: string): Promise<{
-    outcome: 'authenticated' | 'recovery' | 'verified' | 'error';
-    parsed: ParsedAuthCallback;
-    message: string;
-  }> {
-    const parsed = parseAuthCallbackParams(search, hash);
-    const supabase = getSupabaseClient();
-
-    if (!supabase) {
-      return {
-        outcome: 'error',
-        parsed,
-        message: 'Supabase is not configured in this environment.',
+  public async processAuthCallbackWithClient(
+    client: {
+      auth: {
+        exchangeCodeForSession: (code: string) => Promise<{ data: { session: Session | null; user: User | null }; error: { message?: string } | null }>;
+        verifyOtp: (params: { token_hash: string; type: 'signup' | 'recovery' | 'magiclink' | 'email_change' | 'invite' }) => Promise<{ data?: { session?: Session | null }; error: { message?: string } | null }>;
+        setSession: (tokens: { access_token: string; refresh_token: string }) => Promise<{ error: { message?: string } | null }>;
+        signOut?: (opts?: { scope?: 'local' | 'global' | 'others' }) => Promise<unknown>;
       };
-    }
+    },
+    search: string,
+    hash: string,
+    restoreSessionFn: () => Promise<AuthStateSnapshot>
+  ): Promise<CallbackOutcome> {
+    const parsed = parseAuthCallbackParams(search, hash);
 
     if (parsed.error || parsed.errorDescription || parsed.isExpiredOrInvalid) {
       const detail = parsed.errorDescription
@@ -650,40 +788,81 @@ class AuthService {
       };
     }
 
-    this.ensureAuthListener();
-
-    try {
-      if (parsed.code) {
-        const { data, error } = await supabase.auth.exchangeCodeForSession(parsed.code);
-        if (error) {
+    const executeCodeExchange = async (code: string): Promise<CallbackOutcome> => {
+      const { data, error } = await withTimeout(
+        client.auth.exchangeCodeForSession(code),
+        12000,
+        'OAuth verification timed out. Please try signing in again.'
+      );
+      if (error) {
+        return {
+          outcome: 'error',
+          parsed,
+          message: error.message || 'OAuth state verification failed or code expired.',
+        };
+      }
+      if (parsed.type === 'recovery') {
+        const restored = await restoreSessionFn();
+        if (restored.status !== 'authenticated' || !restored.session) {
           return {
             outcome: 'error',
             parsed,
-            message: error.message || 'OAuth state verification failed or code expired.',
+            message: restored.error || 'Recovery session could not be verified. Request a new password reset link.',
           };
         }
-        if (parsed.type === 'recovery') {
-          return {
-            outcome: 'recovery',
-            parsed,
-            message: 'Recovery session verified. Set your new password below.',
-          };
+        return {
+          outcome: 'recovery',
+          parsed,
+          message: 'Recovery session verified. Set your new password below.',
+        };
+      }
+      if (!data?.session || !data?.user) {
+        return {
+          outcome: 'error',
+          parsed,
+          message: 'OAuth exchange did not produce a valid session.',
+        };
+      }
+      const restored = await restoreSessionFn();
+      if (restored.status !== 'authenticated' || !restored.user || !restored.session) {
+        try {
+          await client.auth.signOut?.({ scope: 'local' });
+        } catch {
+          // Ignore cleanup error
         }
-        if (data.session && data.user) {
-          await this.restoreVerifiedSession();
-          return {
-            outcome: 'authenticated',
-            parsed,
-            message: 'Authentication verified.',
-          };
+        return {
+          outcome: 'error',
+          parsed,
+          message: restored.error || 'Authenticated session could not be verified with Supabase.',
+        };
+      }
+      return {
+        outcome: 'authenticated',
+        parsed,
+        message: 'Authentication verified.',
+      };
+    };
+
+    try {
+      if (parsed.code) {
+        const existingPromise = this.codeExchangeCache.get(parsed.code);
+        if (existingPromise) {
+          return await existingPromise;
         }
+        const exchangePromise = executeCodeExchange(parsed.code);
+        this.codeExchangeCache.set(parsed.code, exchangePromise);
+        return await exchangePromise;
       }
 
       if (parsed.tokenHash && parsed.type) {
-        const { error } = await supabase.auth.verifyOtp({
-          token_hash: parsed.tokenHash,
-          type: parsed.type as 'signup' | 'recovery' | 'magiclink' | 'email_change' | 'invite',
-        });
+        const { data, error } = await withTimeout(
+          client.auth.verifyOtp({
+            token_hash: parsed.tokenHash,
+            type: parsed.type as 'signup' | 'recovery' | 'magiclink' | 'email_change' | 'invite',
+          }),
+          12000,
+          'Verification link check timed out. Please try again.'
+        );
         if (error) {
           return {
             outcome: 'error',
@@ -692,30 +871,62 @@ class AuthService {
           };
         }
         if (parsed.type === 'recovery') {
+          const restored = await restoreSessionFn();
+          if (restored.status !== 'authenticated' || !restored.session) {
+            return {
+              outcome: 'error',
+              parsed,
+              message: restored.error || 'Recovery token session could not be verified.',
+            };
+          }
           return {
             outcome: 'recovery',
             parsed,
             message: 'Recovery token verified. Choose a new password.',
           };
         }
-        await this.restoreVerifiedSession();
+        const restored = await restoreSessionFn();
+        if (data?.session && (restored.status !== 'authenticated' || !restored.user || !restored.session)) {
+          return {
+            outcome: 'error',
+            parsed,
+            message: restored.error || 'Verified token failed session validation.',
+          };
+        }
         return {
-          outcome: 'verified',
+          outcome: restored.status === 'authenticated' && parsed.type === 'magiclink' ? 'authenticated' : 'verified',
           parsed,
           message: 'Email verified successfully.',
         };
       }
 
       if (parsed.accessToken && parsed.refreshToken) {
-        const { error } = await supabase.auth.setSession({
-          access_token: parsed.accessToken,
-          refresh_token: parsed.refreshToken,
-        });
+        const { error } = await withTimeout(
+          client.auth.setSession({
+            access_token: parsed.accessToken,
+            refresh_token: parsed.refreshToken,
+          }),
+          12000,
+          'Session handoff timed out. Please try signing in again.'
+        );
         if (error) {
           return {
             outcome: 'error',
             parsed,
             message: error.message || 'Session callback expired.',
+          };
+        }
+        const restored = await restoreSessionFn();
+        if (restored.status !== 'authenticated' || !restored.user || !restored.session) {
+          try {
+            await client.auth.signOut?.({ scope: 'local' });
+          } catch {
+            // Ignore cleanup error
+          }
+          return {
+            outcome: 'error',
+            parsed,
+            message: restored.error || 'Callback session could not be verified with Supabase.',
           };
         }
         if (parsed.type === 'recovery') {
@@ -725,7 +936,6 @@ class AuthService {
             message: 'Recovery session active. Choose your new password.',
           };
         }
-        await this.restoreVerifiedSession();
         return {
           outcome: 'authenticated',
           parsed,
@@ -733,8 +943,8 @@ class AuthService {
         };
       }
 
-      const restored = await this.restoreVerifiedSession();
-      if (restored.status === 'authenticated') {
+      const restored = await restoreSessionFn();
+      if (restored.status === 'authenticated' && restored.user && restored.session) {
         return {
           outcome: parsed.type === 'recovery' ? 'recovery' : 'authenticated',
           parsed,
@@ -745,7 +955,7 @@ class AuthService {
       return {
         outcome: 'error',
         parsed,
-        message: 'No valid verification code or session found in callback URL.',
+        message: restored.error || 'No valid verification code or session found in callback URL.',
       };
     } catch (err) {
       return {
@@ -753,6 +963,51 @@ class AuthService {
         parsed,
         message: err instanceof Error ? err.message : 'Callback verification failed.',
       };
+    }
+  }
+
+  public async processAuthCallback(search: string, hash: string): Promise<CallbackOutcome> {
+    const parsed = parseAuthCallbackParams(search, hash);
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      this.snapshot = {
+        status: 'unconfigured',
+        user: null,
+        session: null,
+        identities: [],
+        error: 'Supabase is not configured in this environment.',
+      };
+      this.emit();
+      return {
+        outcome: 'error',
+        parsed,
+        message: 'Supabase is not configured in this environment.',
+      };
+    }
+
+    this.ensureAuthListener();
+    this.callbackInProgress = true;
+    try {
+      const result = await this.processAuthCallbackWithClient(
+        supabase,
+        search,
+        hash,
+        () => this.restoreVerifiedSession()
+      );
+      if (result.outcome === 'error' && this.snapshot.status === 'loading') {
+        this.snapshot = {
+          status: 'unauthenticated',
+          user: null,
+          session: null,
+          identities: [],
+          error: result.message,
+        };
+        this.emit();
+      }
+      return result;
+    } finally {
+      this.callbackInProgress = false;
     }
   }
 

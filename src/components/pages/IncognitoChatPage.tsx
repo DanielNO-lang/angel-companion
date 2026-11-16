@@ -64,7 +64,7 @@ export const IncognitoChatPage: React.FC<IncognitoChatPageProps> = ({ onReturnTo
         {/* Top Left Branding - Icon & Title always visible */}
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 flex items-center justify-center shrink-0">
-            <AngelEmblem3D size={28} rotationSpeed={10} tiltOnHover={true} />
+            <AngelEmblem3D size={28} seed="incognito-header" rotationSpeed={10} tiltOnHover={true} />
           </div>
           <span className="text-sm font-bold font-heading text-white tracking-wide">
             Private Mode
@@ -101,7 +101,7 @@ export const IncognitoChatPage: React.FC<IncognitoChatPageProps> = ({ onReturnTo
         {!hasStartedChat && (
           <div className="flex flex-col items-center text-center my-auto animate-in zoom-in-95 duration-300">
             <div className="relative my-2 flex justify-center items-center drop-shadow-[0_0_25px_rgba(56,189,248,0.5)]">
-              <AngelEmblem3D size={180} rotationSpeed={12} tiltOnHover={true} pointerTracking={true} />
+              <AngelEmblem3D size={180} seed="incognito-hero" rotationSpeed={12} tiltOnHover={true} pointerTracking={true} />
             </div>
 
             <h1 className="text-3xl sm:text-5xl font-bold font-heading tracking-tight text-white mb-2">
@@ -130,7 +130,7 @@ export const IncognitoChatPage: React.FC<IncognitoChatPageProps> = ({ onReturnTo
                       <User className="w-4 h-4" />
                     </div>
                   ) : (
-                    <AngelEmblem3D size={32} rotationSpeed={12} />
+                    <AngelEmblem3D size={32} seed={`incognito-msg-${msg.id}`} rotationSpeed={12} />
                   )}
                 </div>
 
@@ -155,7 +155,7 @@ export const IncognitoChatPage: React.FC<IncognitoChatPageProps> = ({ onReturnTo
             {isThinking && (
               <div className="flex items-start gap-3">
                 <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0">
-                  <AngelEmblem3D size={32} rotationSpeed={6} />
+                  <AngelEmblem3D size={32} seed="incognito-thinking" rotationSpeed={6} />
                 </div>
                 <div className="p-3.5 rounded-3xl bg-[#090e26]/50 backdrop-blur-2xl border border-cyan-500/20 text-xs text-slate-400 flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />

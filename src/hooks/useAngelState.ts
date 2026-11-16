@@ -38,19 +38,34 @@ export function useAngelState() {
   // Search Query
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Real Activities List
-  const [activities, setActivities] = useState<ActivityRecord[]>([
-    { id: 'a1', title: 'Research Analysis & Synthesis', category: 'Research', timestamp: '2m ago', durationMs: 1200, status: 'completed' },
-    { id: 'a2', title: 'Project Planning & Architecture', category: 'Workspace', timestamp: '12m ago', durationMs: 450, status: 'completed' },
-    { id: 'a3', title: 'Marketing Strategy Outline', category: 'Strategy', timestamp: '1h ago', durationMs: 3400, status: 'completed' },
-  ]);
+  // Genuine activities derived from actual user conversations (never fabricated)
+  const [activities, setActivities] = useState<ActivityRecord[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
-  // Notifications
-  const [notifications, setNotifications] = useState<NotificationItem[]>([
-    { id: 'n1', title: 'System Engine Operational', message: 'Three.js 3D Emblem & Companion Orb rendering active.', timestamp: 'Just now', read: false, type: 'system' },
-    { id: 'n2', title: 'Agent Ready', message: 'Research Agent completed literature synthesis.', timestamp: '10m ago', read: false, type: 'agent' },
-    { id: 'n3', title: 'Workspace Synced', message: 'Local session state memory synced.', timestamp: '1h ago', read: false, type: 'activity' },
-  ]);
+  useEffect(() => {
+    const syncActivitiesFromThreads = () => {
+      const threads = [
+        ...conversationEngine.getThreads('general'),
+        ...conversationEngine.getThreads('studio'),
+      ]
+        .filter((t) => t.messages.length > 0)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, 5);
+
+      const nextActivities: ActivityRecord[] = threads.map((t) => ({
+        id: t.id,
+        title: t.title,
+        category: t.scope === 'studio' ? (t.studioId || 'Studio').replace(/-/g, ' ') : 'Conversation',
+        timestamp: new Date(t.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        durationMs: 0,
+        status: t.messages.some((m) => m.status === 'pending') ? 'in_progress' : 'completed',
+      }));
+      setActivities(nextActivities);
+    };
+
+    syncActivitiesFromThreads();
+    return conversationEngine.subscribe(syncActivitiesFromThreads);
+  }, []);
 
   const unreadNotificationCount = notifications.filter((n) => !n.read).length;
 

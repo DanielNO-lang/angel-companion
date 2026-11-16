@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { OrbState } from '../../types/angel';
+import { RenderLoopController } from '../../utils/renderLoopVisibility';
 
 interface CompanionOrbProps {
   state?: OrbState;
@@ -16,14 +17,17 @@ export const CompanionOrb: React.FC<CompanionOrbProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Canvas particle animation
+  // Canvas particle animation guarded by RenderLoopController (pauses offscreen / hidden / reduced motion)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    let animationFrameId: number;
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
     let time = 0;
 
     const particles: { x: number; y: number; size: number; speedX: number; speedY: number; opacity: number }[] = [];
@@ -38,8 +42,10 @@ export const CompanionOrb: React.FC<CompanionOrbProps> = ({
       });
     }
 
-    const render = () => {
-      time += 0.03;
+    const renderFrame = () => {
+      if (!prefersReducedMotion) {
+        time += 0.03;
+      }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       const centerX = canvas.width / 2;
@@ -108,11 +114,13 @@ export const CompanionOrb: React.FC<CompanionOrbProps> = ({
       ctx.clip();
 
       particles.forEach((p) => {
-        p.x += p.speedX * (state === 'thinking' ? 2 : 1);
-        p.y += p.speedY * (state === 'thinking' ? 2 : 1);
+        if (!prefersReducedMotion) {
+          p.x += p.speedX * (state === 'thinking' ? 2 : 1);
+          p.y += p.speedY * (state === 'thinking' ? 2 : 1);
 
-        if (p.x > radius || p.x < -radius) p.speedX *= -1;
-        if (p.y > radius || p.y < -radius) p.speedY *= -1;
+          if (p.x > radius || p.x < -radius) p.speedX *= -1;
+          if (p.y > radius || p.y < -radius) p.speedY *= -1;
+        }
 
         ctx.fillStyle = state === 'speaking' ? 'rgba(244, 114, 182, 0.8)' : 'rgba(255, 255, 255, 0.8)';
         ctx.beginPath();
@@ -140,13 +148,39 @@ export const CompanionOrb: React.FC<CompanionOrbProps> = ({
       ctx.stroke();
 
       ctx.restore();
-
-      animationFrameId = requestAnimationFrame(render);
     };
 
-    render();
+    const controller = new RenderLoopController({
+      reducedMotion: Boolean(prefersReducedMotion),
+      onFrame: renderFrame,
+    });
 
-    return () => cancelAnimationFrame(animationFrameId);
+    const observer =
+      typeof IntersectionObserver !== 'undefined'
+        ? new IntersectionObserver(
+            (entries) => {
+              controller.setViewportVisible(entries[0]?.isIntersecting ?? true);
+            },
+            { threshold: 0.05 }
+          )
+        : null;
+    observer?.observe(canvas);
+
+    const handleVisibilityChange = () => controller.handleVisibilityChange();
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    renderFrame();
+    controller.start();
+
+    return () => {
+      controller.dispose();
+      observer?.disconnect();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
   }, [state, size]);
 
   const stateLabels: Record<OrbState, string> = {

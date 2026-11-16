@@ -107,6 +107,10 @@ export const MessageAttachmentsAndLinks: React.FC<MessageAttachmentsAndLinksProp
                 <img
                   src={lp.favicon}
                   alt=""
+                  width={16}
+                  height={16}
+                  loading="lazy"
+                  decoding="async"
                   className="w-4 h-4 rounded mt-0.5 shrink-0 object-contain"
                   onError={(e) => {
                     (e.target as HTMLElement).style.display = 'none';

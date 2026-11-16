@@ -31,7 +31,9 @@ async function runPhase3PromptEngineTests() {
   // 1. Requirement 1: General Conversation accepts an ordinary greeting without Studio selection.
   const res1 = await promptIntelligenceEngine.processPrompt('Hello Angel', { scope: 'general' });
   assert(
-    res1.responseMessage.toLowerCase().includes('hey') && res1.parsedIntent.intent === 'greeting',
+    res1.parsedIntent.intent === 'greeting' &&
+      res1.responseMessage.length > 0 &&
+      res1.recommendedStudioId === undefined,
     1,
     'General Conversation accepts ordinary greeting without forcing Studio selection'
   );
@@ -39,7 +41,9 @@ async function runPhase3PromptEngineTests() {
   // 2. Requirement 2: General Conversation accepts a general research question.
   const res2 = await promptIntelligenceEngine.processPrompt('What are the latest findings on quantum computing algorithms?', { scope: 'general' });
   assert(
-    res2.parsedIntent.intent === 'research_investigation' && res2.responseMessage.includes('Research Synthesis'),
+    res2.parsedIntent.intent === 'research_investigation' &&
+      res2.executionResults.some((r) => r.capabilityId === 'cap_research_synthesis') &&
+      res2.responseMessage.length > 0,
     2,
     'General Conversation accepts general research question without forced redirection'
   );
@@ -47,14 +51,16 @@ async function runPhase3PromptEngineTests() {
   // 3. Requirement 3: General Conversation accepts an image-generation request without forced redirection.
   const res3 = await promptIntelligenceEngine.processPrompt('Generate an image concept and SVG layout for a dark futuristic UI', { scope: 'general' });
   assert(
-    res3.parsedIntent.intent === 'creative_media' && res3.responseMessage.includes('Creative Visual Concept'),
+    res3.parsedIntent.intent === 'creative_media' &&
+      res3.executionResults.some((r) => r.capabilityId === 'cap_creative_image_gen' && r.success) &&
+      res3.responseMessage.length > 0,
     3,
     'General Conversation accepts image/creative request without forced redirection'
   );
 
   // 4. Requirement 4: General Conversation can recommend a Studio without forcing a handoff.
   assert(
-    res2.recommendedStudioId === 'research-studio' && res2.responseMessage.includes('Studio Recommendation'),
+    res2.recommendedStudioId === 'research-studio' && Boolean(res2.recommendedStudioReason),
     4,
     'General Conversation recommends a Studio while maintaining universal scope without forced handoff'
   );

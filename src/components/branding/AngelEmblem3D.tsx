@@ -1,7 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { EmblemSkeleton } from '../ui/Skeleton';
+import { RenderLoopController } from '../../utils/renderLoopVisibility';
+import { getLogoMotionProfile } from '../../utils/logoMotion';
+import { getDevicePerformanceProfile } from '../../utils/devicePerformance';
+import { AngelEmblem } from './AngelEmblem';
 
 interface AngelEmblem3DProps {
   size?: number;
@@ -9,6 +12,51 @@ interface AngelEmblem3DProps {
   rotationSpeed?: number; // Seconds per revolution
   tiltOnHover?: boolean;
   pointerTracking?: boolean;
+  seed?: string;
+  renderMode?: 'auto' | '3d' | 'svg';
+}
+
+let cachedStudioEnvTexture: THREE.CanvasTexture | null = null;
+
+function getSharedChromeEnvTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  if (cachedStudioEnvTexture) return cachedStudioEnvTexture;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  // Deep cosmic backdrop with bright studio softboxes + cyan/violet rim bands
+  const bg = ctx.createLinearGradient(0, 0, 0, 64);
+  bg.addColorStop(0, '#e0f2fe');
+  bg.addColorStop(0.32, '#1e293b');
+  bg.addColorStop(0.58, '#0b1026');
+  bg.addColorStop(1, '#312e81');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 128, 64);
+
+  // Soft studio highlight panels for crisp silver-chrome speculars
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(10, 6, 36, 12);
+  ctx.fillRect(78, 10, 32, 10);
+
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillRect(0, 28, 42, 8);
+
+  ctx.fillStyle = '#c084fc';
+  ctx.fillRect(82, 26, 46, 9);
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillRect(46, 46, 36, 8);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  cachedStudioEnvTexture = tex;
+  return tex;
 }
 
 export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
@@ -17,22 +65,39 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
   rotationSpeed = 24,
   tiltOnHover = false,
   pointerTracking = false,
+  seed = 'emblem-3d',
+  renderMode = 'auto',
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [hasWebGlError, setHasWebGlError] = useState(false);
   const [isFirstFrameReady, setIsFirstFrameReady] = useState(false);
+  const [isInViewport, setIsInViewport] = useState(true);
+
+  const profile = useMemo(
+    () => getLogoMotionProfile(seed, rotationSpeed),
+    [seed, rotationSpeed]
+  );
+
+  const perfProfile = useMemo(() => getDevicePerformanceProfile(), []);
+
+  // Compact icons (<= 48px) render via GPU-composited AngelEmblem unless explicitly forced '3d'
+  // and if WebGL is unsupported or blocked, cleanly fall back to 3D CSS-animated canonical SVG trefoil.
+  const useCompactSvg =
+    renderMode === 'svg' ||
+    (renderMode === 'auto' && size <= 48) ||
+    !perfProfile.webglSupported;
 
   useEffect(() => {
+    if (useCompactSvg) return;
     const container = mountRef.current;
     if (!container) return;
 
-    // Check WebGL availability
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({
-        antialias: true,
+        antialias: perfProfile.tier !== 'low',
         alpha: true,
-        powerPreference: 'high-performance',
+        powerPreference: perfProfile.tier === 'high' ? 'high-performance' : 'default',
       });
     } catch {
       setHasWebGlError(true);
@@ -41,43 +106,54 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
     }
 
     renderer.setSize(size, size);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, perfProfile.maxDpr));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2;
+    renderer.toneMappingExposure = 1.38;
     container.appendChild(renderer.domElement);
 
-    // Scene & Camera
+    const handleContextLost = (e: Event) => {
+      e.preventDefault();
+      setHasWebGlError(true);
+    };
+    renderer.domElement.addEventListener('webglcontextlost', handleContextLost);
+
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-    camera.position.set(0, 0, 8);
+    camera.position.set(0, 0, 8.2);
 
-    // Studio Environment Reflection Map
-    const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    const roomEnv = new RoomEnvironment();
-    scene.environment = pmremGenerator.fromScene(roomEnv, 0.04).texture;
-    pmremGenerator.dispose();
+    const envTex = getSharedChromeEnvTexture();
+    if (envTex) {
+      scene.environment = envTex;
+    }
 
-    // Lighting Rig with Blue & Violet Environmental Highlights
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.5);
-    keyLight.position.set(5, 5, 8);
+    const ambientLight = new THREE.AmbientLight(0xe2e8f0, 0.95);
+    scene.add(ambientLight);
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 3.0);
+    keyLight.position.set(5, 6, 8);
     scene.add(keyLight);
 
-    const blueLight = new THREE.PointLight(0x38bdf8, 4, 15);
+    const rimLight = new THREE.DirectionalLight(0xc7d2fe, 1.6);
+    rimLight.position.set(-5, -4, 6);
+    scene.add(rimLight);
+
+    const blueLight = new THREE.PointLight(0x38bdf8, 4.5, 16);
     blueLight.position.set(-6, 3, 4);
     scene.add(blueLight);
 
-    const violetLight = new THREE.PointLight(0xa855f7, 4, 15);
+    const violetLight = new THREE.PointLight(0xa855f7, 4.5, 16);
     violetLight.position.set(6, -3, 4);
     scene.add(violetLight);
 
-    const hemiLight = new THREE.HemisphereLight(0xe0e7ff, 0x070815, 1.2);
+    const hemiLight = new THREE.HemisphereLight(0xf0f9ff, 0x1e1b4b, 1.5);
     scene.add(hemiLight);
 
-    // Group for the 3D Metallic Intertwined Trefoil Emblem
     const emblemGroup = new THREE.Group();
+    // Apply deterministic starting phase rotation so every emblem starts cleanly oriented differently
+    emblemGroup.rotation.y = profile.orbitPhaseRad;
+    emblemGroup.rotation.x = Math.sin(profile.orbitPhaseRad) * 0.35;
 
-    // Custom Trefoil Curve Math for 3D Intertwined Knot
     class TrefoilCurve extends THREE.Curve<THREE.Vector3> {
       scale: number;
       constructor(scale = 1.6) {
@@ -94,55 +170,42 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
       }
     }
 
-    const path = new TrefoilCurve(1.5);
-    const tubeGeometry = new THREE.TubeGeometry(path, 128, 0.22, 24, true);
+    const path = new TrefoilCurve(1.48);
+    const tubeGeometry = new THREE.TubeGeometry(
+      path,
+      perfProfile.emblemTubeSegments,
+      0.22,
+      perfProfile.emblemRadialSegments,
+      true
+    );
 
-    // Authentic Polished Chrome PBR Material matching angel_logo.png
-    const chromeMaterial = new THREE.MeshPhysicalMaterial({
-      color: 0xf0f5ff,
-      metalness: 0.98,
-      roughness: 0.08,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.05,
-      reflectivity: 1.0,
-      ior: 1.9,
+    const chromeMaterial = new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      metalness: 0.9,
+      roughness: 0.12,
+      envMapIntensity: 1.65,
     });
 
     const emblemMesh = new THREE.Mesh(tubeGeometry, chromeMaterial);
     emblemGroup.add(emblemMesh);
-
     scene.add(emblemGroup);
 
-    // Animation Loop with performance.now() timing, reduced-motion, and FPS capping
-    const prefersReducedMotion =
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const prefersReducedMotion = perfProfile.prefersReducedMotion;
 
-    let animationFrameId = 0;
     let lastTime = performance.now();
     let lastRenderTime = 0;
-    const minFrameIntervalMs = 1000 / 32;
+    const minFrameIntervalMs =
+      perfProfile.targetFps > 0 ? 1000 / Math.min(32, perfProfile.targetFps) : 1000 / 20;
     let targetTiltX = 0;
     let targetTiltY = 0;
     let currentTiltX = 0;
     let currentTiltY = 0;
     let frameSignaled = false;
-    let isVisibleInViewport = true;
-
-    const observer =
-      typeof IntersectionObserver !== 'undefined'
-        ? new IntersectionObserver(
-            (entries) => {
-              isVisibleInViewport = entries[0]?.isIntersecting ?? true;
-            },
-            { threshold: 0.05 }
-          )
-        : null;
-    observer?.observe(container);
 
     const handleMouseMove = (e: MouseEvent | PointerEvent) => {
       if (!tiltOnHover && !pointerTracking) return;
       const rect = container.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
       if (pointerTracking) {
         const centerX = rect.left + rect.width / 2;
         const centerY = rect.top + rect.height / 2;
@@ -165,23 +228,18 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
     };
 
     if (pointerTracking) {
-      window.addEventListener('pointermove', handleMouseMove);
+      window.addEventListener('pointermove', handleMouseMove, { passive: true });
     } else if (tiltOnHover) {
       container.addEventListener('mousemove', handleMouseMove);
       container.addEventListener('mouseleave', handleMouseLeave);
     }
 
-    const animate = (nowArg?: number) => {
-      if (!prefersReducedMotion) {
-        animationFrameId = requestAnimationFrame(animate);
-      }
+    const baseSpeed = (Math.PI * 2) / profile.spinDurationSec;
+    const orbitSpeed = (Math.PI * 2) / profile.orbitDurationSec;
 
+    const renderFrame = (nowArg: number) => {
       const now = typeof nowArg === 'number' ? nowArg : performance.now();
-      if (
-        frameSignaled &&
-        !prefersReducedMotion &&
-        (document.hidden || !isVisibleInViewport || now - lastRenderTime < minFrameIntervalMs)
-      ) {
+      if (frameSignaled && !prefersReducedMotion && now - lastRenderTime < minFrameIntervalMs) {
         return;
       }
       lastRenderTime = now;
@@ -191,22 +249,26 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
       lastTime = now;
 
       if (!prefersReducedMotion) {
-        // Dynamic multi-axis organic motion (horizontal, vertical, diagonal tumbling)
-        const baseSpeed = (Math.PI * 2 / rotationSpeed);
-        emblemGroup.rotation.y += baseSpeed * delta;
-        emblemGroup.rotation.x += Math.sin(elapsed * 0.85) * 0.7 * baseSpeed * delta;
-        emblemGroup.rotation.z += Math.cos(elapsed * 0.65) * 0.5 * baseSpeed * delta;
+        // Multi-axis 3D trefoil spin in seeded direction
+        emblemGroup.rotation.y += profile.direction * baseSpeed * delta;
+        emblemGroup.rotation.x +=
+          Math.sin(elapsed * 0.85 + profile.orbitPhaseRad) * profile.tiltAxisRatio * baseSpeed * delta;
+        emblemGroup.rotation.z +=
+          Math.cos(elapsed * 0.65 + profile.orbitPhaseRad) * 0.55 * baseSpeed * delta;
 
-        // Smooth interactive mouse tilt interpolation
+        // Subtle circular orbital motion in XY plane inside Three.js camera space
+        const orbitAngle = elapsed * orbitSpeed * profile.direction + profile.orbitPhaseRad;
+        emblemGroup.position.x = Math.cos(orbitAngle) * 0.18;
+        emblemGroup.position.y = Math.sin(orbitAngle) * 0.18;
+
         currentTiltX += (targetTiltX - currentTiltX) * 0.1;
         currentTiltY += (targetTiltY - currentTiltY) * 0.1;
 
         emblemMesh.rotation.x = currentTiltX;
         emblemMesh.rotation.z = currentTiltY * 0.5;
 
-        // Pulsing environmental lights reflecting electric blue & violet specular hues
-        blueLight.intensity = 3.2 + Math.sin(elapsed * 2.2) * 1.2;
-        violetLight.intensity = 3.2 + Math.cos(elapsed * 2.2) * 1.2;
+        blueLight.intensity = 3.8 + Math.sin(elapsed * 2.2 + profile.orbitPhaseRad) * 1.2;
+        violetLight.intensity = 3.8 + Math.cos(elapsed * 2.2 + profile.orbitPhaseRad) * 1.2;
       }
 
       renderer.render(scene, camera);
@@ -217,47 +279,84 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
       }
     };
 
-    animate(performance.now());
+    const loopController = new RenderLoopController({
+      reducedMotion: Boolean(prefersReducedMotion),
+      onFrame: renderFrame,
+    });
+
+    const observer =
+      typeof IntersectionObserver !== 'undefined'
+        ? new IntersectionObserver(
+            (entries) => {
+              const visible = entries[0]?.isIntersecting ?? true;
+              setIsInViewport(visible);
+              loopController.setViewportVisible(visible);
+            },
+            { threshold: 0.05 }
+          )
+        : null;
+    observer?.observe(container);
+
+    const handleVisibilityChange = () => {
+      loopController.handleVisibilityChange();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    renderFrame(performance.now());
+    loopController.start();
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      loopController.dispose();
       observer?.disconnect();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
       if (pointerTracking) {
         window.removeEventListener('pointermove', handleMouseMove);
       } else if (tiltOnHover) {
         container.removeEventListener('mousemove', handleMouseMove);
         container.removeEventListener('mouseleave', handleMouseLeave);
       }
+      renderer.domElement.removeEventListener('webglcontextlost', handleContextLost);
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
-      roomEnv.dispose();
-      scene.environment?.dispose();
       tubeGeometry.dispose();
       chromeMaterial.dispose();
       renderer.dispose();
     };
-  }, [size, rotationSpeed, tiltOnHover, pointerTracking]);
+  }, [useCompactSvg, size, tiltOnHover, pointerTracking, profile, perfProfile]);
 
-  if (hasWebGlError) {
-    // 2D Canvas Fallback
+  if (useCompactSvg || hasWebGlError) {
     return (
-      <div 
-        className={`relative inline-flex items-center justify-center shrink-0 ${className}`} 
-        style={{ width: size, height: size }}
-      >
-        <svg viewBox="0 0 100 100" className="w-full h-full">
-          <circle cx="50" cy="50" r="40" fill="none" stroke="#38bdf8" strokeWidth="4" />
-          <circle cx="50" cy="50" r="28" fill="none" stroke="#a855f7" strokeWidth="4" />
-        </svg>
-      </div>
+      <AngelEmblem
+        size={size}
+        seed={seed}
+        rotationSpeed={rotationSpeed}
+        tiltOnHover={tiltOnHover}
+        className={className}
+      />
     );
   }
 
+  const orbitContainerStyle = {
+    width: size,
+    height: size,
+    '--angel-orbit-r': `${profile.orbitRadiusPx}px`,
+    '--angel-orbit-dur': `${profile.orbitDurationSec}s`,
+    '--angel-orbit-delay': `${profile.phaseDelaySec}s`,
+  } as React.CSSProperties;
+
   return (
     <div
-      className={`relative inline-flex items-center justify-center shrink-0 select-none ${className}`}
-      style={{ width: size, height: size }}
+      data-angel-emblem="true"
+      data-motion-seed={profile.seedKey}
+      data-motion-mode="webgl"
+      data-motion-active={isInViewport ? 'true' : 'paused'}
+      className={`angel-emblem-orbit relative inline-flex items-center justify-center shrink-0 select-none ${className}`}
+      style={orbitContainerStyle}
     >
       {!isFirstFrameReady && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">

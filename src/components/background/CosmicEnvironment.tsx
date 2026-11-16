@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { getDevicePerformanceProfile } from '../../utils/devicePerformance';
 
 export interface CosmicTelemetryData {
   title: string;
@@ -166,9 +167,14 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    let animationFrameId: number;
-    let width = (canvas.width = window.innerWidth);
-    let height = (canvas.height = window.innerHeight);
+    const perf = getDevicePerformanceProfile();
+    const dpr = Math.min(window.devicePixelRatio || 1, perf.maxDpr);
+    let animationFrameId = 0;
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+    canvas.width = Math.max(1, Math.floor(width * dpr));
+    canvas.height = Math.max(1, Math.floor(height * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // Processed Transparent Space Object Canvases (Background-Free)
     const spaceCanvases: Record<CelestialObject['type'], HTMLCanvasElement | HTMLImageElement | null> = {
@@ -266,14 +272,18 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
 
     const handleResize = () => {
       if (!canvas) return;
-      width = canvas.width = window.innerWidth;
-      height = canvas.height = window.innerHeight;
+      width = window.innerWidth;
+      height = window.innerHeight;
+      const currentDpr = Math.min(window.devicePixelRatio || 1, perf.maxDpr);
+      canvas.width = Math.max(1, Math.floor(width * currentDpr));
+      canvas.height = Math.max(1, Math.floor(height * currentDpr));
+      ctx.setTransform(currentDpr, 0, 0, currentDpr, 0, 0);
     };
     window.addEventListener('resize', handleResize);
     handleResize();
 
-    // 1. Realistic Background Stars Array
-    const stars = Array.from({ length: 180 }, () => ({
+    // 1. Realistic Background Stars Array scaled by device performance tier
+    const stars = Array.from({ length: perf.starCount }, () => ({
       x: Math.random() * width,
       y: Math.random() * height,
       size: Math.random() < 0.85 ? Math.random() * 3 + 1.5 : Math.random() * 6 + 3,
@@ -377,11 +387,13 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
     // Reset active celestial bodies array on init to guarantee no leftover duplicates
     activeCelestialBodiesRef.current = [];
 
-    // Initial 2 unique celestial bodies
+    // Initial unique celestial bodies scaled by device tier (1 on low, 2 on mid/high)
     const body1 = createCelestialBody(1, []);
     if (body1) activeCelestialBodiesRef.current.push(body1);
-    const body2 = createCelestialBody(2, activeCelestialBodiesRef.current.map((b) => b.type));
-    if (body2) activeCelestialBodiesRef.current.push(body2);
+    if (perf.maxCelestialBodies > 1) {
+      const body2 = createCelestialBody(2, activeCelestialBodiesRef.current.map((b) => b.type));
+      if (body2) activeCelestialBodiesRef.current.push(body2);
+    }
 
     // Mouse Interaction Handlers on Canvas
     const handleMouseMove = (e: MouseEvent) => {
@@ -470,16 +482,20 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
     canvas.addEventListener('click', handleClick);
 
     let lastFrameTime = performance.now();
-    const fpsInterval = 1000 / 35; // Throttled to ~35 FPS max for zero GPU lag
+    const fpsInterval = perf.targetFps > 0 ? 1000 / perf.targetFps : 1000;
     let time = 0;
 
     const render = (nowTime: number) => {
-      animationFrameId = requestAnimationFrame(render);
+      if (!perf.prefersReducedMotion && !document.hidden) {
+        animationFrameId = requestAnimationFrame(render);
+      } else {
+        animationFrameId = 0;
+      }
 
-      if (document.hidden) return;
+      if (document.hidden && animationFrameId === 0) return;
 
       const delta = nowTime - lastFrameTime;
-      if (delta < fpsInterval) return;
+      if (delta < fpsInterval && lastFrameTime !== 0) return;
       lastFrameTime = nowTime - (delta % fpsInterval);
 
       time += 0.01;
@@ -698,10 +714,31 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
       }
     };
 
-    animationFrameId = requestAnimationFrame(render);
+    lastFrameTime = 0;
+    if (perf.prefersReducedMotion) {
+      // Draw one clean calm cosmic frame for reduced-motion users without starting continuous loop
+      render(performance.now());
+    } else if (!document.hidden) {
+      animationFrameId = requestAnimationFrame(render);
+    }
+
+    const handleVisibilityChange = () => {
+      if (perf.prefersReducedMotion) return;
+      if (document.hidden) {
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+          animationFrameId = 0;
+        }
+      } else if (!animationFrameId) {
+        lastFrameTime = performance.now();
+        animationFrameId = requestAnimationFrame(render);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('resize', handleResize);
       canvas.removeEventListener('mousemove', handleMouseMove);
       canvas.removeEventListener('click', handleClick);

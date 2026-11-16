@@ -305,13 +305,25 @@ export class PromptIntelligenceEngine {
       executionResults.push(res);
     }
 
-    // Build synthesized natural companion response via conversational intelligence engine
+    // Build synthesized natural companion response via authenticated Gemini intelligence engine
     const convResult = await conversationalIntelligence.generateResponse(userMessage, context);
-    let responseText = convResult.response;
+    const capabilitySummaries = executionResults
+      .filter((r) => r.summaryText)
+      .map((r) => r.summaryText)
+      .join('\n');
+
+    let responseText = convResult.success && convResult.response
+      ? convResult.response
+      : [
+          `[Model Unavailable: ${convResult.error || 'Gemini provider is not configured in this environment.'}]`,
+          capabilitySummaries ? `\nLocal capability summary:\n${capabilitySummaries}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n');
 
     // Studio recommendation only for specialized academic research or complex workflows
     if (context.scope === 'general' && routeResult.recommendedStudioId && routeResult.recommendedStudioReason && (userMessage.toLowerCase().includes('quantum') || userMessage.toLowerCase().includes('arxiv') || userMessage.toLowerCase().includes('literature'))) {
-      responseText += `\n\n*💡 Studio Recommendation: ${routeResult.recommendedStudioReason} You can hand off this context to that Studio anytime from the menu, or we can keep working right here!*`;
+      responseText += `\n\n*Studio Recommendation: ${routeResult.recommendedStudioReason} You can hand off this context to that Studio anytime from the menu, or continue here.*`;
     }
 
     // Format response tone via Personality Adapter

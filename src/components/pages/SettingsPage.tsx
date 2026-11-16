@@ -23,8 +23,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      <div className="rounded-3xl glass-panel-glow border border-indigo-500/30 bg-slate-950/40 backdrop-blur-2xl p-6 flex items-center gap-3">
-        <div className="p-3 rounded-2xl bg-indigo-600/30 border border-indigo-500/40 text-indigo-300">
+      <div className="rounded-3xl glass-panel-glow angel-blurred-surface bg-slate-950/38 backdrop-blur-2xl p-6 flex items-center gap-3">
+        <div className="p-3 rounded-2xl bg-indigo-600/25 text-indigo-300">
           <Settings className="w-6 h-6" />
         </div>
         <div>
@@ -32,8 +32,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       </div>
 
-      <div className="rounded-3xl glass-panel border border-indigo-500/30 bg-slate-950/40 backdrop-blur-2xl p-6 space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+      <div className="rounded-3xl glass-panel angel-blurred-surface bg-slate-950/38 backdrop-blur-2xl p-6 space-y-5">
+        <div className="flex items-center justify-between pb-3">
           <div>
             <h3 className="text-sm font-bold text-white">Interface Theme Mode</h3>
             <p className="text-xs text-slate-400">Toggle between Cosmic Dark Mode and Cloudy-Day Light Theme</p>
@@ -47,7 +47,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </button>
         </div>
 
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div className="flex items-center justify-between pb-3">
           <div>
             <h3 className="text-sm font-bold text-white">Reduce Interface Motion</h3>
             <p className="text-xs text-slate-400">Simplify particle fields and background canvas movement</p>
@@ -60,7 +60,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           />
         </div>
 
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div className="flex items-center justify-between pb-3">
           <div>
             <h3 className="text-sm font-bold text-white">Voice Output Auto-Play</h3>
             <p className="text-xs text-slate-400">Synchronize audio response pulses with the Companion Orb</p>
@@ -82,7 +82,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <button
               type="button"
               onClick={onOpenAccountSecurity}
-              className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-semibold cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-100 text-xs font-semibold cursor-pointer"
             >
               <Shield className="w-4 h-4 text-cyan-400" />
               <span>Manage Account</span>

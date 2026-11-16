@@ -9,7 +9,7 @@ export const ToolsPage: React.FC = () => {
 
   // Connectors: Genuine status verification without fake API key forms
   const connectors = [
-    { id: 'c1', name: 'GitHub Integration', type: 'Repository & PR Context', icon: Github, status: 'Connected', verified: true, desc: 'Local workspace git engine integration verified.' },
+    { id: 'c1', name: 'GitHub Integration', type: 'Repository & PR Context', icon: Github, status: 'Not Connected', verified: false, desc: 'External GitHub repository OAuth integration pending user connection.' },
     { id: 'c2', name: 'Slack Messaging', type: 'Channel Webhook Protocol', icon: Slack, status: 'Not Connected', verified: false, desc: 'External Slack webhook endpoint pending configuration.' },
     { id: 'c3', name: 'Google Workspace', type: 'OAuth 2.0 Client Scope', icon: Database, status: 'Not Connected', verified: false, desc: 'Requires Google Workspace OAuth consent grant.' },
     { id: 'c4', name: 'Custom REST Webhook', type: 'HTTP Event Payload Handler', icon: Webhook, status: 'Not Connected', verified: false, desc: 'External payload listener connection pending.' },

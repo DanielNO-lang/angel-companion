@@ -3,6 +3,8 @@ import { Eye, EyeOff, Lock, Mail, LogIn, Sparkles, Loader2, CheckCircle2, AlertC
 import { AuthLayout } from './AuthLayout';
 import { ProviderAuthSection } from './ProviderAuthSection';
 import { authService } from '../../services/authService';
+import { toFriendlyError } from '../../services/errorHandlingService';
+import { restoreSafeWorkflowDraft, saveSafeWorkflowDraft } from '../../services/recoveryNavigationService';
 import {
   getRememberMePreference,
   validateEmail,
@@ -26,12 +28,14 @@ export const SignInPage: React.FC<SignInPageProps> = ({
 }) => {
   const isLight = theme === 'light';
   const [authMethod, setAuthMethod] = useState<'password' | 'magic-link'>('password');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => restoreSafeWorkflowDraft()?.authEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(() => getRememberMePreference());
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [formError, setFormError] = useState<string | null>(initialNotice);
+  const [formError, setFormError] = useState<string | null>(() =>
+    initialNotice ? toFriendlyError(initialNotice, 'auth', { logDiagnostic: false }).userMessage : null
+  );
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -53,15 +57,13 @@ export const SignInPage: React.FC<SignInPageProps> = ({
           onNavigate('verify-email', { email });
           return;
         }
-        setFormError(result.message);
+        setFormError(toFriendlyError(result.message, 'auth').userMessage);
         return;
       }
 
       onNavigate('app');
     } catch (error) {
-      setFormError(error instanceof Error
-        ? error.message
-        : 'Sign-in could not reach Supabase. Check your connection and try again.');
+      setFormError(toFriendlyError(error, 'network').userMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -82,22 +84,20 @@ export const SignInPage: React.FC<SignInPageProps> = ({
     try {
       const result = await authService.signInWithMagicLink(email);
       if (!result.ok) {
-        setFormError(result.message);
+        setFormError(toFriendlyError(result.message, 'auth').userMessage);
         return;
       }
       setSuccessMessage(result.message);
     } catch (error) {
-      setFormError(error instanceof Error
-        ? error.message
-        : 'The sign-in link could not be sent. Check your connection and try again.');
+      setFormError(toFriendlyError(error, 'network').userMessage);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const inputBaseClass = isLight
-    ? 'w-full min-h-[46px] bg-white/85 border border-slate-300 rounded-2xl py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500'
-    : 'w-full min-h-[46px] bg-[#06091c]/80 border border-slate-700/80 rounded-2xl py-2.5 pl-10 pr-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/35 focus:border-cyan-400';
+    ? 'w-full min-h-[46px] bg-white/80 hover:bg-white/95 rounded-2xl py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder-slate-400 angel-blurred-surface focus:outline-none focus:ring-2 focus:ring-blue-500/60 transition-all'
+    : 'w-full min-h-[46px] bg-white/[0.06] hover:bg-white/[0.09] rounded-2xl py-2.5 pl-10 pr-4 text-sm text-white placeholder-slate-500 angel-blurred-surface focus:outline-none focus:ring-2 focus:ring-cyan-400/60 transition-all';
 
   return (
     <AuthLayout
@@ -146,8 +146,8 @@ export const SignInPage: React.FC<SignInPageProps> = ({
 
       {/* Mode selector between Password and Passwordless Magic Link */}
       <div
-        className={`grid grid-cols-2 p-1 rounded-2xl mb-4 text-xs font-semibold ${
-          isLight ? 'bg-slate-200/75 text-slate-600' : 'bg-slate-900/75 border border-slate-800 text-slate-400'
+        className={`grid grid-cols-2 p-1 rounded-2xl mb-4 text-xs font-semibold backdrop-blur-md ${
+          isLight ? 'bg-slate-900/5 text-slate-600' : 'bg-white/[0.05] text-slate-400'
         }`}
       >
         <button
@@ -202,7 +202,10 @@ export const SignInPage: React.FC<SignInPageProps> = ({
               type="email"
               autoComplete="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                saveSafeWorkflowDraft({ authEmail: e.target.value });
+              }}
               placeholder="name@example.com"
               className={inputBaseClass}
               aria-invalid={Boolean(fieldErrors.email)}
@@ -297,7 +300,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({
 
       <div
         className={`mt-6 pt-4 border-t text-center text-xs ${
-          isLight ? 'border-slate-200 text-slate-600' : 'border-slate-800/80 text-slate-400'
+          isLight ? 'border-slate-900/10 text-slate-600' : 'border-white/10 text-slate-400'
         }`}
       >
         New to Angel Companion?{' '}

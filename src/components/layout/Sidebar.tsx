@@ -175,7 +175,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           title="Angel Home"
         >
           <div className="w-8 h-8 flex items-center justify-center shrink-0 drop-shadow-[0_0_12px_rgba(147,197,253,0.7)] group-hover:scale-105 transition-transform">
-            <AngelEmblem3D size={32} rotationSpeed={10} tiltOnHover={true} />
+            <AngelEmblem3D size={32} seed="dashboard-sidebar" rotationSpeed={10} tiltOnHover={true} />
           </div>
           {isExpandedView && (
             <span className="text-base font-bold tracking-widest text-white font-heading">

@@ -1,5 +1,6 @@
 import { StudioId } from '../types/angel';
-import { storageService, STORAGE_KEYS } from './storageService';
+import { storageService } from './storageService';
+import { companionData } from './companionData';
 
 export type LibraryCategory =
   | 'documents'
@@ -32,6 +33,14 @@ export interface LibraryItem {
 
 const STORAGE_KEY_LIBRARY = 'angel_library_items_v1';
 const LEGACY_KNOWLEDGE_KEY = 'angel_knowledge_library_v1';
+
+const STARTER_LIBRARY_IDS = new Set([
+  'lib_doc_1',
+  'lib_know_1',
+  'lib_ref_1',
+  'lib_code_1',
+  'lib_template_1',
+]);
 
 const DEFAULT_LIBRARY_ITEMS: LibraryItem[] = [
   {
@@ -113,28 +122,104 @@ const DEFAULT_LIBRARY_ITEMS: LibraryItem[] = [
 ];
 
 export class LibraryService {
-  private items: LibraryItem[];
+  private items: LibraryItem[] = [];
+  private accessToken: string | null = null;
+  private activeUserId: string | null = null;
+  private cloudHydrationToken: string | null = null;
 
   constructor() {
-    // 1. Load existing items or initialize with defaults
-    const loaded = storageService.load<LibraryItem[]>(STORAGE_KEY_LIBRARY, DEFAULT_LIBRARY_ITEMS);
-    this.items = Array.isArray(loaded) ? loaded : [...DEFAULT_LIBRARY_ITEMS];
+    this.loadCurrentScope();
+  }
 
-    // 2. Perform safe, versioned migration from legacy memory knowledge items
+  private scopedKey(base: string): string {
+    return this.activeUserId ? `${base}:user:${this.activeUserId}` : base;
+  }
+
+  private loadCurrentScope(): void {
+    const defaultItems = this.activeUserId ? [] : DEFAULT_LIBRARY_ITEMS;
+    const loaded = storageService.load<LibraryItem[]>(this.scopedKey(STORAGE_KEY_LIBRARY), defaultItems);
+    this.items = Array.isArray(loaded) ? loaded : [...defaultItems];
     this.migrateLegacyKnowledgeRecords();
   }
 
-  private persist(): boolean {
-    return storageService.save(STORAGE_KEY_LIBRARY, this.items);
+  public setAuthContext(token: string | null, userId?: string | null): void {
+    const nextUserId = token ? userId || null : null;
+    const identityChanged = this.activeUserId !== nextUserId;
+    this.accessToken = token;
+
+    if (identityChanged) {
+      this.activeUserId = nextUserId;
+      this.cloudHydrationToken = null;
+      this.loadCurrentScope();
+    }
+
+    if (!token) {
+      this.cloudHydrationToken = null;
+      return;
+    }
+
+    if ((this.cloudHydrationToken !== token || identityChanged) && companionData.isCloudConfigured()) {
+      this.cloudHydrationToken = token;
+      void this.restoreCloud(token);
+    }
   }
 
-  /**
-   * Versioned Migration: Safely imports legacy knowledge records out of Memory storage
-   * into the independent Library service without deleting genuine user memories
-   * or creating duplicate records on repeat runs.
-   */
+  private async restoreCloud(token: string): Promise<void> {
+    const ownerId = this.activeUserId;
+    if (!ownerId || !companionData.isCloudConfigured()) return;
+    try {
+      const cloudItems = await companionData.loadLibraryItems(token);
+      if (this.accessToken !== token || this.activeUserId !== ownerId) return;
+
+      const byId = new Map<string, LibraryItem>();
+      cloudItems.forEach((item) => byId.set(item.id, item));
+      this.items.forEach((local) => {
+        const existing = byId.get(local.id);
+        if (!existing || local.updatedAt > existing.updatedAt) {
+          byId.set(local.id, local);
+        }
+      });
+
+      this.items = Array.from(byId.values()).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      this.persist(false);
+    } catch (error) {
+      console.warn('[LibraryService] Cloud restore deferred:', error);
+    }
+  }
+
+  private persist(syncToCloud = true): boolean {
+    const saved = storageService.save(this.scopedKey(STORAGE_KEY_LIBRARY), this.items);
+    if (saved && syncToCloud && this.accessToken && this.activeUserId && companionData.isCloudConfigured()) {
+      const userItems = this.items.filter((i) => !STARTER_LIBRARY_IDS.has(i.id));
+      if (userItems.length > 0) {
+        void companionData.syncLibraryItems(this.accessToken, userItems, this.activeUserId).catch((error) => {
+          console.warn('[LibraryService] Cloud sync deferred:', error);
+        });
+      }
+    }
+    return saved;
+  }
+
+  public cleanupSampleRecords(): number {
+    const before = this.items.length;
+    this.items = this.items.filter((item) => !STARTER_LIBRARY_IDS.has(item.id));
+    const removed = before - this.items.length;
+    if (removed > 0) {
+      this.persist(false);
+    }
+    return removed;
+  }
+
+  public async getSignedAssetUrl(item: LibraryItem): Promise<string | null> {
+    const storagePath = item.metadata?.storagePath || (item.fileUrl && !item.fileUrl.startsWith('http') ? item.fileUrl : null);
+    if (!storagePath || !this.accessToken || !companionData.isCloudConfigured()) {
+      return item.fileUrl?.startsWith('http') ? item.fileUrl : null;
+    }
+    return companionData.getPrivateSignedUrl(this.accessToken, storagePath);
+  }
+
   public migrateLegacyKnowledgeRecords(): number {
-    const legacyKnow = storageService.load<any[]>(LEGACY_KNOWLEDGE_KEY, []);
+    const legacyKnow = storageService.load<any[]>(this.scopedKey(LEGACY_KNOWLEDGE_KEY), []);
     if (!Array.isArray(legacyKnow) || legacyKnow.length === 0) {
       return 0;
     }
@@ -143,7 +228,9 @@ export class LibraryService {
     legacyKnow.forEach((kItem) => {
       if (!kItem || !kItem.id || !kItem.title) return;
 
-      const existing = this.items.find((item) => item.id === kItem.id || (item.name === kItem.title && item.content === kItem.content));
+      const existing = this.items.find(
+        (item) => item.id === kItem.id || (item.name === kItem.title && item.content === kItem.content)
+      );
       if (!existing) {
         const newItem: LibraryItem = {
           id: kItem.id || `lib_migrated_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -167,7 +254,6 @@ export class LibraryService {
 
     if (migratedCount > 0) {
       this.persist();
-      console.log(`[LibraryService] Safely migrated ${migratedCount} legacy knowledge items to central Library.`);
     }
 
     return migratedCount;
@@ -185,8 +271,6 @@ export class LibraryService {
     return 'knowledge';
   }
 
-  // --- READ OPERATIONS ---
-
   getItems(category?: LibraryCategory, studioId?: StudioId, projectId?: string): LibraryItem[] {
     return this.items.filter((item) => {
       if (category && item.type !== category) return false;
@@ -202,7 +286,6 @@ export class LibraryService {
 
   getAuthorisedResources(studioId?: StudioId, projectId?: string): LibraryItem[] {
     return this.items.filter((item) => {
-      // Unrestricted resources available to all
       if (!item.studioId && !item.projectId) return true;
       if (studioId && item.studioId === studioId) return true;
       if (projectId && item.projectId === projectId) return true;
@@ -223,8 +306,6 @@ export class LibraryService {
       return matchName || matchDesc || matchContent || matchTags || matchColl;
     });
   }
-
-  // --- WRITE / MUTATION OPERATIONS ---
 
   addItem(item: Omit<LibraryItem, 'id' | 'createdAt' | 'updatedAt' | 'status'>): LibraryItem {
     const newItem: LibraryItem = {
@@ -276,10 +357,18 @@ export class LibraryService {
   }
 
   deleteItem(id: string): boolean {
+    const target = this.items.find((item) => item.id === id);
     const initialLen = this.items.length;
     this.items = this.items.filter((item) => item.id !== id);
     if (this.items.length < initialLen) {
-      this.persist();
+      this.persist(false);
+      if (this.accessToken && companionData.isCloudConfigured()) {
+        void companionData
+          .deleteLibraryItem(this.accessToken, id, target?.metadata?.storagePath)
+          .catch((error) => {
+            console.warn('[LibraryService] Cloud delete deferred:', error);
+          });
+      }
       return true;
     }
     return false;
@@ -334,7 +423,7 @@ export class LibraryService {
     studioId?: StudioId,
     projectId?: string
   ): LibraryItem {
-    const formattedContent = `# Research Findings: ${topic}\n\n${summary}\n\n## Citations & Sources\n${citations.map(c => `- ${c}`).join('\n')}`;
+    const formattedContent = `# Research Findings: ${topic}\n\n${summary}\n\n## Citations & Sources\n${citations.map((c) => `- ${c}`).join('\n')}`;
     return this.addItem({
       type: 'references',
       name: `Research - ${topic}`,
