@@ -6,6 +6,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      deploy_production:
+        description: "Apply Supabase migrations and publish to the production Netlify site"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,7 +42,7 @@ jobs:
 
   deploy-supabase:
     name: Apply Supabase migrations
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_production
     needs: validate
     runs-on: ubuntu-latest
     env:
@@ -58,7 +64,7 @@ jobs:
 
   deploy-netlify:
     name: Deploy production application
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_production
     needs: [validate, deploy-supabase]
     runs-on: ubuntu-latest
     steps:
