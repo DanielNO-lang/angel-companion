@@ -160,9 +160,12 @@ export default function App() {
   // popup broadcasts completion so this tab can verify the session and enter Angel.
   React.useEffect(() => {
     let active = true;
-    const syncPopupSession = async () => {
+    const syncPopupSession = async (tokens?: { access_token: string; refresh_token: string }) => {
       try {
-        const restored = await authService.restoreVerifiedSession();
+        // Explicitly persist in this tab: sessionStorage is isolated between popup and opener.
+        const restored = tokens
+          ? await authService.adoptPopupSession(tokens)
+          : await authService.restoreVerifiedSession();
         if (!active || restored.status !== 'authenticated') return;
         setAuthSnapshot(restored);
         navigateRoute('app', { replace: true });
@@ -174,7 +177,7 @@ export default function App() {
     const handleWindowMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'ANGEL_AUTH_POPUP_SUCCESS') {
-        void syncPopupSession();
+        void syncPopupSession(event.data.session);
       }
     };
     window.addEventListener('message', handleWindowMessage);
@@ -348,17 +351,28 @@ export default function App() {
           if (cbResult.outcome === 'authenticated') {
             const isPopupOAuthCallback = new URLSearchParams(search).get('angel_oauth_popup') === '1';
             if (isPopupOAuthCallback) {
+              const popupSession = authService.getSnapshot().session;
+              const sessionTokens = popupSession
+                ? {
+                    access_token: popupSession.access_token,
+                    refresh_token: popupSession.refresh_token,
+                  }
+                : undefined;
+              const completionMessage = {
+                type: 'ANGEL_AUTH_POPUP_SUCCESS',
+                session: sessionTokens,
+              };
               try {
                 if (typeof BroadcastChannel !== 'undefined') {
                   const channel = new BroadcastChannel('angel-auth-popup');
-                  channel.postMessage({ type: 'ANGEL_AUTH_POPUP_SUCCESS' });
+                  channel.postMessage(completionMessage);
                   channel.close();
                 }
               } catch {
                 // window.opener postMessage below is the fallback.
               }
               try {
-                window.opener?.postMessage({ type: 'ANGEL_AUTH_POPUP_SUCCESS' }, window.location.origin);
+                window.opener?.postMessage(completionMessage, window.location.origin);
               } catch {
                 // Supabase's cross-tab auth event remains the final fallback.
               }
