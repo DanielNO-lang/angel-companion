@@ -559,8 +559,8 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .angel-emblem-orbit,
-  .angel-emblem-spin,
+  /* Angel's identity mark retains its slow 3D rotation; ambient motion below
+     still respects reduced-motion preferences. */
   .landing-scope .animate-spin-slow,
   .landing-scope .animate-float,
   .landing-scope .animate-pulse-glow,
