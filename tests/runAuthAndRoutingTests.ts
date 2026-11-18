@@ -25,7 +25,7 @@ import {
   parseEnabledProvidersList,
 } from '../src/services/authProviderRegistry';
 import { getSupabaseConfigState } from '../src/services/supabaseClient';
-import { authService } from '../src/services/authService';
+import { authService, buildOAuthSignInOptions } from '../src/services/authService';
 import { conversationEngine } from '../src/services/conversationEngine';
 
 test('Email validation accepts valid addresses and rejects malformed inputs', () => {
@@ -107,6 +107,23 @@ test('Route parser maps public, auth, callback, and workspace routes accurately'
   assert.equal(parseAppRoute('/app'), 'app');
   assert.equal(getPathForRoute('signin'), '/signin');
   assert.equal(getPathForRoute('app'), '/app');
+});
+
+test('Google OAuth uses an account chooser and a same-origin popup callback', () => {
+  const popup = buildOAuthSignInOptions(
+    'google',
+    'https://preview.example/auth/callback?angel_oauth_popup=1&next=/app',
+    'email profile',
+    true,
+  );
+  assert.equal(popup.skipBrowserRedirect, true);
+  assert.equal(popup.redirectTo, 'https://preview.example/auth/callback?angel_oauth_popup=1&next=/app');
+  assert.equal(popup.queryParams?.prompt, 'select_account');
+  assert.equal(popup.scopes, 'email profile');
+
+  const normal = buildOAuthSignInOptions('github', 'https://preview.example/auth/callback');
+  assert.equal(normal.skipBrowserRedirect, undefined);
+  assert.equal(normal.queryParams, undefined);
 });
 
 test('Callback parser detects PKCE codes, recovery flows, expired links, and cancellations', () => {
