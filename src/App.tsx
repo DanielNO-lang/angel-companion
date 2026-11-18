@@ -195,7 +195,7 @@ export default function App() {
         channel = new BroadcastChannel('angel-auth-popup');
         channel.onmessage = (event) => {
           if (event.data?.type === 'ANGEL_AUTH_POPUP_SUCCESS') {
-            void syncPopupSession();
+            void syncPopupSession(event.data.session);
           }
         };
       }
