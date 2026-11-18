@@ -2,6 +2,7 @@ import React, { Suspense } from 'react';
 import { useAngelState } from './hooks/useAngelState';
 import { CosmicEnvironment } from './components/background/CosmicEnvironment';
 import { CloudySkyEnvironment } from './components/background/CloudySkyEnvironment';
+import './components/background/environment.css';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
 import { MoreNavigationPopup } from './components/layout/MoreNavigationPopup';
