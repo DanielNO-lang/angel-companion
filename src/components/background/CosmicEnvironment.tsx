@@ -12,53 +12,8 @@ export interface CosmicEnvironmentProps {
 }
 
 interface CelestialObject {
-  id: number;
   type: 'sun' | 'saturn' | 'earth' | 'moon' | 'satellite' | 'spacerock';
-  specificName?: string;
-  x: number;
-  y: number;
-  baseRadius: number;
-  currentScale: number;
-  targetScale: number;
-  scaleSpeed: number;
-  alpha: number;
-  targetAlpha: number;
-  fadeSpeed: number;
-  vx: number;
-  vy: number;
-  rotation: number;
-  rotationSpeed: number;
-  lifespan: number;
-  age: number;
-  flarePhase: number;
 }
-
-interface ShootingStar {
-  id: number;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  length: number;
-  alpha: number;
-  life: number;
-  maxLife: number;
-}
-
-interface CanvasRipple {
-  x: number;
-  y: number;
-  radius: number;
-  maxRadius: number;
-  alpha: number;
-}
-
-const SATELLITE_NAMES = [
-  'International Space Station (ISS)',
-  'James Webb Space Telescope (JWST)',
-  'Hubble Space Telescope (HST)',
-  'Voyager 1 Interstellar Probe',
-];
 
 export const getTelemetryForObject = (
   type: CelestialObject['type'] | 'shootingstar',
