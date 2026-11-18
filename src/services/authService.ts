@@ -65,6 +65,8 @@ export interface AuthActionResult {
     | 'RECOVERY_SENT'
     | 'PASSWORD_UPDATED'
     | 'OAUTH_REDIRECT'
+    | 'OAUTH_POPUP'
+    | 'POPUP_BLOCKED'
     | 'EMAIL_UPDATED'
     | 'UNCONFIGURED'
     | 'ERROR';
@@ -166,6 +168,7 @@ export interface BuiltOAuthSignInOptions {
   redirectTo: string;
   scopes?: string;
   queryParams?: Record<string, string>;
+  skipBrowserRedirect?: boolean;
 }
 
 /**
@@ -176,11 +179,13 @@ export interface BuiltOAuthSignInOptions {
 export function buildOAuthSignInOptions(
   provider: AuthProviderId,
   redirectTo: string = getCallbackUrl('/auth/callback'),
-  scopes?: string
+  scopes?: string,
+  usePopup = false
 ): BuiltOAuthSignInOptions {
   const options: BuiltOAuthSignInOptions = {
     redirectTo,
     ...(scopes ? { scopes } : {}),
+    ...(usePopup ? { skipBrowserRedirect: true } : {}),
   };
 
   if (provider === 'google') {
@@ -710,15 +715,42 @@ class AuthService {
       provider === 'azure'
         ? 'Microsoft'
         : provider.charAt(0).toUpperCase() + provider.slice(1);
+    const useGooglePopup = provider === 'google' && typeof window !== 'undefined';
+    // Open synchronously inside the user gesture so popup blockers do not reject the OAuth window.
+    const popup = useGooglePopup
+      ? window.open(
+          'about:blank',
+          'angel-google-auth',
+          'popup=yes,width=520,height=720,resizable=yes,scrollbars=yes'
+        )
+      : null;
+
+    if (useGooglePopup && !popup) {
+      return {
+        ok: false,
+        diagnosticCategory: 'oauth_incomplete',
+        code: 'POPUP_BLOCKED',
+        message: 'Your browser blocked the Google sign-in window. Allow pop-ups for Angel and try again.',
+      };
+    }
 
     try {
-      const oauthOptions = buildOAuthSignInOptions(provider, getCallbackUrl('/auth/callback'), scopes);
+      const callbackPath = useGooglePopup
+        ? '/auth/callback?angel_oauth_popup=1&next=/app'
+        : '/auth/callback';
+      const oauthOptions = buildOAuthSignInOptions(
+        provider,
+        getCallbackUrl(callbackPath),
+        scopes,
+        useGooglePopup
+      );
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: provider as Parameters<typeof supabase.auth.signInWithOAuth>[0]['provider'],
         options: oauthOptions,
       });
 
       if (error) {
+        popup?.close();
         const classified = classifySupabaseAuthError(
           error.message || `Failed to initiate ${providerName} sign-in.`,
           providerName
@@ -731,9 +763,20 @@ class AuthService {
         };
       }
 
+      if (data?.url && useGooglePopup && popup) {
+        popup.location.href = data.url;
+        return {
+          ok: true,
+          diagnosticCategory: 'ok',
+          code: 'OAUTH_POPUP',
+          message: 'Google sign-in opened in a separate window.',
+        };
+      }
+
       if (data?.url && typeof window !== 'undefined') {
         window.location.assign(data.url);
       } else {
+        popup?.close();
         return {
           ok: false,
           diagnosticCategory: 'oauth_incomplete',
@@ -749,6 +792,7 @@ class AuthService {
         message: `Redirecting to ${providerName}...`,
       };
     } catch (error) {
+      popup?.close();
       const raw = error instanceof Error ? error.message : `Unable to start ${providerName} sign-in.`;
       const classified = classifySupabaseAuthError(raw, providerName);
       return {
@@ -1109,13 +1153,24 @@ class AuthService {
 
   public async signOut(): Promise<void> {
     const supabase = getSupabaseClient();
-    if (supabase) {
-      try {
-        await supabase.auth.signOut();
-      } catch {
-        await supabase.auth.signOut({ scope: 'local' });
-      }
+    if (!supabase) {
+      throw new Error('Supabase is unavailable. The current session could not be cleared.');
     }
+
+    // Sign out this browser session only. Never revoke every device session as a fallback.
+    const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
+    if (signOutError) {
+      throw new Error(signOutError.message || 'Supabase could not clear the local session.');
+    }
+
+    const { data, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      throw new Error(sessionError.message || 'Could not verify that the session was cleared.');
+    }
+    if (data.session) {
+      throw new Error('The session is still active after sign-out. Please try again.');
+    }
+
     this.snapshot = {
       status: getSupabaseConfigState().isConfigured ? 'unauthenticated' : 'unconfigured',
       user: null,
