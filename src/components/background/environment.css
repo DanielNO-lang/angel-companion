@@ -1,0 +1,316 @@
+/* Lightweight DOM/CSS environments. No full-screen canvas or JavaScript render loop. */
+.angel-cosmic-environment,
+.angel-cloudy-environment {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  contain: paint;
+  isolation: isolate;
+}
+
+.angel-cosmic-environment {
+  background:
+    radial-gradient(ellipse at 50% 34%, rgba(30, 35, 92, 0.42), transparent 54%),
+    linear-gradient(145deg, #070815 0%, #090b20 48%, #03040d 100%);
+}
+
+.angel-cosmic-base,
+.angel-cosmic-nebula,
+.angel-cosmic-ribbon,
+.angel-cosmic-stars,
+.angel-cosmic-shooting-star,
+.angel-celestial-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.angel-cosmic-nebula {
+  inset: -18%;
+  border-radius: 50%;
+  filter: blur(54px);
+  opacity: 0.72;
+  will-change: transform;
+}
+
+.angel-cosmic-nebula--violet {
+  background: radial-gradient(ellipse at 32% 34%, rgba(124, 58, 237, 0.22), transparent 42%);
+  animation: angel-cosmic-drift-a 42s ease-in-out infinite alternate;
+}
+
+.angel-cosmic-nebula--blue {
+  background: radial-gradient(ellipse at 76% 43%, rgba(37, 99, 235, 0.19), transparent 43%);
+  animation: angel-cosmic-drift-b 50s ease-in-out infinite alternate;
+}
+
+.angel-cosmic-nebula--cyan {
+  background: radial-gradient(ellipse at 68% 82%, rgba(8, 145, 178, 0.12), transparent 38%);
+  animation: angel-cosmic-drift-a 58s ease-in-out infinite alternate-reverse;
+}
+
+.angel-cosmic-ribbon {
+  inset: -10%;
+  opacity: 0.5;
+  background:
+    radial-gradient(ellipse at 18% 18%, transparent 28%, rgba(99, 102, 241, 0.10) 46%, transparent 63%),
+    radial-gradient(ellipse at 84% 40%, transparent 28%, rgba(56, 189, 248, 0.08) 48%, transparent 67%),
+    linear-gradient(165deg, transparent 36%, rgba(99, 102, 241, 0.045) 48%, transparent 61%);
+  transform: translate3d(0, 0, 0);
+  animation: angel-cosmic-ribbon-drift 54s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.angel-cosmic-stars {
+  opacity: 0.72;
+  background-image:
+    radial-gradient(1px 1px at 12px 18px, rgba(255,255,255,.9) 98%, transparent),
+    radial-gradient(1px 1px at 74px 112px, rgba(186,230,253,.8) 98%, transparent),
+    radial-gradient(1.5px 1.5px at 154px 48px, rgba(255,255,255,.82) 98%, transparent),
+    radial-gradient(1px 1px at 220px 170px, rgba(199,210,254,.8) 98%, transparent),
+    radial-gradient(1px 1px at 300px 80px, rgba(255,255,255,.72) 98%, transparent);
+  background-size: 330px 250px, 410px 330px, 520px 390px, 610px 470px, 720px 520px;
+  background-position: 0 0, 80px 40px, 30px 120px, 180px 10px, 260px 170px;
+  animation: angel-star-breathe 9s ease-in-out infinite alternate;
+}
+
+.angel-cosmic-shooting-star {
+  inset: auto;
+  top: 18%;
+  left: -18%;
+  width: 150px;
+  height: 1.5px;
+  border-radius: 999px;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent, rgba(186,230,253,.9), rgba(255,255,255,.95), transparent);
+  box-shadow: 0 0 12px rgba(56,189,248,.7);
+  transform: rotate(-24deg);
+  animation: angel-shooting-star 19s linear infinite;
+}
+
+.angel-cosmic-shooting-star--second {
+  top: 62%;
+  animation-delay: 10s;
+  animation-duration: 24s;
+  width: 110px;
+}
+
+.angel-celestial-layer {
+  pointer-events: none;
+}
+
+.angel-celestial-object {
+  position: absolute;
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  pointer-events: auto;
+  cursor: pointer;
+  background: transparent;
+  outline-offset: 5px;
+  transform: translate3d(0, 0, 0);
+  animation: angel-celestial-float 22s ease-in-out infinite alternate;
+}
+
+.angel-celestial-object:disabled {
+  pointer-events: none;
+  cursor: default;
+}
+
+.angel-celestial-object--sun {
+  width: 44px;
+  height: 44px;
+  top: 17%;
+  left: 12%;
+  background: radial-gradient(circle at 32% 30%, #fff8d9 0 8%, #fcd34d 28%, #f97316 68%, #7c2d12 100%);
+  box-shadow: 0 0 24px rgba(251,191,36,.32), 0 0 72px rgba(249,115,22,.14);
+}
+
+.angel-celestial-object--saturn {
+  width: 48px;
+  height: 48px;
+  top: 58%;
+  right: 13%;
+  background: radial-gradient(circle at 34% 28%, #fef3c7, #d6b88c 45%, #8b7355 100%);
+  box-shadow: 0 0 22px rgba(196,181,153,.16);
+  animation-delay: -8s;
+}
+
+.angel-celestial-object--saturn::before {
+  content: "";
+  position: absolute;
+  left: -17px;
+  top: 15px;
+  width: 82px;
+  height: 19px;
+  border: 3px solid rgba(218, 198, 163, .72);
+  border-left-color: rgba(218, 198, 163, .24);
+  border-right-color: rgba(218, 198, 163, .24);
+  border-radius: 50%;
+  transform: rotate(-18deg);
+}
+
+.angel-celestial-object--earth {
+  width: 30px;
+  height: 30px;
+  bottom: 19%;
+  left: 34%;
+  background: radial-gradient(circle at 30% 26%, #bfdbfe, #2563eb 42%, #0f766e 66%, #071a3a 100%);
+  box-shadow: 0 0 22px rgba(56,189,248,.22);
+  animation-delay: -13s;
+}
+
+.angel-celestial-object--moon {
+  width: 22px;
+  height: 22px;
+  top: 32%;
+  right: 27%;
+  background: radial-gradient(circle at 35% 30%, #fff, #cbd5e1 55%, #64748b 100%);
+  box-shadow: 0 0 18px rgba(226,232,240,.24);
+  animation-delay: -4s;
+}
+
+.angel-celestial-object--satellite {
+  width: 34px;
+  height: 10px;
+  top: 43%;
+  left: 72%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #64748b, #e2e8f0 42%, #475569);
+  box-shadow: 0 0 10px rgba(148,163,184,.28);
+  animation: angel-satellite-drift 30s ease-in-out infinite alternate;
+}
+
+.angel-celestial-object--satellite::before,
+.angel-celestial-object--satellite::after {
+  content: "";
+  position: absolute;
+  top: -5px;
+  width: 13px;
+  height: 20px;
+  border: 1px solid rgba(125,211,252,.6);
+  background: repeating-linear-gradient(90deg, rgba(30,64,175,.9) 0 3px, rgba(125,211,252,.55) 3px 4px);
+}
+.angel-celestial-object--satellite::before { left: -14px; }
+.angel-celestial-object--satellite::after { right: -14px; }
+
+.angel-celestial-object--spacerock {
+  width: 17px;
+  height: 17px;
+  right: 39%;
+  bottom: 25%;
+  border-radius: 36% 58% 44% 52%;
+  clip-path: polygon(20% 0, 76% 8%, 100% 52%, 72% 94%, 18% 82%, 0 38%);
+  background: linear-gradient(135deg, #c4a484, #6b5544 58%, #2e2521);
+  box-shadow: 0 0 14px rgba(180,145,112,.18);
+  animation-delay: -16s;
+}
+
+.angel-cloudy-environment {
+  background:
+    linear-gradient(180deg, #bae6fd 0%, #dbeafe 34%, #eff6ff 70%, #f8fafc 100%);
+}
+
+.angel-daylight-sun {
+  position: absolute;
+  top: -18%;
+  right: -8%;
+  width: min(76vw, 900px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,252,232,.9) 0%, rgba(254,249,195,.42) 24%, rgba(186,230,253,.18) 54%, transparent 72%);
+}
+
+.angel-daylight-wash {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 24% 38%, rgba(168,85,247,.08), transparent 38%),
+    radial-gradient(ellipse at 46% 52%, rgba(56,189,248,.09), transparent 48%);
+}
+
+.angel-cloud-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.angel-cloud {
+  position: absolute;
+  height: 86px;
+  border-radius: 999px;
+  opacity: .64;
+  filter: blur(5px);
+  background: radial-gradient(ellipse at 50% 42%, rgba(255,255,255,.94), rgba(248,250,255,.72) 56%, rgba(255,255,255,0) 76%);
+  box-shadow: 0 20px 32px rgba(147,197,253,.12);
+  animation: angel-cloud-drift 72s linear infinite alternate;
+  will-change: transform;
+}
+
+.angel-cloud::before,
+.angel-cloud::after {
+  content: "";
+  position: absolute;
+  bottom: 18%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 42% 35%, rgba(255,255,255,.98), rgba(248,250,255,.78) 66%, rgba(255,255,255,0) 78%);
+}
+.angel-cloud::before {
+  left: 12%;
+  width: 43%;
+  height: 125%;
+}
+.angel-cloud::after {
+  right: 12%;
+  width: 38%;
+  height: 105%;
+}
+.angel-cloud--far { opacity: .38; filter: blur(8px); animation-duration: 105s; }
+.angel-cloud--mid { opacity: .54; animation-duration: 86s; }
+.angel-cloud--near { opacity: .72; filter: blur(4px); animation-duration: 68s; }
+
+@keyframes angel-cosmic-drift-a {
+  from { transform: translate3d(-1.5%, -1%, 0) scale(1); }
+  to { transform: translate3d(2%, 1.5%, 0) scale(1.04); }
+}
+@keyframes angel-cosmic-drift-b {
+  from { transform: translate3d(1.5%, 1%, 0) scale(1.02); }
+  to { transform: translate3d(-2%, -1.5%, 0) scale(1); }
+}
+@keyframes angel-cosmic-ribbon-drift {
+  from { transform: translate3d(-1%, 0, 0); }
+  to { transform: translate3d(1.5%, 1%, 0); }
+}
+@keyframes angel-star-breathe {
+  from { opacity: .55; }
+  to { opacity: .86; }
+}
+@keyframes angel-shooting-star {
+  0%, 72% { opacity: 0; transform: translate3d(0,0,0) rotate(-24deg); }
+  75% { opacity: .95; }
+  84% { opacity: 0; transform: translate3d(145vw, 36vh, 0) rotate(-24deg); }
+  100% { opacity: 0; }
+}
+@keyframes angel-celestial-float {
+  from { translate: 0 0; }
+  to { translate: 12px -9px; }
+}
+@keyframes angel-satellite-drift {
+  from { transform: translate3d(-8px, 0, 0) rotate(-8deg); }
+  to { transform: translate3d(22px, -16px, 0) rotate(8deg); }
+}
+@keyframes angel-cloud-drift {
+  from { transform: translate3d(-3vw, 0, 0); }
+  to { transform: translate3d(5vw, -10px, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .angel-cosmic-nebula,
+  .angel-cosmic-ribbon,
+  .angel-cosmic-stars,
+  .angel-cosmic-shooting-star,
+  .angel-celestial-object,
+  .angel-cloud {
+    animation: none !important;
+  }
+}
