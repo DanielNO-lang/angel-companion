@@ -505,3 +505,27 @@ test('landing and auth structure satisfies sticky header, CTA cleanup, 6 brandle
   assert.equal(authLayoutSource.includes('AngelCompanion3D'), false, 'AuthLayout must not render AngelCompanion3D orb');
   assert.equal(authLayoutSource.includes('animate-spin-slow'), false, 'AuthLayout must not render spinning orbital rings');
 });
+
+test('Cosmic and cloudy environments use DOM/CSS layers instead of full-screen canvas render loops', () => {
+  const cosmic = fs.readFileSync(path.join(process.cwd(), 'src/components/background/CosmicEnvironment.tsx'), 'utf8');
+  const cloudy = fs.readFileSync(path.join(process.cwd(), 'src/components/background/CloudySkyEnvironment.tsx'), 'utf8');
+  const environmentCss = fs.readFileSync(path.join(process.cwd(), 'src/components/background/environment.css'), 'utf8');
+
+  assert.equal(cosmic.includes('<canvas'), false);
+  assert.equal(cosmic.includes('requestAnimationFrame'), false);
+  assert.equal(cloudy.includes('<canvas'), false);
+  assert.equal(cloudy.includes('requestAnimationFrame'), false);
+  assert.ok(environmentCss.includes('.angel-cosmic-environment'));
+  assert.ok(environmentCss.includes('.angel-cloudy-environment'));
+  assert.ok(environmentCss.includes('@keyframes angel-cloud-drift'));
+});
+
+test('All automatic Angel emblem instances use the lightweight rotating 3D trefoil', () => {
+  const emblem3d = fs.readFileSync(path.join(process.cwd(), 'src/components/branding/AngelEmblem3D.tsx'), 'utf8');
+  const indexCss = fs.readFileSync(path.join(process.cwd(), 'src/index.css'), 'utf8');
+  const reducedMotionBlock = indexCss.slice(indexCss.indexOf('@media (prefers-reduced-motion: reduce)'));
+
+  assert.ok(emblem3d.includes("const useCompactSvg = renderMode !== '3d' || !perfProfile.webglSupported;"));
+  assert.equal(reducedMotionBlock.includes('.angel-emblem-orbit'), false);
+  assert.equal(reducedMotionBlock.includes('.angel-emblem-spin'), false);
+});
