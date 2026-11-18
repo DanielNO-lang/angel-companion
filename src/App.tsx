@@ -568,7 +568,7 @@ export default function App() {
     } catch (error) {
       setSignOutError('Angel could not confirm sign-out. Your session has been left unchanged. Please try again.');
       logSanitizedDiagnostic({
-        category: 'auth_request_failure',
+        category: 'unknown_failure',
         context: 'auth',
         rawError: error,
         metadata: { action: 'sign_out' },
