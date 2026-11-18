@@ -566,7 +566,7 @@ export default function App() {
       setActiveTab('home');
       navigateRoute('landing', { replace: true });
     } catch (error) {
-      setSignOutError('Angel could not confirm sign-out. Your session has been left unchanged. Please try again.');
+      setSignOutError('Angel could not confirm that sign-out completed. Please try again.');
       logSanitizedDiagnostic({
         category: 'unknown_failure',
         context: 'auth',
