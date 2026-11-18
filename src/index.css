@@ -381,7 +381,6 @@ body {
 .angel-emblem-orbit {
   animation: angelOrbitCircular var(--angel-orbit-dur, 6.4s) linear infinite;
   animation-delay: var(--angel-orbit-delay, 0s);
-  will-change: transform;
   transform-style: preserve-3d;
 }
 
@@ -389,7 +388,6 @@ body {
   animation: angelSpin3D var(--angel-spin-dur, 12s) linear infinite;
   animation-direction: var(--angel-spin-dir, normal);
   animation-delay: var(--angel-orbit-delay, 0s);
-  will-change: transform;
   transform-style: preserve-3d;
 }
 
