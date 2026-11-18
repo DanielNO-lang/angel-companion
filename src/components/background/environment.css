@@ -28,9 +28,7 @@
 .angel-cosmic-nebula {
   inset: -18%;
   border-radius: 50%;
-  filter: blur(54px);
   opacity: 0.72;
-  will-change: transform;
 }
 
 .angel-cosmic-nebula--violet {
@@ -240,7 +238,6 @@
   height: 86px;
   border-radius: 999px;
   opacity: .64;
-  filter: blur(5px);
   background: radial-gradient(ellipse at 50% 42%, rgba(255,255,255,.94), rgba(248,250,255,.72) 56%, rgba(255,255,255,0) 76%);
   box-shadow: 0 20px 32px rgba(147,197,253,.12);
   animation: angel-cloud-drift 72s linear infinite alternate;
@@ -265,9 +262,9 @@
   width: 38%;
   height: 105%;
 }
-.angel-cloud--far { opacity: .38; filter: blur(8px); animation-duration: 105s; }
+.angel-cloud--far { opacity: .38; animation-duration: 105s; }
 .angel-cloud--mid { opacity: .54; animation-duration: 86s; }
-.angel-cloud--near { opacity: .72; filter: blur(4px); animation-duration: 68s; }
+.angel-cloud--near { opacity: .72; animation-duration: 68s; }
 
 @keyframes angel-cosmic-drift-a {
   from { transform: translate3d(-1.5%, -1%, 0) scale(1); }
