@@ -394,6 +394,27 @@ class AuthService {
     }
   }
 
+  /**
+   * Persists a verified OAuth popup session into this tab's configured storage.
+   * This is required when Remember Me is off because sessionStorage is tab-scoped.
+   */
+  public async adoptPopupSession(tokens: {
+    access_token: string;
+    refresh_token: string;
+  }): Promise<AuthStateSnapshot> {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      throw new Error('Supabase is unavailable. The Google sign-in session could not be transferred.');
+    }
+
+    const { data, error } = await supabase.auth.setSession(tokens);
+    if (error || !data.session) {
+      throw new Error(error?.message || 'Could not transfer the Google sign-in session to this tab.');
+    }
+
+    return this.restoreVerifiedSession();
+  }
+
   public async signInWithEmailPassword(
     email: string,
     password: string,
