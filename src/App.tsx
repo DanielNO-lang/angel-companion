@@ -160,17 +160,24 @@ export default function App() {
   // popup broadcasts completion so this tab can verify the session and enter Angel.
   React.useEffect(() => {
     let active = true;
+    let popupSyncInProgress = false;
+    let popupSyncCompleted = false;
     const syncPopupSession = async (tokens?: { access_token: string; refresh_token: string }) => {
+      if (popupSyncInProgress || popupSyncCompleted) return;
+      popupSyncInProgress = true;
       try {
         // Explicitly persist in this tab: sessionStorage is isolated between popup and opener.
         const restored = tokens
           ? await authService.adoptPopupSession(tokens)
           : await authService.restoreVerifiedSession();
         if (!active || restored.status !== 'authenticated') return;
+        popupSyncCompleted = true;
         setAuthSnapshot(restored);
         navigateRoute('app', { replace: true });
       } catch {
         // The normal auth listener remains the fallback if a popup closes early.
+      } finally {
+        popupSyncInProgress = false;
       }
     };
 
