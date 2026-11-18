@@ -7,6 +7,9 @@ import {
   evaluatePasswordStrength,
   getPathForRoute,
   getRememberMePreference,
+  getRememberedAuthEmail,
+  saveRememberedAuthEmail,
+  clearRememberedAuthEmail,
   getStoredThemeMode,
   parseAppRoute,
   parseAuthCallbackParams,
@@ -25,7 +28,7 @@ import {
   parseEnabledProvidersList,
 } from '../src/services/authProviderRegistry';
 import { getSupabaseConfigState } from '../src/services/supabaseClient';
-import { authService } from '../src/services/authService';
+import { authService, buildOAuthSignInOptions } from '../src/services/authService';
 import { conversationEngine } from '../src/services/conversationEngine';
 
 test('Email validation accepts valid addresses and rejects malformed inputs', () => {
@@ -109,6 +112,15 @@ test('Route parser maps public, auth, callback, and workspace routes accurately'
   assert.equal(getPathForRoute('app'), '/app');
 });
 
+test('Google OAuth keeps the full-page redirect and asks Google to select an account', () => {
+  const google = buildOAuthSignInOptions('google', 'https://preview.example/auth/callback', 'email profile');
+  assert.equal(google.redirectTo, 'https://preview.example/auth/callback');
+  assert.equal(google.queryParams?.prompt, 'select_account');
+  assert.equal(google.scopes, 'email profile');
+  assert.equal('skipBrowserRedirect' in google, false);
+  const normal = buildOAuthSignInOptions('github', 'https://preview.example/auth/callback');
+  assert.equal(normal.queryParams, undefined);
+});
 test('Callback parser detects PKCE codes, recovery flows, expired links, and cancellations', () => {
   const pkce = parseAuthCallbackParams('?code=abc123&next=/app', '');
   assert.equal(pkce.hasCallbackParams, true);
@@ -218,4 +230,18 @@ test('Unconfigured Supabase environment never fakes a signed-in user or simulate
     assert.equal(signUpAttempt.ok, false);
     assert.equal(signUpAttempt.code, 'UNCONFIGURED');
   }
+});
+
+test('Remember Me defaults on and the remembered email clears on sign-out', () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); },
+    removeItem: (key: string) => { values.delete(key); },
+  };
+  assert.equal(getRememberMePreference(storage), true);
+  saveRememberedAuthEmail('angel.user@example.com', storage);
+  assert.equal(getRememberedAuthEmail(storage), 'angel.user@example.com');
+  clearRememberedAuthEmail(storage);
+  assert.equal(getRememberedAuthEmail(storage), '');
 });

@@ -114,6 +114,7 @@ export default function App() {
   );
   const [pendingVerifyEmail, setPendingVerifyEmail] = React.useState<string>('');
   const [authNotice, setAuthNotice] = React.useState<string | null>(null);
+  const [signOutError, setSignOutError] = React.useState<string | null>(null);
   const [verifyError, setVerifyError] = React.useState<string | null>(null);
   const [verifySuccess, setVerifySuccess] = React.useState(false);
   const [recoveryError, setRecoveryError] = React.useState<string | null>(null);
@@ -468,10 +469,21 @@ export default function App() {
   ]);
 
   const handleSignOut = async () => {
-    cloudSyncCoordinator.resetAllEnginesOnSignOut();
-    await authService.signOut();
-    setActiveTab('home');
-    navigateRoute('landing', { replace: true });
+    setSignOutError(null);
+    try {
+      await authService.signOut();
+      cloudSyncCoordinator.resetAllEnginesOnSignOut();
+      setActiveTab('home');
+      navigateRoute('landing', { replace: true });
+    } catch (error) {
+      setSignOutError('Angel could not confirm that sign-out completed. Please try again.');
+      logSanitizedDiagnostic({
+        category: 'unknown_failure',
+        context: 'auth',
+        rawError: error,
+        metadata: { action: 'sign_out' },
+      });
+    }
   };
 
   const renderActivePage = () => {
@@ -750,6 +762,15 @@ export default function App() {
             <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-[#090d24]/95 border border-cyan-400/50 text-cyan-200 text-xs font-semibold shadow-[0_0_30px_rgba(56,189,248,0.6)] backdrop-blur-2xl flex items-center gap-2.5 animate-in fade-in zoom-in-95">
               <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
               <span>{cosmicToast}</span>
+            </div>
+          )}
+
+          {signOutError && (
+            <div role="alert" className="fixed top-16 left-1/2 -translate-x-1/2 z-[80] max-w-[min(92vw,30rem)] px-4 py-3 rounded-2xl bg-[#090d24]/95 text-rose-100 text-xs font-medium shadow-[0_0_24px_rgba(244,63,94,0.18)] backdrop-blur-2xl">
+              <div className="flex items-center gap-3">
+                <span>{signOutError}</span>
+                <button type="button" className="underline underline-offset-2 shrink-0" onClick={() => setSignOutError(null)}>Dismiss</button>
+              </div>
             </div>
           )}
 

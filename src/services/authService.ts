@@ -12,6 +12,8 @@ import {
   deriveUserInitials,
   parseAuthCallbackParams,
   saveRememberMePreference,
+  saveRememberedAuthEmail,
+  clearRememberedAuthEmail,
   type ParsedAuthCallback,
 } from './authValidation';
 
@@ -256,6 +258,7 @@ class AuthService {
 
     supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
       if (!session || !session.user) {
+        if (event === 'SIGNED_OUT') clearRememberedAuthEmail();
         if (this.callbackInProgress && event === 'INITIAL_SESSION') {
           return;
         }
@@ -283,6 +286,7 @@ class AuthService {
       }
 
       const mapped = mapSupabaseUser(session.user);
+      if (session.user.email) saveRememberedAuthEmail(session.user.email);
       this.snapshot = {
         status: 'authenticated',
         user: mapped,
@@ -346,6 +350,7 @@ class AuthService {
         } catch {
           // Ignore local cleanup error
         }
+        clearRememberedAuthEmail();
         this.snapshot = {
           status: 'unauthenticated',
           user: null,
@@ -367,6 +372,7 @@ class AuthService {
         // Fallback to user.identities if getUserIdentities isn't available
       }
 
+      if (userData.user.email) saveRememberedAuthEmail(userData.user.email);
       this.snapshot = {
         status: 'authenticated',
         user: mapSupabaseUser(userData.user),
@@ -696,70 +702,33 @@ class AuthService {
     const config = getSupabaseConfigState();
     const supabase = getSupabaseClient();
     if (!supabase || !config.isConfigured) {
-      return {
-        ok: false,
-        diagnosticCategory: 'unconfigured',
-        code: 'UNCONFIGURED',
-        message: config.statusMessage,
-      };
+      return { ok: false, diagnosticCategory: 'unconfigured', code: 'UNCONFIGURED', message: config.statusMessage };
     }
-
+    // OAuth sign-ins use persistent storage by default, matching Remember Me.
+    saveRememberMePreference(true);
     this.ensureAuthListener();
-
-    const providerName =
-      provider === 'azure'
-        ? 'Microsoft'
-        : provider.charAt(0).toUpperCase() + provider.slice(1);
-
+    const providerName = provider === 'azure' ? 'Microsoft' : provider.charAt(0).toUpperCase() + provider.slice(1);
     try {
       const oauthOptions = buildOAuthSignInOptions(provider, getCallbackUrl('/auth/callback'), scopes);
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: provider as Parameters<typeof supabase.auth.signInWithOAuth>[0]['provider'],
         options: oauthOptions,
       });
-
       if (error) {
-        const classified = classifySupabaseAuthError(
-          error.message || `Failed to initiate ${providerName} sign-in.`,
-          providerName
-        );
-        return {
-          ok: false,
-          diagnosticCategory: classified.category,
-          code: 'ERROR',
-          message: classified.message,
-        };
+        const classified = classifySupabaseAuthError(error.message || 'Failed to initiate ' + providerName + ' sign-in.', providerName);
+        return { ok: false, diagnosticCategory: classified.category, code: 'ERROR', message: classified.message };
       }
-
       if (data?.url && typeof window !== 'undefined') {
         window.location.assign(data.url);
-      } else {
-        return {
-          ok: false,
-          diagnosticCategory: 'oauth_incomplete',
-          code: 'ERROR',
-          message: `Supabase did not return an authorization URL for ${providerName}. Verify OAuth configuration in Supabase Authentication → Providers.`,
-        };
+        return { ok: true, diagnosticCategory: 'ok', code: 'OAUTH_REDIRECT', message: 'Redirecting to ' + providerName + '...' };
       }
-
-      return {
-        ok: true,
-        diagnosticCategory: 'ok',
-        code: 'OAUTH_REDIRECT',
-        message: `Redirecting to ${providerName}...`,
-      };
+      return { ok: false, diagnosticCategory: 'oauth_incomplete', code: 'ERROR', message: 'Supabase did not return an authorization URL for ' + providerName + '. Verify OAuth configuration in Supabase Authentication → Providers.' };
     } catch (error) {
-      const raw = error instanceof Error ? error.message : `Unable to start ${providerName} sign-in.`;
+      const raw = error instanceof Error ? error.message : 'Unable to start ' + providerName + ' sign-in.';
       const classified = classifySupabaseAuthError(raw, providerName);
-      return {
-        ok: false,
-        diagnosticCategory: classified.category,
-        code: 'ERROR',
-        message: classified.message,
-      };
+      return { ok: false, diagnosticCategory: classified.category, code: 'ERROR', message: classified.message };
     }
   }
-
   public async processAuthCallbackWithClient(
     client: {
       auth: {
@@ -1109,13 +1078,25 @@ class AuthService {
 
   public async signOut(): Promise<void> {
     const supabase = getSupabaseClient();
-    if (supabase) {
-      try {
-        await supabase.auth.signOut();
-      } catch {
-        await supabase.auth.signOut({ scope: 'local' });
-      }
+    if (!supabase) {
+      throw new Error('Supabase is unavailable. The current session could not be cleared.');
     }
+
+    // Sign out this browser session only. Never revoke every device session as a fallback.
+    const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
+    if (signOutError) {
+      throw new Error(signOutError.message || 'Supabase could not clear the local session.');
+    }
+
+    const { data, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      throw new Error(sessionError.message || 'Could not verify that the session was cleared.');
+    }
+    if (data.session) {
+      throw new Error('The session is still active after sign-out. Please try again.');
+    }
+
+    clearRememberedAuthEmail();
     this.snapshot = {
       status: getSupabaseConfigState().isConfigured ? 'unauthenticated' : 'unconfigured',
       user: null,

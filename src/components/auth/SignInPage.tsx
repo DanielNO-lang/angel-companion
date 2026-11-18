@@ -6,7 +6,7 @@ import { authService } from '../../services/authService';
 import { toFriendlyError } from '../../services/errorHandlingService';
 import { restoreSafeWorkflowDraft, saveSafeWorkflowDraft } from '../../services/recoveryNavigationService';
 import {
-  getRememberMePreference,
+  getRememberMePreference, getRememberedAuthEmail,
   validateEmail,
   validateSignInInput,
   type AppRoute,
@@ -28,7 +28,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({
 }) => {
   const isLight = theme === 'light';
   const [authMethod, setAuthMethod] = useState<'password' | 'magic-link'>('password');
-  const [email, setEmail] = useState(() => restoreSafeWorkflowDraft()?.authEmail || '');
+  const [email, setEmail] = useState(() => getRememberedAuthEmail() || restoreSafeWorkflowDraft()?.authEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(() => getRememberMePreference());

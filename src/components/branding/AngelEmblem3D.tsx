@@ -80,12 +80,10 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
 
   const perfProfile = useMemo(() => getDevicePerformanceProfile(), []);
 
-  // Compact icons (<= 48px) render via GPU-composited AngelEmblem unless explicitly forced '3d'
-  // and if WebGL is unsupported or blocked, cleanly fall back to 3D CSS-animated canonical SVG trefoil.
-  const useCompactSvg =
-    renderMode === 'svg' ||
-    (renderMode === 'auto' && size <= 48) ||
-    !perfProfile.webglSupported;
+  // Auto mode uses the canonical CSS/SVG 3D emblem at every size. This keeps
+  // repeated logos lightweight and avoids creating a separate WebGL context per logo.
+  // Explicit renderMode="3d" is reserved for a deliberate hero/feature visual.
+  const useCompactSvg = renderMode !== '3d' || !perfProfile.webglSupported;
 
   useEffect(() => {
     if (useCompactSvg) return;
@@ -190,7 +188,9 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
     emblemGroup.add(emblemMesh);
     scene.add(emblemGroup);
 
-    const prefersReducedMotion = perfProfile.prefersReducedMotion;
+    // Brand identity marks keep their gentle 3D rotation; ambient backgrounds still
+    // respect the operating-system reduced-motion preference.
+    const prefersReducedMotion = false;
 
     let lastTime = performance.now();
     let lastRenderTime = 0;
