@@ -402,6 +402,9 @@ class AuthService {
     access_token: string;
     refresh_token: string;
   }): Promise<AuthStateSnapshot> {
+    if (!tokens?.access_token || !tokens?.refresh_token) {
+      throw new Error('The Google sign-in popup did not return a complete session.');
+    }
     const supabase = getSupabaseClient();
     if (!supabase) {
       throw new Error('Supabase is unavailable. The Google sign-in session could not be transferred.');
