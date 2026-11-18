@@ -64,6 +64,10 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
     setLoadingProvider(provider.id);
     try {
       const result = await authService.signInWithOAuthProvider(provider.id, provider.scopes);
+      if (result.ok && result.code === 'OAUTH_POPUP') {
+        // The auth page remains open while Google completes in its own window.
+        setLoadingProvider(null);
+      }
       if (!result.ok) {
         setLoadingProvider(null);
         const classified = toFriendlyError(result.message, context, {
