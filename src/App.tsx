@@ -114,6 +114,7 @@ export default function App() {
   );
   const [pendingVerifyEmail, setPendingVerifyEmail] = React.useState<string>('');
   const [authNotice, setAuthNotice] = React.useState<string | null>(null);
+  const [signOutError, setSignOutError] = React.useState<string | null>(null);
   const [verifyError, setVerifyError] = React.useState<string | null>(null);
   const [verifySuccess, setVerifySuccess] = React.useState(false);
   const [recoveryError, setRecoveryError] = React.useState<string | null>(null);
@@ -153,6 +154,50 @@ export default function App() {
     },
     [currentRoute]
   );
+
+  // A Google OAuth popup shares the Supabase session with this tab. The callback
+  // popup broadcasts completion so this tab can verify the session and enter Angel.
+  React.useEffect(() => {
+    let active = true;
+    const syncPopupSession = async () => {
+      try {
+        const restored = await authService.restoreVerifiedSession();
+        if (!active || restored.status !== 'authenticated') return;
+        setAuthSnapshot(restored);
+        navigateRoute('app', { replace: true });
+      } catch {
+        // The normal auth listener remains the fallback if a popup closes early.
+      }
+    };
+
+    const handleWindowMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === 'ANGEL_AUTH_POPUP_SUCCESS') {
+        void syncPopupSession();
+      }
+    };
+    window.addEventListener('message', handleWindowMessage);
+
+    let channel: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        channel = new BroadcastChannel('angel-auth-popup');
+        channel.onmessage = (event) => {
+          if (event.data?.type === 'ANGEL_AUTH_POPUP_SUCCESS') {
+            void syncPopupSession();
+          }
+        };
+      }
+    } catch {
+      channel = null;
+    }
+
+    return () => {
+      active = false;
+      window.removeEventListener('message', handleWindowMessage);
+      channel?.close();
+    };
+  }, [navigateRoute]);
 
   const {
     activeTab,
@@ -300,6 +345,30 @@ export default function App() {
           if (!active) return;
 
           if (cbResult.outcome === 'authenticated') {
+            const isPopupOAuthCallback = new URLSearchParams(search).get('angel_oauth_popup') === '1';
+            if (isPopupOAuthCallback) {
+              try {
+                if (typeof BroadcastChannel !== 'undefined') {
+                  const channel = new BroadcastChannel('angel-auth-popup');
+                  channel.postMessage({ type: 'ANGEL_AUTH_POPUP_SUCCESS' });
+                  channel.close();
+                }
+              } catch {
+                // window.opener postMessage below is the fallback.
+              }
+              try {
+                window.opener?.postMessage({ type: 'ANGEL_AUTH_POPUP_SUCCESS' }, window.location.origin);
+              } catch {
+                // Supabase's cross-tab auth event remains the final fallback.
+              }
+              window.close();
+              if (!window.closed) {
+                setCurrentRoute('app');
+                window.history.replaceState({}, '', '/app');
+              }
+              return;
+            }
+
             const safeNext = sanitizeRedirectPath(cbResult.parsed.nextPath, '/app');
             const targetRoute = parseAppRoute(safeNext);
             pushSafeRoute(targetRoute);
@@ -468,10 +537,21 @@ export default function App() {
   ]);
 
   const handleSignOut = async () => {
-    cloudSyncCoordinator.resetAllEnginesOnSignOut();
-    await authService.signOut();
-    setActiveTab('home');
-    navigateRoute('landing', { replace: true });
+    setSignOutError(null);
+    try {
+      await authService.signOut();
+      cloudSyncCoordinator.resetAllEnginesOnSignOut();
+      setActiveTab('home');
+      navigateRoute('landing', { replace: true });
+    } catch (error) {
+      setSignOutError('Angel could not confirm sign-out. Your session has been left unchanged. Please try again.');
+      logSanitizedDiagnostic({
+        category: 'auth_request_failure',
+        context: 'auth',
+        rawError: error,
+        metadata: { action: 'sign_out' },
+      });
+    }
   };
 
   const renderActivePage = () => {
@@ -750,6 +830,15 @@ export default function App() {
             <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-[#090d24]/95 border border-cyan-400/50 text-cyan-200 text-xs font-semibold shadow-[0_0_30px_rgba(56,189,248,0.6)] backdrop-blur-2xl flex items-center gap-2.5 animate-in fade-in zoom-in-95">
               <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
               <span>{cosmicToast}</span>
+            </div>
+          )}
+
+          {signOutError && (
+            <div role="alert" className="fixed top-16 left-1/2 -translate-x-1/2 z-[80] max-w-[min(92vw,30rem)] px-4 py-3 rounded-2xl bg-[#090d24]/95 text-rose-100 text-xs font-medium shadow-[0_0_24px_rgba(244,63,94,0.18)] backdrop-blur-2xl">
+              <div className="flex items-center gap-3">
+                <span>{signOutError}</span>
+                <button type="button" className="underline underline-offset-2 shrink-0" onClick={() => setSignOutError(null)}>Dismiss</button>
+              </div>
             </div>
           )}
 
