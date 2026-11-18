@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
+import { getDevicePerformanceProfile } from '../../utils/devicePerformance';
 
 export interface CosmicTelemetryData {
   title: string;
@@ -12,8 +13,53 @@ export interface CosmicEnvironmentProps {
 }
 
 interface CelestialObject {
+  id: number;
   type: 'sun' | 'saturn' | 'earth' | 'moon' | 'satellite' | 'spacerock';
+  specificName?: string;
+  x: number;
+  y: number;
+  baseRadius: number;
+  currentScale: number;
+  targetScale: number;
+  scaleSpeed: number;
+  alpha: number;
+  targetAlpha: number;
+  fadeSpeed: number;
+  vx: number;
+  vy: number;
+  rotation: number;
+  rotationSpeed: number;
+  lifespan: number;
+  age: number;
+  flarePhase: number;
 }
+
+interface ShootingStar {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  length: number;
+  alpha: number;
+  life: number;
+  maxLife: number;
+}
+
+interface CanvasRipple {
+  x: number;
+  y: number;
+  radius: number;
+  maxRadius: number;
+  alpha: number;
+}
+
+const SATELLITE_NAMES = [
+  'International Space Station (ISS)',
+  'James Webb Space Telescope (JWST)',
+  'Hubble Space Telescope (HST)',
+  'Voyager 1 Interstellar Probe',
+];
 
 export const getTelemetryForObject = (
   type: CelestialObject['type'] | 'shootingstar',
@@ -108,42 +154,602 @@ export const getTelemetryForObject = (
 };
 
 export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSpaceObject }) => {
-  const celestialObjects: Array<{
-    type: CelestialObject['type'];
-    label: string;
-    className: string;
-  }> = [
-    { type: 'sun', label: 'The Sun', className: 'angel-celestial-object--sun' },
-    { type: 'saturn', label: 'Saturn', className: 'angel-celestial-object--saturn' },
-    { type: 'earth', label: 'Earth', className: 'angel-celestial-object--earth' },
-    { type: 'moon', label: 'The Moon', className: 'angel-celestial-object--moon' },
-    { type: 'satellite', label: 'A passing satellite', className: 'angel-celestial-object--satellite' },
-    { type: 'spacerock', label: 'A passing space rock', className: 'angel-celestial-object--spacerock' },
-  ];
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const activeCelestialBodiesRef = useRef<CelestialObject[]>([]);
+  const shootingStarsRef = useRef<ShootingStar[]>([]);
+  const hoveredObjectIdRef = useRef<number | null>(null);
+  const hoveredShootingStarIdRef = useRef<number | null>(null);
+  const ripplesRef = useRef<CanvasRipple[]>([]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const perf = getDevicePerformanceProfile();
+    const dpr = Math.min(window.devicePixelRatio || 1, perf.maxDpr);
+    let animationFrameId = 0;
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+    canvas.width = Math.max(1, Math.floor(width * dpr));
+    canvas.height = Math.max(1, Math.floor(height * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Processed Transparent Space Object Canvases (Background-Free)
+    const spaceCanvases: Record<CelestialObject['type'], HTMLCanvasElement | HTMLImageElement | null> = {
+      sun: null,
+      saturn: null,
+      earth: null,
+      moon: null,
+      satellite: null,
+      spacerock: null,
+    };
+
+    let realStarCanvas: HTMLCanvasElement | HTMLImageElement | null = null;
+
+    const imageSources: Record<string, string> = {
+      sun: '/assets/space/sun.jpg',
+      saturn: '/assets/space/saturn.jpg',
+      earth: '/assets/space/earth.jpg',
+      moon: '/assets/space/moon.jpg',
+      satellite: '/assets/space/satellite.jpg',
+      spacerock: '/assets/space/satellite.jpg',
+    };
+
+    const processImageBackground = (type: CelestialObject['type'], src: string) => {
+      const img = new Image();
+      img.src = src;
+      img.onload = () => {
+        try {
+          const offCanvas = document.createElement('canvas');
+          offCanvas.width = img.width;
+          offCanvas.height = img.height;
+          const offCtx = offCanvas.getContext('2d');
+          if (!offCtx) {
+            spaceCanvases[type] = img;
+            return;
+          }
+          offCtx.drawImage(img, 0, 0);
+          const imgData = offCtx.getImageData(0, 0, img.width, img.height);
+          const data = imgData.data;
+
+          for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+
+            if (brightness < 36) {
+              const alphaFactor = Math.max(0, Math.min(1, (brightness / 36) ** 1.8));
+              data[i + 3] = Math.round(data[i + 3] * alphaFactor);
+            }
+          }
+          offCtx.putImageData(imgData, 0, 0);
+          spaceCanvases[type] = offCanvas;
+        } catch {
+          spaceCanvases[type] = img;
+        }
+      };
+    };
+
+    Object.entries(imageSources).forEach(([type, src]) => {
+      processImageBackground(type as CelestialObject['type'], src);
+    });
+
+    // Load Real Star Sprite Texture
+    const starImg = new Image();
+    starImg.src = '/assets/space/star.jpg';
+    starImg.onload = () => {
+      try {
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = starImg.width;
+        offCanvas.height = starImg.height;
+        const offCtx = offCanvas.getContext('2d');
+        if (!offCtx) {
+          realStarCanvas = starImg;
+          return;
+        }
+        offCtx.drawImage(starImg, 0, 0);
+        const imgData = offCtx.getImageData(0, 0, starImg.width, starImg.height);
+        const data = imgData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+          if (brightness < 30) {
+            const alphaFactor = Math.max(0, Math.min(1, (brightness / 30) ** 1.6));
+            data[i + 3] = Math.round(data[i + 3] * alphaFactor);
+          }
+        }
+        offCtx.putImageData(imgData, 0, 0);
+        realStarCanvas = offCanvas;
+      } catch {
+        realStarCanvas = starImg;
+      }
+    };
+
+    const handleResize = () => {
+      if (!canvas) return;
+      width = window.innerWidth;
+      height = window.innerHeight;
+      const currentDpr = Math.min(window.devicePixelRatio || 1, perf.maxDpr);
+      canvas.width = Math.max(1, Math.floor(width * currentDpr));
+      canvas.height = Math.max(1, Math.floor(height * currentDpr));
+      ctx.setTransform(currentDpr, 0, 0, currentDpr, 0, 0);
+    };
+    window.addEventListener('resize', handleResize);
+    handleResize();
+
+    // 1. Realistic Background Stars Array scaled by device performance tier
+    const stars = Array.from({ length: perf.starCount }, () => ({
+      x: Math.random() * width,
+      y: Math.random() * height,
+      size: Math.random() < 0.85 ? Math.random() * 3 + 1.5 : Math.random() * 6 + 3,
+      baseAlpha: Math.random() * 0.6 + 0.3,
+      twinkleSpeed: Math.random() * 0.025 + 0.008,
+      phase: Math.random() * Math.PI * 2,
+      driftX: (Math.random() - 0.5) * 0.05,
+      driftY: (Math.random() - 0.5) * 0.05,
+    }));
+
+    // 2. Shooting Stars Array
+    let nextShootingStarTimer = Math.floor(Math.random() * 200 + 100);
+
+    const spawnShootingStar = () => {
+      const startX = Math.random() * width * 0.8;
+      const startY = Math.random() * height * 0.4;
+      const angle = Math.PI / 4 + (Math.random() - 0.5) * 0.2;
+      const speed = Math.random() * 8 + 6;
+      shootingStarsRef.current.push({
+        id: Date.now() + Math.random(),
+        x: startX,
+        y: startY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        length: Math.random() * 80 + 50,
+        alpha: 1.0,
+        life: 0,
+        maxLife: Math.floor(Math.random() * 35 + 25),
+      });
+    };
+
+    // 3. Multi-Celestial Bodies System (Max 2-3 unique types simultaneously)
+    const createCelestialBody = (id: number, existingTypes: string[]): CelestialObject | null => {
+      const allTypes: CelestialObject['type'][] = ['saturn', 'earth', 'sun', 'moon', 'satellite', 'spacerock'];
+      const activeTypes = new Set([
+        ...existingTypes,
+        ...activeCelestialBodiesRef.current.map((b) => b.type),
+      ]);
+      const availableTypes = allTypes.filter((t) => !activeTypes.has(t));
+      if (availableTypes.length === 0) return null;
+
+      const type = availableTypes[Math.floor(Math.random() * availableTypes.length)];
+      const specificName = type === 'satellite' ? SATELLITE_NAMES[Math.floor(Math.random() * SATELLITE_NAMES.length)] : undefined;
+
+      const spawnMode = Math.random();
+      let startX = 0, startY = 0, vx = 0, vy = 0;
+
+      if (spawnMode < 0.35) {
+        const fromLeft = Math.random() > 0.5;
+        startX = fromLeft ? -220 : width + 220;
+        startY = Math.random() * height;
+        vx = (fromLeft ? 1 : -1) * (Math.random() * 0.35 + 0.15);
+        vy = (Math.random() - 0.5) * 0.12;
+      } else if (spawnMode < 0.7) {
+        const fromTop = Math.random() > 0.5;
+        startX = Math.random() * width;
+        startY = fromTop ? -220 : height + 220;
+        vx = (Math.random() - 0.5) * 0.12;
+        vy = (fromTop ? 1 : -1) * (Math.random() * 0.35 + 0.15);
+      } else {
+        const fromLeft = Math.random() > 0.5;
+        const fromTop = Math.random() > 0.5;
+        startX = fromLeft ? -220 : width + 220;
+        startY = fromTop ? -220 : height + 220;
+        vx = (fromLeft ? 1 : -1) * (Math.random() * 0.4 + 0.15);
+        vy = (fromTop ? 1 : -1) * (Math.random() * 0.4 + 0.15);
+      }
+
+      const baseRadii: Record<CelestialObject['type'], number> = {
+        sun: 80,
+        saturn: 75,
+        earth: 60,
+        moon: 42,
+        satellite: 38,
+        spacerock: 32,
+      };
+
+      return {
+        id,
+        type,
+        specificName,
+        x: startX,
+        y: startY,
+        baseRadius: baseRadii[type],
+        currentScale: 0.05,
+        targetScale: Math.random() * 0.7 + 0.5,
+        scaleSpeed: Math.random() * 0.0025 + 0.001,
+        alpha: 0,
+        targetAlpha: Math.random() * 0.75 + 0.25,
+        fadeSpeed: Math.random() * 0.0035 + 0.0015,
+        vx,
+        vy,
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 0.003,
+        lifespan: Math.random() * 1800 + 1200,
+        age: 0,
+        flarePhase: Math.random() * Math.PI * 2,
+      };
+    };
+
+    // Reset active celestial bodies array on init to guarantee no leftover duplicates
+    activeCelestialBodiesRef.current = [];
+
+    // Initial unique celestial bodies scaled by device tier (1 on low, 2 on mid/high)
+    const body1 = createCelestialBody(1, []);
+    if (body1) activeCelestialBodiesRef.current.push(body1);
+    if (perf.maxCelestialBodies > 1) {
+      const body2 = createCelestialBody(2, activeCelestialBodiesRef.current.map((b) => b.type));
+      if (body2) activeCelestialBodiesRef.current.push(body2);
+    }
+
+    // Mouse Interaction Handlers on Canvas
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      let foundHovered = false;
+
+      // Check celestial bodies
+      for (const obj of activeCelestialBodiesRef.current) {
+        const radius = Math.max(obj.baseRadius * obj.currentScale, 32);
+        const dist = Math.hypot(mouseX - obj.x, mouseY - obj.y);
+        if (dist <= radius * 1.5 && obj.alpha > 0.08) {
+          foundHovered = true;
+          hoveredObjectIdRef.current = obj.id;
+          canvas.style.cursor = 'pointer';
+          break;
+        }
+      }
+
+      // Check shooting stars if no celestial body hovered
+      if (!foundHovered) {
+        for (const ss of shootingStarsRef.current) {
+          const dist = Math.hypot(mouseX - ss.x, mouseY - ss.y);
+          if (dist <= 45 && ss.alpha > 0.15) {
+            foundHovered = true;
+            hoveredShootingStarIdRef.current = ss.id;
+            canvas.style.cursor = 'pointer';
+            break;
+          }
+        }
+      }
+
+      if (!foundHovered) {
+        hoveredObjectIdRef.current = null;
+        hoveredShootingStarIdRef.current = null;
+        canvas.style.cursor = 'default';
+      }
+    };
+
+    const createRipple = (x: number, y: number) => {
+      ripplesRef.current.push({
+        x,
+        y,
+        radius: 10,
+        maxRadius: 80,
+        alpha: 1.0,
+      });
+    };
+
+    const handleClick = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      // Check celestial bodies
+      for (const obj of activeCelestialBodiesRef.current) {
+        const radius = Math.max(obj.baseRadius * obj.currentScale, 32);
+        const dist = Math.hypot(mouseX - obj.x, mouseY - obj.y);
+        if (dist <= radius * 1.5 && obj.alpha > 0.05) {
+          createRipple(obj.x, obj.y);
+          const telemetry = getTelemetryForObject(obj.type, obj.specificName);
+          if (onSelectSpaceObject) {
+            onSelectSpaceObject(telemetry);
+          }
+          return;
+        }
+      }
+
+      // Check shooting stars
+      for (const ss of shootingStarsRef.current) {
+        const dist = Math.hypot(mouseX - ss.x, mouseY - ss.y);
+        if (dist <= 45 && ss.alpha > 0.1) {
+          createRipple(ss.x, ss.y);
+          const telemetry = getTelemetryForObject('shootingstar');
+          if (onSelectSpaceObject) {
+            onSelectSpaceObject(telemetry);
+          }
+          return;
+        }
+      }
+    };
+
+    canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('click', handleClick);
+
+    let lastFrameTime = performance.now();
+    const fpsInterval = perf.targetFps > 0 ? 1000 / perf.targetFps : 1000;
+    let time = 0;
+
+    const render = (nowTime: number) => {
+      if (!perf.prefersReducedMotion && !document.hidden) {
+        animationFrameId = requestAnimationFrame(render);
+      } else {
+        animationFrameId = 0;
+      }
+
+      if (document.hidden && animationFrameId === 0) return;
+
+      const delta = nowTime - lastFrameTime;
+      if (delta < fpsInterval && lastFrameTime !== 0) return;
+      lastFrameTime = nowTime - (delta % fpsInterval);
+
+      time += 0.01;
+
+      ctx.clearRect(0, 0, width, height);
+
+      // Deep Space Base Gradient
+      const spaceGrad = ctx.createRadialGradient(
+        width * 0.5, height * 0.4, 60,
+        width * 0.5, height * 0.5, Math.max(width, height)
+      );
+      spaceGrad.addColorStop(0, '#060a1e');
+      spaceGrad.addColorStop(0.5, '#030511');
+      spaceGrad.addColorStop(1, '#010207');
+      ctx.fillStyle = spaceGrad;
+      ctx.fillRect(0, 0, width, height);
+
+      // Ambient Nebulae Clouds
+      const nebAX = width * 0.4 + Math.sin(time * 0.2) * 35;
+      const nebAY = height * 0.3 + Math.cos(time * 0.2) * 20;
+      const nebAGrad = ctx.createRadialGradient(nebAX, nebAY, 30, nebAX, nebAY, width * 0.5);
+      nebAGrad.addColorStop(0, 'rgba(124, 58, 237, 0.08)');
+      nebAGrad.addColorStop(0.6, 'rgba(59, 130, 246, 0.03)');
+      nebAGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = nebAGrad;
+      ctx.fillRect(0, 0, width, height);
+
+      // LAYER 1: STARS (BEHIND PLANETS)
+      stars.forEach((s) => {
+        s.x += s.driftX;
+        s.y += s.driftY;
+        if (s.x < 0) s.x = width;
+        if (s.x > width) s.x = 0;
+        if (s.y < 0) s.y = height;
+        if (s.y > height) s.y = 0;
+
+        const twinkleFactor = Math.sin(time * 40 * s.twinkleSpeed + s.phase);
+        const currentAlpha = Math.max(0.1, Math.min(1, s.baseAlpha + twinkleFactor * 0.45));
+        const currentSize = s.size * (1 + twinkleFactor * 0.18);
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        ctx.globalAlpha = currentAlpha;
+
+        if (realStarCanvas) {
+          ctx.drawImage(realStarCanvas, s.x - currentSize, s.y - currentSize, currentSize * 2, currentSize * 2);
+        } else {
+          ctx.fillStyle = '#bae6fd';
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, currentSize * 0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      });
+
+      // LAYER 2: SHOOTING STARS (METEORS)
+      nextShootingStarTimer--;
+      if (nextShootingStarTimer <= 0) {
+        spawnShootingStar();
+        nextShootingStarTimer = Math.floor(Math.random() * 250 + 150);
+      }
+
+      shootingStarsRef.current.forEach((ss, idx) => {
+        ss.life++;
+        ss.x += ss.vx;
+        ss.y += ss.vy;
+        ss.alpha = 1 - ss.life / ss.maxLife;
+
+        if (ss.life >= ss.maxLife) {
+          shootingStarsRef.current.splice(idx, 1);
+          return;
+        }
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        ctx.globalAlpha = Math.max(0, ss.alpha);
+        const tailX = ss.x - ss.vx * 4;
+        const tailY = ss.y - ss.vy * 4;
+        const grad = ctx.createLinearGradient(ss.x, ss.y, tailX, tailY);
+        grad.addColorStop(0, '#ffffff');
+        grad.addColorStop(0.5, '#38bdf8');
+        grad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(ss.x, ss.y);
+        ctx.lineTo(tailX, tailY);
+        ctx.stroke();
+
+        // Hover effect for shooting stars
+        if (hoveredShootingStarIdRef.current === ss.id) {
+          ctx.beginPath();
+          ctx.arc(ss.x, ss.y, 14, 0, Math.PI * 2);
+          ctx.strokeStyle = '#38bdf8';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      });
+
+      // LAYER 3: CELESTIAL BODIES (IN FRONT OF STARS) - Strictly unique characters only
+      const seenTypesSet = new Set<string>();
+      activeCelestialBodiesRef.current = activeCelestialBodiesRef.current.filter((b) => {
+        if (seenTypesSet.has(b.type)) return false;
+        seenTypesSet.add(b.type);
+        return true;
+      });
+
+      for (let i = activeCelestialBodiesRef.current.length - 1; i >= 0; i--) {
+        const obj = activeCelestialBodiesRef.current[i];
+        obj.age++;
+        obj.x += obj.vx;
+        obj.y += obj.vy;
+        obj.rotation += obj.rotationSpeed;
+        obj.flarePhase += 0.02;
+
+        const progress = obj.age / obj.lifespan;
+        if (progress < 0.35) {
+          obj.currentScale += (obj.targetScale - obj.currentScale) * obj.scaleSpeed;
+          obj.alpha = Math.min(obj.targetAlpha, obj.alpha + obj.fadeSpeed);
+        } else if (progress > 0.7) {
+          obj.currentScale += (0.05 - obj.currentScale) * obj.scaleSpeed;
+          obj.alpha = Math.max(0, obj.alpha - obj.fadeSpeed);
+        } else {
+          obj.alpha = Math.min(obj.targetAlpha, obj.alpha + obj.fadeSpeed);
+        }
+
+        const isOutOfBounds =
+          obj.x < -320 || obj.x > width + 320 || obj.y < -320 || obj.y > height + 320;
+
+        if (obj.age >= obj.lifespan || (obj.alpha <= 0.005 && obj.age > 80) || isOutOfBounds) {
+          activeCelestialBodiesRef.current.splice(i, 1);
+          const existingTypes = activeCelestialBodiesRef.current.map((b) => b.type);
+          const newBody = createCelestialBody(Date.now(), existingTypes);
+          if (newBody) activeCelestialBodiesRef.current.push(newBody);
+          continue;
+        }
+
+        const spaceCanvas = spaceCanvases[obj.type];
+        const radius = obj.baseRadius * obj.currentScale;
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        ctx.globalAlpha = Math.max(0, Math.min(1, obj.alpha));
+        ctx.translate(obj.x, obj.y);
+
+        // 3D Solar Flare Eruption Halo for Sun
+        if (obj.type === 'sun') {
+          const flareRadius = radius * (1.1 + Math.sin(obj.flarePhase * 3) * 0.08);
+          const sunGlow = ctx.createRadialGradient(0, 0, radius * 0.4, 0, 0, flareRadius * 1.5);
+          sunGlow.addColorStop(0, 'rgba(253, 224, 71, 0.6)');
+          sunGlow.addColorStop(0.5, 'rgba(249, 115, 22, 0.3)');
+          sunGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+          ctx.fillStyle = sunGlow;
+          ctx.beginPath();
+          ctx.arc(0, 0, flareRadius * 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.rotate(obj.rotation);
+
+        if (spaceCanvas) {
+          ctx.drawImage(spaceCanvas, -radius, -radius, radius * 2, radius * 2);
+        } else {
+          const orbGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, radius);
+          orbGrad.addColorStop(0, '#38bdf8');
+          orbGrad.addColorStop(1, 'rgba(15, 23, 42, 0)');
+          ctx.fillStyle = orbGrad;
+          ctx.beginPath();
+          ctx.arc(0, 0, radius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // HOVER TARGETING RING & LABEL FOR INTERACTION
+        if (hoveredObjectIdRef.current === obj.id) {
+          ctx.rotate(-obj.rotation); // Keep ring & text unrotated
+          ctx.strokeStyle = '#38bdf8';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([6, 6]);
+          ctx.beginPath();
+          ctx.arc(0, 0, radius * 1.35, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // Subtle Telemetry Intercept Label
+          const displayLabel = obj.specificName || obj.type.toUpperCase();
+          ctx.fillStyle = '#7dd3fc';
+          ctx.font = 'bold 11px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(`🔭 ${displayLabel}`, 0, radius * 1.7);
+        }
+
+        ctx.restore();
+      }
+
+      // LAYER 4: RIPPLE ANIMATIONS ON CLICK
+      for (let r = ripplesRef.current.length - 1; r >= 0; r--) {
+        const rip = ripplesRef.current[r];
+        rip.radius += 3.5;
+        rip.alpha -= 0.035;
+
+        if (rip.alpha <= 0 || rip.radius >= rip.maxRadius) {
+          ripplesRef.current.splice(r, 1);
+          continue;
+        }
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        ctx.globalAlpha = Math.max(0, rip.alpha);
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(rip.x, rip.y, rip.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    };
+
+    lastFrameTime = 0;
+    if (perf.prefersReducedMotion) {
+      // Draw one clean calm cosmic frame for reduced-motion users without starting continuous loop
+      render(performance.now());
+    } else if (!document.hidden) {
+      animationFrameId = requestAnimationFrame(render);
+    }
+
+    const handleVisibilityChange = () => {
+      if (perf.prefersReducedMotion) return;
+      if (document.hidden) {
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+          animationFrameId = 0;
+        }
+      } else if (!animationFrameId) {
+        lastFrameTime = performance.now();
+        animationFrameId = requestAnimationFrame(render);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('resize', handleResize);
+      canvas.removeEventListener('mousemove', handleMouseMove);
+      canvas.removeEventListener('click', handleClick);
+    };
+  }, [onSelectSpaceObject]);
 
   return (
-    <div className="angel-cosmic-environment fixed inset-0 z-0" aria-label="Cosmic environment">
-      <div className="angel-cosmic-base" />
-      <div className="angel-cosmic-nebula angel-cosmic-nebula--violet" />
-      <div className="angel-cosmic-nebula angel-cosmic-nebula--blue" />
-      <div className="angel-cosmic-nebula angel-cosmic-nebula--cyan" />
-      <div className="angel-cosmic-ribbon" />
-      <div className="angel-cosmic-stars" />
-      <div className="angel-cosmic-shooting-star" />
-      <div className="angel-cosmic-shooting-star angel-cosmic-shooting-star--second" />
-      <div className="angel-celestial-layer">
-        {celestialObjects.map((object) => (
-          <button
-            key={object.type}
-            type="button"
-            className={`angel-celestial-object ${object.className}`}
-            aria-label={`Explore ${object.label}`}
-            title={object.label}
-            disabled={!onSelectSpaceObject}
-            onClick={() => onSelectSpaceObject?.(getTelemetryForObject(object.type))}
-          />
-        ))}
-      </div>
-    </div>
+    <canvas
+      ref={canvasRef}
+      className="fixed inset-0 w-full h-full pointer-events-auto z-0"
+      aria-label="Interactive Cosmic Space Environment"
+    />
   );
 };

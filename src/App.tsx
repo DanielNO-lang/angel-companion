@@ -2,7 +2,6 @@ import React, { Suspense } from 'react';
 import { useAngelState } from './hooks/useAngelState';
 import { CosmicEnvironment } from './components/background/CosmicEnvironment';
 import { CloudySkyEnvironment } from './components/background/CloudySkyEnvironment';
-import './components/background/environment.css';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
 import { MoreNavigationPopup } from './components/layout/MoreNavigationPopup';
@@ -156,60 +155,6 @@ export default function App() {
     [currentRoute]
   );
 
-  // A Google OAuth popup shares the Supabase session with this tab. The callback
-  // popup broadcasts completion so this tab can verify the session and enter Angel.
-  React.useEffect(() => {
-    let active = true;
-    let popupSyncInProgress = false;
-    let popupSyncCompleted = false;
-    const syncPopupSession = async (tokens?: { access_token: string; refresh_token: string }) => {
-      if (popupSyncInProgress || popupSyncCompleted) return;
-      popupSyncInProgress = true;
-      try {
-        // Explicitly persist in this tab: sessionStorage is isolated between popup and opener.
-        const restored = tokens
-          ? await authService.adoptPopupSession(tokens)
-          : await authService.restoreVerifiedSession();
-        if (!active || restored.status !== 'authenticated') return;
-        popupSyncCompleted = true;
-        setAuthSnapshot(restored);
-        navigateRoute('app', { replace: true });
-      } catch {
-        // The normal auth listener remains the fallback if a popup closes early.
-      } finally {
-        popupSyncInProgress = false;
-      }
-    };
-
-    const handleWindowMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type === 'ANGEL_AUTH_POPUP_SUCCESS') {
-        void syncPopupSession(event.data.session);
-      }
-    };
-    window.addEventListener('message', handleWindowMessage);
-
-    let channel: BroadcastChannel | null = null;
-    try {
-      if (typeof BroadcastChannel !== 'undefined') {
-        channel = new BroadcastChannel('angel-auth-popup');
-        channel.onmessage = (event) => {
-          if (event.data?.type === 'ANGEL_AUTH_POPUP_SUCCESS') {
-            void syncPopupSession(event.data.session);
-          }
-        };
-      }
-    } catch {
-      channel = null;
-    }
-
-    return () => {
-      active = false;
-      window.removeEventListener('message', handleWindowMessage);
-      channel?.close();
-    };
-  }, [navigateRoute]);
-
   const {
     activeTab,
     setActiveTab,
@@ -356,41 +301,6 @@ export default function App() {
           if (!active) return;
 
           if (cbResult.outcome === 'authenticated') {
-            const isPopupOAuthCallback = new URLSearchParams(search).get('angel_oauth_popup') === '1';
-            if (isPopupOAuthCallback) {
-              const popupSession = authService.getSnapshot().session;
-              const sessionTokens = popupSession
-                ? {
-                    access_token: popupSession.access_token,
-                    refresh_token: popupSession.refresh_token,
-                  }
-                : undefined;
-              const completionMessage = {
-                type: 'ANGEL_AUTH_POPUP_SUCCESS',
-                session: sessionTokens,
-              };
-              try {
-                if (typeof BroadcastChannel !== 'undefined') {
-                  const channel = new BroadcastChannel('angel-auth-popup');
-                  channel.postMessage(completionMessage);
-                  channel.close();
-                }
-              } catch {
-                // window.opener postMessage below is the fallback.
-              }
-              try {
-                window.opener?.postMessage(completionMessage, window.location.origin);
-              } catch {
-                // Supabase's cross-tab auth event remains the final fallback.
-              }
-              window.close();
-              if (!window.closed) {
-                setCurrentRoute('app');
-                window.history.replaceState({}, '', '/app');
-              }
-              return;
-            }
-
             const safeNext = sanitizeRedirectPath(cbResult.parsed.nextPath, '/app');
             const targetRoute = parseAppRoute(safeNext);
             pushSafeRoute(targetRoute);

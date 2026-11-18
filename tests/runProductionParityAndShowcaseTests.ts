@@ -506,20 +506,16 @@ test('landing and auth structure satisfies sticky header, CTA cleanup, 6 brandle
   assert.equal(authLayoutSource.includes('animate-spin-slow'), false, 'AuthLayout must not render spinning orbital rings');
 });
 
-test('Cosmic and cloudy environments use DOM/CSS layers instead of full-screen canvas render loops', () => {
+test('Cosmic and cloudy environments retain their original Canvas2D renderers for visual parity', () => {
   const cosmic = fs.readFileSync(path.join(process.cwd(), 'src/components/background/CosmicEnvironment.tsx'), 'utf8');
   const cloudy = fs.readFileSync(path.join(process.cwd(), 'src/components/background/CloudySkyEnvironment.tsx'), 'utf8');
-  const environmentCss = fs.readFileSync(path.join(process.cwd(), 'src/components/background/environment.css'), 'utf8');
-
-  assert.equal(cosmic.includes('<canvas'), false);
-  assert.equal(cosmic.includes('requestAnimationFrame'), false);
-  assert.equal(cloudy.includes('<canvas'), false);
-  assert.equal(cloudy.includes('requestAnimationFrame'), false);
-  assert.ok(environmentCss.includes('.angel-cosmic-environment'));
-  assert.ok(environmentCss.includes('.angel-cloudy-environment'));
-  assert.ok(environmentCss.includes('@keyframes angel-cloud-drift'));
+  const app = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
+  assert.equal(cosmic.includes('<canvas'), true);
+  assert.equal(cosmic.includes('requestAnimationFrame'), true);
+  assert.equal(cloudy.includes('<canvas'), true);
+  assert.equal(cloudy.includes('requestAnimationFrame'), true);
+  assert.equal(app.includes("from './components/background/environment.css'"), false);
 });
-
 test('All automatic Angel emblem instances use the lightweight rotating 3D trefoil', () => {
   const emblem3d = fs.readFileSync(path.join(process.cwd(), 'src/components/branding/AngelEmblem3D.tsx'), 'utf8');
   const indexCss = fs.readFileSync(path.join(process.cwd(), 'src/index.css'), 'utf8');

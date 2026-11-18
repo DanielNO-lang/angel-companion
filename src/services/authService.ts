@@ -12,6 +12,8 @@ import {
   deriveUserInitials,
   parseAuthCallbackParams,
   saveRememberMePreference,
+  saveRememberedAuthEmail,
+  clearRememberedAuthEmail,
   type ParsedAuthCallback,
 } from './authValidation';
 
@@ -65,8 +67,6 @@ export interface AuthActionResult {
     | 'RECOVERY_SENT'
     | 'PASSWORD_UPDATED'
     | 'OAUTH_REDIRECT'
-    | 'OAUTH_POPUP'
-    | 'POPUP_BLOCKED'
     | 'EMAIL_UPDATED'
     | 'UNCONFIGURED'
     | 'ERROR';
@@ -168,7 +168,6 @@ export interface BuiltOAuthSignInOptions {
   redirectTo: string;
   scopes?: string;
   queryParams?: Record<string, string>;
-  skipBrowserRedirect?: boolean;
 }
 
 /**
@@ -179,13 +178,11 @@ export interface BuiltOAuthSignInOptions {
 export function buildOAuthSignInOptions(
   provider: AuthProviderId,
   redirectTo: string = getCallbackUrl('/auth/callback'),
-  scopes?: string,
-  usePopup = false
+  scopes?: string
 ): BuiltOAuthSignInOptions {
   const options: BuiltOAuthSignInOptions = {
     redirectTo,
     ...(scopes ? { scopes } : {}),
-    ...(usePopup ? { skipBrowserRedirect: true } : {}),
   };
 
   if (provider === 'google') {
@@ -261,6 +258,7 @@ class AuthService {
 
     supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
       if (!session || !session.user) {
+        if (event === 'SIGNED_OUT') clearRememberedAuthEmail();
         if (this.callbackInProgress && event === 'INITIAL_SESSION') {
           return;
         }
@@ -288,6 +286,7 @@ class AuthService {
       }
 
       const mapped = mapSupabaseUser(session.user);
+      if (session.user.email) saveRememberedAuthEmail(session.user.email);
       this.snapshot = {
         status: 'authenticated',
         user: mapped,
@@ -351,6 +350,7 @@ class AuthService {
         } catch {
           // Ignore local cleanup error
         }
+        clearRememberedAuthEmail();
         this.snapshot = {
           status: 'unauthenticated',
           user: null,
@@ -372,6 +372,7 @@ class AuthService {
         // Fallback to user.identities if getUserIdentities isn't available
       }
 
+      if (userData.user.email) saveRememberedAuthEmail(userData.user.email);
       this.snapshot = {
         status: 'authenticated',
         user: mapSupabaseUser(userData.user),
@@ -392,30 +393,6 @@ class AuthService {
       this.emit();
       return this.snapshot;
     }
-  }
-
-  /**
-   * Persists a verified OAuth popup session into this tab's configured storage.
-   * This is required when Remember Me is off because sessionStorage is tab-scoped.
-   */
-  public async adoptPopupSession(tokens: {
-    access_token: string;
-    refresh_token: string;
-  }): Promise<AuthStateSnapshot> {
-    if (!tokens?.access_token || !tokens?.refresh_token) {
-      throw new Error('The Google sign-in popup did not return a complete session.');
-    }
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-      throw new Error('Supabase is unavailable. The Google sign-in session could not be transferred.');
-    }
-
-    const { data, error } = await supabase.auth.setSession(tokens);
-    if (error || !data.session) {
-      throw new Error(error?.message || 'Could not transfer the Google sign-in session to this tab.');
-    }
-
-    return this.restoreVerifiedSession();
   }
 
   public async signInWithEmailPassword(
@@ -725,109 +702,33 @@ class AuthService {
     const config = getSupabaseConfigState();
     const supabase = getSupabaseClient();
     if (!supabase || !config.isConfigured) {
-      return {
-        ok: false,
-        diagnosticCategory: 'unconfigured',
-        code: 'UNCONFIGURED',
-        message: config.statusMessage,
-      };
+      return { ok: false, diagnosticCategory: 'unconfigured', code: 'UNCONFIGURED', message: config.statusMessage };
     }
-
+    // OAuth sign-ins use persistent storage by default, matching Remember Me.
+    saveRememberMePreference(true);
     this.ensureAuthListener();
-
-    const providerName =
-      provider === 'azure'
-        ? 'Microsoft'
-        : provider.charAt(0).toUpperCase() + provider.slice(1);
-    const useGooglePopup = provider === 'google' && typeof window !== 'undefined';
-    // Open synchronously inside the user gesture so popup blockers do not reject the OAuth window.
-    const popup = useGooglePopup
-      ? window.open(
-          'about:blank',
-          'angel-google-auth',
-          'popup=yes,width=520,height=720,resizable=yes,scrollbars=yes'
-        )
-      : null;
-
-    if (useGooglePopup && !popup) {
-      return {
-        ok: false,
-        diagnosticCategory: 'oauth_incomplete',
-        code: 'POPUP_BLOCKED',
-        message: 'Your browser blocked the Google sign-in window. Allow pop-ups for Angel and try again.',
-      };
-    }
-
+    const providerName = provider === 'azure' ? 'Microsoft' : provider.charAt(0).toUpperCase() + provider.slice(1);
     try {
-      const callbackPath = useGooglePopup
-        ? '/auth/callback?angel_oauth_popup=1&next=/app'
-        : '/auth/callback';
-      const oauthOptions = buildOAuthSignInOptions(
-        provider,
-        getCallbackUrl(callbackPath),
-        scopes,
-        useGooglePopup
-      );
+      const oauthOptions = buildOAuthSignInOptions(provider, getCallbackUrl('/auth/callback'), scopes);
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: provider as Parameters<typeof supabase.auth.signInWithOAuth>[0]['provider'],
         options: oauthOptions,
       });
-
       if (error) {
-        popup?.close();
-        const classified = classifySupabaseAuthError(
-          error.message || `Failed to initiate ${providerName} sign-in.`,
-          providerName
-        );
-        return {
-          ok: false,
-          diagnosticCategory: classified.category,
-          code: 'ERROR',
-          message: classified.message,
-        };
+        const classified = classifySupabaseAuthError(error.message || 'Failed to initiate ' + providerName + ' sign-in.', providerName);
+        return { ok: false, diagnosticCategory: classified.category, code: 'ERROR', message: classified.message };
       }
-
-      if (data?.url && useGooglePopup && popup) {
-        popup.location.href = data.url;
-        return {
-          ok: true,
-          diagnosticCategory: 'ok',
-          code: 'OAUTH_POPUP',
-          message: 'Google sign-in opened in a separate window.',
-        };
-      }
-
       if (data?.url && typeof window !== 'undefined') {
         window.location.assign(data.url);
-      } else {
-        popup?.close();
-        return {
-          ok: false,
-          diagnosticCategory: 'oauth_incomplete',
-          code: 'ERROR',
-          message: `Supabase did not return an authorization URL for ${providerName}. Verify OAuth configuration in Supabase Authentication → Providers.`,
-        };
+        return { ok: true, diagnosticCategory: 'ok', code: 'OAUTH_REDIRECT', message: 'Redirecting to ' + providerName + '...' };
       }
-
-      return {
-        ok: true,
-        diagnosticCategory: 'ok',
-        code: 'OAUTH_REDIRECT',
-        message: `Redirecting to ${providerName}...`,
-      };
+      return { ok: false, diagnosticCategory: 'oauth_incomplete', code: 'ERROR', message: 'Supabase did not return an authorization URL for ' + providerName + '. Verify OAuth configuration in Supabase Authentication → Providers.' };
     } catch (error) {
-      popup?.close();
-      const raw = error instanceof Error ? error.message : `Unable to start ${providerName} sign-in.`;
+      const raw = error instanceof Error ? error.message : 'Unable to start ' + providerName + ' sign-in.';
       const classified = classifySupabaseAuthError(raw, providerName);
-      return {
-        ok: false,
-        diagnosticCategory: classified.category,
-        code: 'ERROR',
-        message: classified.message,
-      };
+      return { ok: false, diagnosticCategory: classified.category, code: 'ERROR', message: classified.message };
     }
   }
-
   public async processAuthCallbackWithClient(
     client: {
       auth: {
@@ -1195,6 +1096,7 @@ class AuthService {
       throw new Error('The session is still active after sign-out. Please try again.');
     }
 
+    clearRememberedAuthEmail();
     this.snapshot = {
       status: getSupabaseConfigState().isConfigured ? 'unauthenticated' : 'unconfigured',
       user: null,

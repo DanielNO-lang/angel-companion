@@ -67,6 +67,7 @@ const ALLOWED_INTERNAL_PREFIXES = [
 
 export const THEME_STORAGE_KEY = 'angel_theme_mode_v1';
 export const REMEMBER_ME_STORAGE_KEY = 'angel_auth_remember_me_v1';
+const REMEMBERED_AUTH_EMAIL_KEY = 'angel_remembered_auth_email_v1';
 
 export function validateEmail(email: string): boolean {
   const trimmed = email.trim();
@@ -361,4 +362,27 @@ export function saveRememberMePreference(remember: boolean, storage?: Pick<Stora
   } catch {
     // Ignore storage errors
   }
+}
+
+export function getRememberedAuthEmail(storage?: Pick<Storage, 'getItem'>): string {
+  try {
+    const target = storage || (typeof localStorage !== 'undefined' ? localStorage : undefined);
+    return target?.getItem(REMEMBERED_AUTH_EMAIL_KEY)?.trim() || '';
+  } catch { return ''; }
+}
+
+export function saveRememberedAuthEmail(email: string, storage?: Pick<Storage, 'setItem'>): void {
+  try {
+    const cleanEmail = email.trim();
+    if (!cleanEmail) return;
+    const target = storage || (typeof localStorage !== 'undefined' ? localStorage : undefined);
+    target?.setItem(REMEMBERED_AUTH_EMAIL_KEY, cleanEmail);
+  } catch { /* Ignore storage quota errors */ }
+}
+
+export function clearRememberedAuthEmail(storage?: Pick<Storage, 'removeItem'>): void {
+  try {
+    const target = storage || (typeof localStorage !== 'undefined' ? localStorage : undefined);
+    target?.removeItem(REMEMBERED_AUTH_EMAIL_KEY);
+  } catch { /* Ignore storage errors */ }
 }
