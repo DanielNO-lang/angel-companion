@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Database, Check, Copy, Code2, ShieldCheck, Server } from 'lucide-react';
+import { X, Database, Check, Copy, Code2, ShieldCheck } from 'lucide-react';
 import { getSupabaseConfigState, SUPABASE_SQL_MIGRATION_SCHEMA } from '../../services/supabaseClient';
 
 interface SupabaseBoundaryModalProps {
@@ -48,22 +48,11 @@ export const SupabaseBoundaryModal: React.FC<SupabaseBoundaryModalProps> = ({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto space-y-4 text-xs pr-1">
-          {/* Status Badge Banner */}
-          <div className={`p-4 rounded-2xl angel-blurred-surface flex items-start gap-3 ${
-            config.isConfigured
-              ? 'bg-emerald-950/40 text-emerald-200'
-              : 'bg-indigo-950/40 text-slate-200'
-          }`}>
-            <Server className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" />
-            <div>
-              <div className="font-bold text-sm mb-1">
-                {config.isConfigured ? 'Cloud Persistence Connected' : 'Boundary Active'}
-              </div>
-              <p className="text-xs leading-relaxed text-slate-300">
-                {config.isConfigured ? 'Verified cloud persistence is connected.' : 'Account storage stays protected until cloud persistence is activated.'}
-              </p>
-            </div>
-          </div>
+          <p className="text-xs text-slate-300">
+            {config.isConfigured
+              ? 'Cloud persistence is connected.'
+              : 'Account storage stays protected until cloud persistence is activated.'}
+          </p>
 
           {/* Integration Specs */}
           <div className="grid grid-cols-2 gap-3">

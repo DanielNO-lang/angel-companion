@@ -30,7 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuthModal,
   isIncognitoActive = false,
   onOpenIncognitoChat,
-  activeThreadTitle = 'Project Planning',
+  activeThreadTitle = 'New Conversation',
   onResetConversation,
   onClearMessages,
   onExportConversation,
@@ -102,13 +102,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         ) : (
           /* STANDARD HOME TOP OPTIONS */
-          <>
-            {/* Verified Account Session Badge */}
-            <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-[#090d24]/40 backdrop-blur-md text-[11px] sm:text-xs font-medium text-slate-200 border-0 shadow-[0_0_12px_rgba(99,102,241,0.2)]">
-              <span className="bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-400 bg-clip-text text-transparent font-bold">Account</span>
-              <span className="text-slate-500">•</span>
-              <span className="text-slate-300 font-medium">Verified</span>
-            </div>
+          <> 
 
             {/* Theme Toggle */}
             {onToggleTheme && (
@@ -134,11 +128,6 @@ export const Header: React.FC<HeaderProps> = ({
               title="Notifications"
             >
               <Bell className="w-4 h-4 text-cyan-300" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[17px] h-[17px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold shadow-md shadow-red-500/50">
-                  {unreadCount}
-                </span>
-              )}
             </button>
 
             {/* Incognito Private Session Button */}

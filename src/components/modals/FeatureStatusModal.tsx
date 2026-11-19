@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, CheckCircle2, AlertCircle, Layers, Cpu, ArrowUpRight } from 'lucide-react';
-import { FeatureMeta, FeatureStatusType } from '../../types/angel';
+import { FeatureMeta } from '../../types/angel';
 
 interface FeatureStatusModalProps {
   isOpen: boolean;
@@ -15,17 +15,6 @@ export const FeatureStatusModal: React.FC<FeatureStatusModalProps> = ({
 }) => {
   if (!isOpen || !feature) return null;
 
-  const statusBadgeStyle: Record<FeatureStatusType, { bg: string; text: string }> = {
-    IMPLEMENTED: { bg: 'bg-emerald-950/75', text: 'text-emerald-300' },
-    PARTIALLY_IMPLEMENTED: { bg: 'bg-amber-950/75', text: 'text-amber-300' },
-    UI_ONLY: { bg: 'bg-indigo-950/75', text: 'text-indigo-300' },
-    AWAITING_CONFIGURATION: { bg: 'bg-purple-950/75', text: 'text-purple-300' },
-    NOT_IMPLEMENTED: { bg: 'bg-slate-900/80', text: 'text-slate-400' },
-    BLOCKED_BY_PLATFORM: { bg: 'bg-rose-950/75', text: 'text-rose-300' },
-  };
-
-  const style = statusBadgeStyle[feature.status];
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
       <div className="fixed inset-0" onClick={onClose} />
@@ -34,12 +23,7 @@ export const FeatureStatusModal: React.FC<FeatureStatusModalProps> = ({
         {/* Header */}
         <div className="flex items-start justify-between pb-4 mb-4">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] uppercase font-bold tracking-widest text-indigo-400">{feature.category}</span>
-              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${style.bg} ${style.text}`}>
-                {feature.status.replace(/_/g, ' ')}
-              </span>
-            </div>
+            <p className="text-xs text-slate-400 mb-1">{feature.status.replace(/_/g, ' ')}</p>
             <h2 className="text-xl font-bold font-heading text-white">{feature.name}</h2>
           </div>
           <button 

@@ -18,7 +18,6 @@ import {
   Quote,
   Activity
 } from 'lucide-react';
-import { conversationEngine } from '../../services/conversationEngine';
 import type { AuthUser } from '../../services/authService';
 import { PrimaryNavItem, SecondaryNavItem } from '../../types/angel';
 import { AngelEmblem3D } from '../branding/AngelEmblem3D';
@@ -135,12 +134,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const middleNavItems: { id: PrimaryNavItem; label: string; icon: React.FC<{ className?: string }> }[] = [
     { id: 'agents', label: 'Agents', icon: Bot },
     { id: 'studios', label: 'Studios', icon: Clapperboard },
-  ];
-
-  const recentConversations = [
-    { id: 'project-planning', title: 'Project Planning' },
-    { id: 'research-analysis', title: 'Research Analysis' },
-    { id: 'personal-assistant', title: 'Personal Assistant' },
   ];
 
   const handleLogoutClick = () => {
@@ -306,30 +299,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         )}
 
-        {/* RECENT CONVERSATIONS - only in expanded view */}
-        {isExpandedView && (
-          <div className="pt-3 pb-1 px-3">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-heading">
-              Recent Conversations
-            </span>
-          </div>
-        )}
-
-        {isExpandedView &&
-          recentConversations.map((thread) => (
-            <button
-              key={thread.id}
-              onClick={() => {
-                const activeThread = conversationEngine.getActiveThread('general');
-                conversationEngine.renameThread(activeThread.id, thread.title);
-                handleNavAction('new-conversation');
-              }}
-              className="w-full flex items-center gap-3 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-300 hover:text-cyan-300 bg-transparent transition-colors truncate group text-left"
-            >
-              <MessageSquare className="w-3.5 h-3.5 text-slate-400 group-hover:text-cyan-300 shrink-0 transition-colors" />
-              <span className="truncate text-xs group-hover:text-white transition-colors">{thread.title}</span>
-            </button>
-          ))}
       </div>
 
       {/* ROTATING DAILY COSMIC QUOTES WIDGET - only when expanded */}

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Camera, Monitor, X } from 'lucide-react';
+import { Camera, X } from 'lucide-react';
 import { mediaStreamService } from '../../services/mediaStreamService';
 
 interface MediaStreamOverlaysProps {
@@ -73,22 +73,15 @@ export const MediaStreamOverlays: React.FC<MediaStreamOverlaysProps> = ({ onCapt
           {/* Glowing Animated Viewport Outline Line flush with sidebar edge */}
           <div className="fixed top-0 bottom-0 right-0 left-0 md:left-16 lg:left-64 pointer-events-none z-40 border-4 border-cyan-400 shadow-[inset_0_0_30px_rgba(56,189,248,0.5)] animate-pulse transition-all duration-300" />
 
-          {/* Floating Control Badge at Top Right */}
-          <div className="fixed top-3 right-4 z-50 p-2.5 rounded-2xl bg-[#080c22]/95 border border-cyan-400/70 text-slate-100 shadow-[0_10px_35px_rgba(0,0,0,0.85),0_0_20px_rgba(56,189,248,0.4)] backdrop-blur-2xl flex items-center gap-3 animate-in fade-in zoom-in-95">
-            <div className="flex items-center gap-2 text-xs font-bold text-cyan-300">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-              <Monitor className="w-4 h-4 text-cyan-400 shrink-0" />
-              <span>Screen Sharing Active</span>
-            </div>
-            <button
-              onClick={handleStopScreenShare}
-              className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer shrink-0"
-              title="End Screen Share"
-            >
-              <X className="w-3.5 h-3.5" />
-              <span>Stop Screen Share</span>
-            </button>
-          </div>
+          <button
+            onClick={handleStopScreenShare}
+            className="fixed top-3 right-4 z-50 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+            title="End Screen Share"
+            aria-label="Stop screen sharing"
+          >
+            <X className="w-3.5 h-3.5" />
+            <span>Stop Screen Share</span>
+          </button>
         </>
       )}
 

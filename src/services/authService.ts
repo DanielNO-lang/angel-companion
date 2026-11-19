@@ -13,7 +13,6 @@ import {
   parseAuthCallbackParams,
   saveRememberMePreference,
   saveRememberedAuthEmail,
-  clearRememberedAuthEmail,
   type ParsedAuthCallback,
 } from './authValidation';
 
@@ -281,7 +280,6 @@ class AuthService {
 
     supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
       if (!session || !session.user) {
-        if (event === 'SIGNED_OUT') clearRememberedAuthEmail();
         if (this.callbackInProgress && event === 'INITIAL_SESSION') {
           return;
         }
@@ -373,7 +371,6 @@ class AuthService {
         } catch {
           // Ignore local cleanup error
         }
-        clearRememberedAuthEmail();
         this.snapshot = {
           status: 'unauthenticated',
           user: null,
@@ -1147,7 +1144,6 @@ class AuthService {
       throw new Error('The session is still active after sign-out. Please try again.');
     }
 
-    clearRememberedAuthEmail();
     this.snapshot = {
       status: getSupabaseConfigState().isConfigured ? 'unauthenticated' : 'unconfigured',
       user: null,

@@ -47,16 +47,6 @@ export const ActivitiesPage: React.FC = () => {
 
   const metrics = activityEngine.getMetricsSummary();
 
-  const statusBadgeStyle: Record<TaskLifecycleStatus, { bg: string; text: string; border: string; icon: React.FC<{ className?: string }> }> = {
-    running: { bg: 'bg-blue-950/80', text: 'text-blue-300', border: 'border-blue-500/40', icon: Loader2 },
-    scheduled: { bg: 'bg-indigo-950/80', text: 'text-indigo-300', border: 'border-indigo-500/40', icon: Clock },
-    waiting_approval: { bg: 'bg-amber-950/80', text: 'text-amber-300', border: 'border-amber-500/40', icon: ShieldAlert },
-    completed: { bg: 'bg-emerald-950/80', text: 'text-emerald-300', border: 'border-emerald-500/40', icon: CheckCircle2 },
-    failed_interrupted: { bg: 'bg-rose-950/80', text: 'text-rose-300', border: 'border-rose-500/40', icon: AlertTriangle },
-    monitoring: { bg: 'bg-purple-950/80', text: 'text-purple-300', border: 'border-purple-500/40', icon: Activity },
-    self_initiated: { bg: 'bg-cyan-950/80', text: 'text-cyan-300', border: 'border-cyan-500/40', icon: CheckCircle2 },
-  };
-
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Header */}
@@ -162,8 +152,7 @@ export const ActivitiesPage: React.FC = () => {
       {/* Task Records Stream */}
       <div className="space-y-3">
         {tasks.map((task) => {
-          const style = statusBadgeStyle[task.status];
-          const IconComp = style.icon;
+          const IconComp = task.status === 'running' ? Loader2 : task.status === 'completed' ? CheckCircle2 : task.status === 'waiting_approval' ? ShieldAlert : task.status === 'failed_interrupted' ? AlertTriangle : task.status === 'scheduled' ? Clock : Activity;
 
           return (
             <div
@@ -171,15 +160,13 @@ export const ActivitiesPage: React.FC = () => {
               className="p-4 rounded-2xl glass-panel border border-indigo-500/20 bg-slate-950/40 backdrop-blur-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
             >
               <div className="flex items-start gap-3">
-                <div className={`p-2 rounded-xl border ${style.bg} ${style.text} ${style.border}`}>
+                <div className="p-2 text-slate-300">
                   <IconComp className={`w-5 h-5 ${task.status === 'running' ? 'animate-spin' : ''}`} />
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-white flex items-center gap-2">
                     <span>{task.title}</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800">
-                      {task.category}
-                    </span>
+                    <span className="text-[10px] text-slate-500">{task.category}</span>
                   </h4>
                   <p className="text-xs text-slate-400 mt-0.5">{task.details}</p>
                   {task.errorLog && (

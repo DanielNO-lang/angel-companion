@@ -15,10 +15,8 @@ interface AngelCompanion3DProps {
 
 export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
   state = 'idle',
-  onStateChange,
   size = 180,
   className = '',
-  showControls = true,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<CompanionOrbState>(state);
@@ -276,15 +274,6 @@ export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
     };
   }, [size]);
 
-  const stateLabels: Record<CompanionOrbState, string> = {
-    idle: 'Idle',
-    listening: 'Listening',
-    thinking: 'Thinking',
-    speaking: 'Speaking',
-    attention: 'Attention Signal',
-    sleeping: 'Sleeping Resting',
-  };
-
   return (
     <div className={`relative flex flex-col items-center justify-center select-none ${className}`}>
       {/* 3D Render Canvas Mount */}
@@ -297,37 +286,7 @@ export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
           <div ref={mountRef} />
         )}
 
-        {/* State Badge */}
-        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-slate-950/85 border border-indigo-500/35 backdrop-blur-md text-[11px] font-semibold text-slate-200 flex items-center gap-1.5 shadow-xl">
-          <span className={`w-2 h-2 rounded-full ${
-            state === 'idle' ? 'bg-cyan-400' :
-            state === 'listening' ? 'bg-blue-400 animate-pulse' :
-            state === 'thinking' ? 'bg-purple-400 animate-spin' :
-            state === 'speaking' ? 'bg-pink-400 animate-bounce' :
-            'bg-amber-400 animate-ping'
-          }`} />
-          <span>{stateLabels[state]}</span>
-        </div>
       </div>
-
-      {/* State Switcher Micro Controls */}
-      {showControls && onStateChange && (
-        <div className="mt-3 flex items-center gap-1 p-1 rounded-xl bg-slate-950/80 border border-slate-800 backdrop-blur-md text-[10px]">
-          {(['idle', 'listening', 'thinking', 'speaking', 'attention'] as CompanionOrbState[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => onStateChange(s)}
-              className={`px-2 py-0.5 rounded-lg capitalize transition-all ${
-                state === s
-                  ? 'bg-indigo-600 text-white font-bold shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-              }`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   );
 };

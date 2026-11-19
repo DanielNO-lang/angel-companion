@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Sliders, Eye, Mic, Send, Camera, Monitor, Paperclip, Loader2, AlertCircle, Globe, FileText } from 'lucide-react';
+import { Plus, Sliders, Eye, Mic, Send, Camera, Monitor, Paperclip, Loader2, AlertCircle, FileText } from 'lucide-react';
 import { CompanionOrbState } from '../../types/angel';
 import { ComposerContext, ComposerMode, ComposerSubmissionResult } from '../../types/composer';
 import { AttachmentRecord } from '../../types/attachment';
 import { universalComposerService } from '../../services/universalComposerService';
 import { universalAttachmentService } from '../../services/universalAttachmentService';
-import { linkPreviewService } from '../../services/linkPreviewService';
 import { voiceEngine } from '../../services/voiceEngine';
 import { mediaStreamService } from '../../services/mediaStreamService';
 
@@ -259,7 +258,6 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
       : 'Message Angel...';
 
   const inputPlaceholder = placeholder || defaultPlaceholder;
-  const detectedUrls = linkPreviewService.detectUrls(text).validUrls;
 
   return (
     <div
@@ -352,16 +350,6 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
               <span className="text-[10px] text-cyan-400/80 font-mono">
                 ({universalAttachmentService.formatFileSize(att.size)})
               </span>
-              {att.status === 'pending_integration' && (
-                <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">
-                  Preserved
-                </span>
-              )}
-              {att.status === 'processed' && (
-                <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono">
-                  Processed
-                </span>
-              )}
               <button
                 onClick={() => handleRemoveAttachment(att.id)}
                 className="text-cyan-400 hover:text-white font-bold ml-1 cursor-pointer"
@@ -371,27 +359,6 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
               </button>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Detected URL badges */}
-      {detectedUrls.length > 0 && (
-        <div className="mb-1.5 flex flex-wrap gap-1 px-1">
-          {detectedUrls.map((u) => {
-            let host = u;
-            try {
-              host = new URL(u).hostname;
-            } catch {}
-            return (
-              <div
-                key={u}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-950/70 border border-indigo-400/40 text-indigo-200 text-[11px]"
-              >
-                <Globe className="w-3 h-3 text-sky-400 shrink-0" />
-                <span className="truncate max-w-[180px]">{host}</span>
-              </div>
-            );
-          })}
         </div>
       )}
 
