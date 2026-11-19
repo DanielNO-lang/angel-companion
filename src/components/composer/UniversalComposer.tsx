@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Sliders, Eye, Mic, Send, Camera, Monitor, Paperclip, Loader2, AlertCircle, Globe, FileText } from 'lucide-react';
+import { Plus, Sliders, Eye, Mic, Send, Camera, Monitor, Paperclip, Loader2, AlertCircle, FileText } from 'lucide-react';
 import { CompanionOrbState } from '../../types/angel';
 import { ComposerContext, ComposerMode, ComposerSubmissionResult } from '../../types/composer';
 import { AttachmentRecord } from '../../types/attachment';
 import { universalComposerService } from '../../services/universalComposerService';
 import { universalAttachmentService } from '../../services/universalAttachmentService';
-import { linkPreviewService } from '../../services/linkPreviewService';
 import { voiceEngine } from '../../services/voiceEngine';
 import { mediaStreamService } from '../../services/mediaStreamService';
 
@@ -259,7 +258,6 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
       : 'Message Angel...';
 
   const inputPlaceholder = placeholder || defaultPlaceholder;
-  const detectedUrls = linkPreviewService.detectUrls(text).validUrls;
 
   return (
     <div
