@@ -9,7 +9,6 @@ import {
   getRememberMePreference,
   getRememberedAuthEmail,
   saveRememberedAuthEmail,
-  clearRememberedAuthEmail,
   getStoredThemeMode,
   parseAppRoute,
   parseAuthCallbackParams,
