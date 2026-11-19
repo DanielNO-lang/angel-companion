@@ -102,7 +102,13 @@ function getEnv(deps?: BackendDependencies): Record<string, string | undefined> 
 
 export function resolveConfiguredModel(env: Record<string, string | undefined>): string {
   const configured = env.GEMINI_MODEL?.trim();
-  return configured || DEFAULT_GEMINI_MODEL;
+  if (!configured) return DEFAULT_GEMINI_MODEL;
+  const withoutPrefix = configured.replace(/^models\//i, '').trim();
+  if (!withoutPrefix) return DEFAULT_GEMINI_MODEL;
+  if (/\s/.test(withoutPrefix)) {
+    return withoutPrefix.toLowerCase().replace(/\s+/g, '-');
+  }
+  return withoutPrefix;
 }
 
 export function resolveSupabaseServerConfig(env: Record<string, string | undefined>): {
@@ -803,7 +809,13 @@ export async function handleModelStatusRequest(
 
   if (probeError || (lastGenerationVerification && !lastGenerationVerification.verified && !providerReachable)) {
     state = 'provider_unavailable';
-    message = `Gemini credentials present, but provider check failed: ${probeError || lastGenerationVerification?.error || 'unavailable'}.`;
+    logEvent('/api/model/status', {
+      statusCode: 502,
+      latencyMs: latencyMs ?? 0,
+      model,
+      code: 'PROVIDER_PROBE_FAILED',
+    });
+    message = 'Gemini server credentials are configured, but the model service could not be reached right now.';
   } else if (generationVerified) {
     state = 'generation_successful';
     message = `Gemini (${model}) is reachable and verified with live generation.`;

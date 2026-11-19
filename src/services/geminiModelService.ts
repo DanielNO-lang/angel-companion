@@ -120,7 +120,13 @@ export class GeminiModelService {
   public async checkStatus(forceRefresh = false, liveProbe = false): Promise<ModelHealthStatus> {
     if (typeof window === 'undefined') {
       const hasKey = typeof process !== 'undefined' && Boolean(process.env.GEMINI_API_KEY?.trim());
-      const model = (typeof process !== 'undefined' && process.env.GEMINI_MODEL?.trim()) || DEFAULT_GEMINI_MODEL;
+      const rawModel = typeof process !== 'undefined' ? process.env.GEMINI_MODEL?.trim() : '';
+      const cleanedModel = rawModel ? rawModel.replace(/^models\//i, '').trim() : '';
+      const model = cleanedModel
+        ? /\s/.test(cleanedModel)
+          ? cleanedModel.toLowerCase().replace(/\s+/g, '-')
+          : cleanedModel
+        : DEFAULT_GEMINI_MODEL;
       const status: ModelHealthStatus = {
         state: hasKey ? 'credentials_configured' : 'credentials_missing',
         connected: hasKey,
@@ -201,7 +207,13 @@ export class GeminiModelService {
       if (typeof process !== 'undefined' && process.env.GEMINI_API_KEY?.trim()) {
         try {
           const { GoogleGenAI, ThinkingLevel } = await import('@google/genai');
-          const modelUsed = process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
+          const rawModel = process.env.GEMINI_MODEL?.trim();
+          const cleanedModel = rawModel ? rawModel.replace(/^models\//i, '').trim() : '';
+          const modelUsed = cleanedModel
+            ? /\s/.test(cleanedModel)
+              ? cleanedModel.toLowerCase().replace(/\s+/g, '-')
+              : cleanedModel
+            : DEFAULT_GEMINI_MODEL;
           const ai = new GoogleGenAI({
             apiKey: process.env.GEMINI_API_KEY.trim(),
             httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },

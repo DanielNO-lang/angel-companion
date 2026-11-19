@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import * as THREE from 'three';
 import { getDevicePerformanceProfile } from '../../utils/devicePerformance';
 
 export interface CosmicTelemetryData {
@@ -11,6 +12,11 @@ export interface CosmicTelemetryData {
 export interface CosmicEnvironmentProps {
   onSelectSpaceObject?: (data: CosmicTelemetryData) => void;
 }
+
+type Planet3DType = 'sun' | 'saturn' | 'earth' | 'moon';
+
+const isPlanet3DType = (type: CelestialObject['type']): type is Planet3DType =>
+  type === 'sun' || type === 'saturn' || type === 'earth' || type === 'moon';
 
 interface CelestialObject {
   id: number;
@@ -29,9 +35,185 @@ interface CelestialObject {
   vy: number;
   rotation: number;
   rotationSpeed: number;
+  axialAngle: number;
+  axialSpeed: number;
   lifespan: number;
   age: number;
   flarePhase: number;
+}
+
+const PLANET_SAMPLE_SPECS: Record<
+  Planet3DType,
+  { cx: number; cy: number; radius: number; sampleRotationRad: number }
+> = {
+  earth: { cx: 0.5, cy: 0.5, radius: 0.375, sampleRotationRad: 0 },
+  moon: { cx: 0.5, cy: 0.5, radius: 0.395, sampleRotationRad: 0 },
+  sun: { cx: 0.5, cy: 0.5, radius: 0.305, sampleRotationRad: 0 },
+  saturn: { cx: 0.5, cy: 0.495, radius: 0.145, sampleRotationRad: -0.54 },
+};
+
+function buildEquirectangularPlanetCanvas(
+  img: HTMLImageElement,
+  type: Planet3DType,
+  texW: number,
+  texH: number
+): HTMLCanvasElement | null {
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  if (!w || !h) return null;
+
+  const srcCanvas = document.createElement('canvas');
+  srcCanvas.width = w;
+  srcCanvas.height = h;
+  const srcCtx = srcCanvas.getContext('2d');
+  if (!srcCtx) return null;
+  srcCtx.drawImage(img, 0, 0, w, h);
+  const srcData = srcCtx.getImageData(0, 0, w, h).data;
+
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = texW;
+  outCanvas.height = texH;
+  const outCtx = outCanvas.getContext('2d');
+  if (!outCtx) return null;
+  const outImg = outCtx.createImageData(texW, texH);
+  const outData = outImg.data;
+
+  const spec = PLANET_SAMPLE_SPECS[type];
+  const cosRot = Math.cos(spec.sampleRotationRad);
+  const sinRot = Math.sin(spec.sampleRotationRad);
+
+  const sampleBilinear = (nx: number, ny: number): [number, number, number] => {
+    const px = Math.max(0, Math.min(w - 1.001, nx * (w - 1)));
+    const py = Math.max(0, Math.min(h - 1.001, ny * (h - 1)));
+    const x0 = Math.floor(px);
+    const y0 = Math.floor(py);
+    const x1 = Math.min(w - 1, x0 + 1);
+    const y1 = Math.min(h - 1, y0 + 1);
+    const fx = px - x0;
+    const fy = py - y0;
+
+    const i00 = (y0 * w + x0) * 4;
+    const i10 = (y0 * w + x1) * 4;
+    const i01 = (y1 * w + x0) * 4;
+    const i11 = (y1 * w + x1) * 4;
+
+    const r =
+      srcData[i00] * (1 - fx) * (1 - fy) +
+      srcData[i10] * fx * (1 - fy) +
+      srcData[i01] * (1 - fx) * fy +
+      srcData[i11] * fx * fy;
+    const g =
+      srcData[i00 + 1] * (1 - fx) * (1 - fy) +
+      srcData[i10 + 1] * fx * (1 - fy) +
+      srcData[i01 + 1] * (1 - fx) * fy +
+      srcData[i11 + 1] * fx * fy;
+    const b =
+      srcData[i00 + 2] * (1 - fx) * (1 - fy) +
+      srcData[i10 + 2] * fx * (1 - fy) +
+      srcData[i01 + 2] * (1 - fx) * fy +
+      srcData[i11 + 2] * fx * fy;
+
+    return [r, g, b];
+  };
+
+  for (let y = 0; y < texH; y++) {
+    const v = (y + 0.5) / texH;
+    const theta = v * Math.PI; // 0 (north pole) -> PI (south pole)
+    const sinTheta = Math.sin(theta);
+    const cosTheta = Math.cos(theta);
+
+    for (let x = 0; x < texW; x++) {
+      const u = (x + 0.5) / texW;
+      // Fold longitude smoothly across front/back hemispheres so zero seam & zero black borders
+      const lon = (u - 0.5) * Math.PI * 2;
+      const sx = sinTheta * Math.sin(lon);
+      const sy = -cosTheta;
+
+      // Mirror-compressed radial disc coord so limb stays strictly inside visible planetary disc
+      const rDisc = Math.hypot(sx, sy);
+      const scale = rDisc > 0.94 ? 0.94 / rDisc : 1;
+      const discX = sx * scale;
+      const discY = sy * scale;
+
+      const rotX = discX * cosRot - discY * sinRot;
+      const rotY = discX * sinRot + discY * cosRot;
+
+      const sampleX = spec.cx + rotX * spec.radius;
+      const sampleY = spec.cy + rotY * spec.radius;
+      let [r, g, b] = sampleBilinear(sampleX, sampleY);
+
+      if (type === 'earth' && r + g + b < 42) {
+        // Ensure night-side corner pixels within earth disc retain rich oceanic blue
+        r = Math.max(r, 14);
+        g = Math.max(g, 38);
+        b = Math.max(b, 84);
+      }
+
+      const outIdx = (y * texW + x) * 4;
+      outData[outIdx] = Math.round(r);
+      outData[outIdx + 1] = Math.round(g);
+      outData[outIdx + 2] = Math.round(b);
+      outData[outIdx + 3] = 255;
+    }
+  }
+
+  outCtx.putImageData(outImg, 0, 0);
+  return outCanvas;
+}
+
+function buildSaturnRingProfileCanvas(img: HTMLImageElement): HTMLCanvasElement | null {
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  if (!w || !h) return null;
+
+  const srcCanvas = document.createElement('canvas');
+  srcCanvas.width = w;
+  srcCanvas.height = h;
+  const srcCtx = srcCanvas.getContext('2d');
+  if (!srcCtx) return null;
+  srcCtx.drawImage(img, 0, 0, w, h);
+  const srcData = srcCtx.getImageData(0, 0, w, h).data;
+
+  const outW = 128;
+  const outH = 8;
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = outW;
+  outCanvas.height = outH;
+  const outCtx = outCanvas.getContext('2d');
+  if (!outCtx) return null;
+  const outImg = outCtx.createImageData(outW, outH);
+  const outData = outImg.data;
+
+  // Sample unshadowed upper-right ansa along the equatorial ring plane (-0.54 rad)
+  const dirX = Math.cos(-0.54);
+  const dirY = Math.sin(-0.54);
+
+  for (let uIdx = 0; uIdx < outW; uIdx++) {
+    const t = uIdx / (outW - 1);
+    const rNorm = 0.215 + t * (0.41 - 0.215);
+    const sx = Math.max(0, Math.min(w - 1, Math.round((0.5 + dirX * rNorm) * (w - 1))));
+    const sy = Math.max(0, Math.min(h - 1, Math.round((0.495 + dirY * rNorm) * (h - 1))));
+    const srcIdx = (sy * w + sx) * 4;
+
+    const r = srcData[srcIdx];
+    const g = srcData[srcIdx + 1];
+    const b = srcData[srcIdx + 2];
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    const edgeTaper = Math.sin(Math.min(1, Math.max(0, t)) * Math.PI);
+    const gapAlpha = lum < 24 ? (lum / 24) * 0.25 : Math.min(0.92, (lum / 210) * 0.92);
+    const alpha = Math.round(Math.max(0, Math.min(255, gapAlpha * (0.35 + 0.65 * edgeTaper) * 255)));
+
+    for (let yIdx = 0; yIdx < outH; yIdx++) {
+      const outIdx = (yIdx * outW + uIdx) * 4;
+      outData[outIdx] = r;
+      outData[outIdx + 1] = g;
+      outData[outIdx + 2] = b;
+      outData[outIdx + 3] = alpha;
+    }
+  }
+
+  outCtx.putImageData(outImg, 0, 0);
+  return outCanvas;
 }
 
 interface ShootingStar {
@@ -176,7 +358,7 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
     canvas.height = Math.max(1, Math.floor(height * dpr));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Processed Transparent Space Object Canvases (Background-Free)
+    // Processed Transparent Space Object Canvases (Background-Free fallback & non-planetary sprites)
     const spaceCanvases: Record<CelestialObject['type'], HTMLCanvasElement | HTMLImageElement | null> = {
       sun: null,
       saturn: null,
@@ -184,6 +366,157 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
       moon: null,
       satellite: null,
       spacerock: null,
+    };
+
+    const isSoftwareGl = perf.isSoftwareRenderer;
+    const glSize = isSoftwareGl ? 180 : perf.tier === 'low' ? 224 : 320;
+    const sphereSegs = isSoftwareGl ? 24 : perf.tier === 'low' ? 32 : 48;
+    const texW = isSoftwareGl ? 256 : 512;
+    const texH = isSoftwareGl ? 128 : 256;
+
+    interface Planet3DRig {
+      scene: THREE.Scene;
+      root: THREE.Group;
+      planetMesh: THREE.Mesh;
+      textures: THREE.Texture[];
+      geometries: THREE.BufferGeometry[];
+      materials: THREE.Material[];
+    }
+
+    let glRenderer: THREE.WebGLRenderer | null = null;
+    let glCamera: THREE.OrthographicCamera | null = null;
+    const planet3DRigs: Partial<Record<Planet3DType, Planet3DRig>> = {};
+    let isDisposed = false;
+
+    if (perf.webglSupported) {
+      try {
+        const glCanvas = document.createElement('canvas');
+        glCanvas.width = glSize;
+        glCanvas.height = glSize;
+        glRenderer = new THREE.WebGLRenderer({
+          canvas: glCanvas,
+          alpha: true,
+          antialias: !isSoftwareGl,
+          powerPreference: 'default',
+        });
+        glRenderer.setPixelRatio(1);
+        glRenderer.setSize(glSize, glSize, false);
+        glRenderer.setClearColor(0x000000, 0);
+        glRenderer.outputColorSpace = THREE.SRGBColorSpace;
+        glCamera = new THREE.OrthographicCamera(-1.72, 1.72, 1.72, -1.72, 0.1, 20);
+        glCamera.position.set(0, 0, 5);
+        glCamera.lookAt(0, 0, 0);
+      } catch {
+        glRenderer = null;
+        glCamera = null;
+      }
+    }
+
+    const buildPlanet3DRig = (type: Planet3DType, img: HTMLImageElement) => {
+      if (isDisposed || !glRenderer) return;
+      const eqCanvas = buildEquirectangularPlanetCanvas(img, type, texW, texH);
+      if (!eqCanvas) return;
+
+      const scene = new THREE.Scene();
+      const root = new THREE.Group();
+      scene.add(root);
+
+      const textures: THREE.Texture[] = [];
+      const geometries: THREE.BufferGeometry[] = [];
+      const materials: THREE.Material[] = [];
+
+      const sphereTex = new THREE.CanvasTexture(eqCanvas);
+      sphereTex.colorSpace = THREE.SRGBColorSpace;
+      sphereTex.wrapS = THREE.RepeatWrapping;
+      sphereTex.wrapT = THREE.ClampToEdgeWrapping;
+      sphereTex.needsUpdate = true;
+      textures.push(sphereTex);
+
+      const sphereRadius = type === 'saturn' ? 0.88 : 1.12;
+      const sphereGeo = new THREE.SphereGeometry(sphereRadius, sphereSegs, Math.max(16, Math.round(sphereSegs * 0.75)));
+      geometries.push(sphereGeo);
+
+      let planetMat: THREE.Material;
+      if (type === 'sun') {
+        planetMat = new THREE.MeshBasicMaterial({ map: sphereTex });
+      } else {
+        // Multi-source studio-balanced lighting so >= 2/3 of the visible planet sphere stays sunlit & clear
+        const ambient = new THREE.AmbientLight(0xffffff, 0.88);
+        const hemi = new THREE.HemisphereLight(0xeef6ff, 0x334155, 0.65);
+        const keyLight = new THREE.DirectionalLight(0xfffaf0, 1.75);
+        keyLight.position.set(3, 2, 4);
+        const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.72);
+        fillLight.position.set(-3, -1, 2.5);
+        scene.add(ambient, hemi, keyLight, fillLight);
+
+        planetMat = new THREE.MeshStandardMaterial({
+          map: sphereTex,
+          roughness: type === 'moon' ? 0.92 : type === 'saturn' ? 0.78 : 0.72,
+          metalness: 0.04,
+        });
+      }
+      materials.push(planetMat);
+
+      const planetMesh = new THREE.Mesh(sphereGeo, planetMat);
+      if (type === 'earth') {
+        root.rotation.z = 0.28;
+        root.rotation.x = 0.14;
+      } else if (type === 'moon') {
+        root.rotation.z = -0.15;
+        root.rotation.x = 0.1;
+      } else if (type === 'saturn') {
+        root.rotation.x = 0.34;
+        root.rotation.z = -0.42;
+
+        const ringCanvas = buildSaturnRingProfileCanvas(img);
+        if (ringCanvas) {
+          const ringTex = new THREE.CanvasTexture(ringCanvas);
+          ringTex.colorSpace = THREE.SRGBColorSpace;
+          ringTex.wrapS = THREE.ClampToEdgeWrapping;
+          ringTex.wrapT = THREE.ClampToEdgeWrapping;
+          ringTex.needsUpdate = true;
+          textures.push(ringTex);
+
+          const innerR = 0.98;
+          const outerR = 1.66;
+          const ringGeo = new THREE.RingGeometry(innerR, outerR, isSoftwareGl ? 40 : 64, 1);
+          const pos = ringGeo.attributes.position;
+          const uv = ringGeo.attributes.uv;
+          const v3 = new THREE.Vector3();
+          for (let i = 0; i < pos.count; i++) {
+            v3.fromBufferAttribute(pos, i);
+            const r = Math.hypot(v3.x, v3.y);
+            const uCoord = Math.max(0, Math.min(1, (r - innerR) / (outerR - innerR)));
+            uv.setXY(i, uCoord, 0.5);
+          }
+          uv.needsUpdate = true;
+          geometries.push(ringGeo);
+
+          const ringMat = new THREE.MeshStandardMaterial({
+            map: ringTex,
+            side: THREE.DoubleSide,
+            transparent: true,
+            roughness: 0.82,
+            metalness: 0.05,
+            depthWrite: false,
+          });
+          materials.push(ringMat);
+
+          const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+          ringMesh.rotation.x = Math.PI / 2;
+          root.add(ringMesh);
+        }
+      }
+
+      root.add(planetMesh);
+      planet3DRigs[type] = {
+        scene,
+        root,
+        planetMesh,
+        textures,
+        geometries,
+        materials,
+      };
     };
 
     let realStarCanvas: HTMLCanvasElement | HTMLImageElement | null = null;
@@ -201,6 +534,16 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
       const img = new Image();
       img.src = src;
       img.onload = () => {
+        if (isDisposed) return;
+
+        if (isPlanet3DType(type) && glRenderer) {
+          try {
+            buildPlanet3DRig(type, img);
+          } catch {
+            // Keep Canvas2D processed sprite fallback if texture build fails
+          }
+        }
+
         try {
           const offCanvas = document.createElement('canvas');
           offCanvas.width = img.width;
@@ -361,6 +704,15 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
         spacerock: 32,
       };
 
+      const axialSpeeds: Record<CelestialObject['type'], number> = {
+        saturn: 0.0068,
+        sun: 0.0042,
+        earth: 0.0052,
+        moon: 0.0036,
+        satellite: 0,
+        spacerock: 0,
+      };
+
       return {
         id,
         type,
@@ -378,6 +730,8 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
         vy,
         rotation: Math.random() * Math.PI * 2,
         rotationSpeed: (Math.random() - 0.5) * 0.003,
+        axialAngle: Math.random() * Math.PI * 2,
+        axialSpeed: axialSpeeds[type],
         lifespan: Math.random() * 1800 + 1200,
         age: 0,
         flarePhase: Math.random() * Math.PI * 2,
@@ -482,7 +836,8 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
     canvas.addEventListener('click', handleClick);
 
     let lastFrameTime = performance.now();
-    const fpsInterval = perf.targetFps > 0 ? 1000 / perf.targetFps : 1000;
+    const effectiveFps = isSoftwareGl ? Math.min(12, perf.targetFps || 12) : perf.targetFps;
+    const fpsInterval = effectiveFps > 0 ? 1000 / effectiveFps : 1000;
     let time = 0;
 
     const render = (nowTime: number) => {
@@ -611,6 +966,7 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
         obj.x += obj.vx;
         obj.y += obj.vy;
         obj.rotation += obj.rotationSpeed;
+        obj.axialAngle += obj.axialSpeed;
         obj.flarePhase += 0.02;
 
         const progress = obj.age / obj.lifespan;
@@ -637,6 +993,7 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
 
         const spaceCanvas = spaceCanvases[obj.type];
         const radius = obj.baseRadius * obj.currentScale;
+        const rig3d = isPlanet3DType(obj.type) ? planet3DRigs[obj.type] : undefined;
 
         ctx.save();
         ctx.globalCompositeOperation = 'screen';
@@ -656,23 +1013,32 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
           ctx.fill();
         }
 
-        ctx.rotate(obj.rotation);
-
-        if (spaceCanvas) {
-          ctx.drawImage(spaceCanvas, -radius, -radius, radius * 2, radius * 2);
+        if (rig3d && glRenderer && glCamera) {
+          rig3d.planetMesh.rotation.y = obj.axialAngle;
+          glRenderer.clear();
+          glRenderer.render(rig3d.scene, glCamera);
+          // Orthographic frustum half-width is 1.72 while planet sphere radius is 1.12 (0.88 for saturn + 1.66 rings)
+          const boxRadius = radius * 1.52;
+          ctx.drawImage(glRenderer.domElement, -boxRadius, -boxRadius, boxRadius * 2, boxRadius * 2);
         } else {
-          const orbGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, radius);
-          orbGrad.addColorStop(0, '#38bdf8');
-          orbGrad.addColorStop(1, 'rgba(15, 23, 42, 0)');
-          ctx.fillStyle = orbGrad;
-          ctx.beginPath();
-          ctx.arc(0, 0, radius, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.save();
+          ctx.rotate(obj.rotation);
+          if (spaceCanvas) {
+            ctx.drawImage(spaceCanvas, -radius, -radius, radius * 2, radius * 2);
+          } else {
+            const orbGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, radius);
+            orbGrad.addColorStop(0, '#38bdf8');
+            orbGrad.addColorStop(1, 'rgba(15, 23, 42, 0)');
+            ctx.fillStyle = orbGrad;
+            ctx.beginPath();
+            ctx.arc(0, 0, radius, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
         }
 
         // HOVER TARGETING RING & LABEL FOR INTERACTION
         if (hoveredObjectIdRef.current === obj.id) {
-          ctx.rotate(-obj.rotation); // Keep ring & text unrotated
           ctx.strokeStyle = '#38bdf8';
           ctx.lineWidth = 2;
           ctx.setLineDash([6, 6]);
@@ -737,11 +1103,23 @@ export const CosmicEnvironment: React.FC<CosmicEnvironmentProps> = ({ onSelectSp
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      isDisposed = true;
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('resize', handleResize);
       canvas.removeEventListener('mousemove', handleMouseMove);
       canvas.removeEventListener('click', handleClick);
+
+      Object.values(planet3DRigs).forEach((rig) => {
+        if (!rig) return;
+        rig.geometries.forEach((g) => g.dispose());
+        rig.materials.forEach((m) => m.dispose());
+        rig.textures.forEach((t) => t.dispose());
+      });
+      if (glRenderer) {
+        glRenderer.dispose();
+        glRenderer = null;
+      }
     };
   }, [onSelectSpaceObject]);
 

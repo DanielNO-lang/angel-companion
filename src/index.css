@@ -380,6 +380,7 @@ body {
 
 .angel-emblem-orbit {
   animation: angelOrbitCircular var(--angel-orbit-dur, 6.4s) linear infinite;
+  animation-direction: var(--angel-orbit-dir, normal);
   animation-delay: var(--angel-orbit-delay, 0s);
   transform-style: preserve-3d;
 }
@@ -387,7 +388,7 @@ body {
 .angel-emblem-spin {
   animation: angelSpin3D var(--angel-spin-dur, 12s) linear infinite;
   animation-direction: var(--angel-spin-dir, normal);
-  animation-delay: var(--angel-orbit-delay, 0s);
+  animation-delay: var(--angel-spin-delay, var(--angel-orbit-delay, 0s));
   transform-style: preserve-3d;
 }
 
@@ -441,37 +442,18 @@ body {
     0 0 34px -4px rgba(255, 255, 255, 0.65);
 }
 
-/* Soft, varied section atmosphere washes */
-.landing-scope .landing-section-hero {
-  background: radial-gradient(68% 54% at 50% 24%, rgba(56, 189, 248, 0.1) 0%, rgba(99, 102, 241, 0.06) 46%, transparent 80%);
-}
-.landing-scope .landing-section-capabilities {
-  background: radial-gradient(75% 60% at 50% 42%, rgba(99, 102, 241, 0.09) 0%, rgba(168, 85, 247, 0.05) 48%, transparent 82%);
-}
-.landing-scope .landing-section-mobile {
-  background: radial-gradient(72% 62% at 50% 54%, rgba(14, 165, 233, 0.1) 0%, rgba(79, 70, 229, 0.07) 44%, transparent 80%);
-}
-.landing-scope .landing-section-about {
-  background: radial-gradient(70% 55% at 32% 35%, rgba(168, 85, 247, 0.08) 0%, rgba(56, 189, 248, 0.05) 50%, transparent 82%);
-}
-.landing-scope .landing-section-privacy {
-  background: radial-gradient(74% 58% at 50% 52%, rgba(59, 130, 246, 0.09) 0%, rgba(139, 92, 246, 0.06) 48%, transparent 82%);
-}
-
-.theme-light .landing-scope .landing-section-hero {
-  background: radial-gradient(68% 54% at 50% 24%, rgba(56, 189, 248, 0.14) 0%, rgba(129, 140, 248, 0.08) 46%, transparent 80%);
-}
-.theme-light .landing-scope .landing-section-capabilities {
-  background: radial-gradient(75% 60% at 50% 42%, rgba(168, 85, 247, 0.08) 0%, rgba(59, 130, 246, 0.08) 48%, transparent 82%);
-}
-.theme-light .landing-scope .landing-section-mobile {
-  background: radial-gradient(72% 62% at 50% 54%, rgba(14, 165, 233, 0.12) 0%, rgba(99, 102, 241, 0.07) 44%, transparent 80%);
-}
-.theme-light .landing-scope .landing-section-about {
-  background: radial-gradient(70% 55% at 32% 35%, rgba(139, 92, 246, 0.09) 0%, rgba(56, 189, 248, 0.07) 50%, transparent 82%);
-}
+/* Keep cosmic deep-space canvas crisp and unobstructed across landing sections */
+.landing-scope .landing-section-hero,
+.landing-scope .landing-section-capabilities,
+.landing-scope .landing-section-mobile,
+.landing-scope .landing-section-about,
+.landing-scope .landing-section-privacy,
+.theme-light .landing-scope .landing-section-hero,
+.theme-light .landing-scope .landing-section-capabilities,
+.theme-light .landing-scope .landing-section-mobile,
+.theme-light .landing-scope .landing-section-about,
 .theme-light .landing-scope .landing-section-privacy {
-  background: radial-gradient(74% 58% at 50% 52%, rgba(59, 130, 246, 0.1) 0%, rgba(168, 85, 247, 0.07) 48%, transparent 82%);
+  background: transparent;
 }
 
 @keyframes landingReveal {

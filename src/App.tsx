@@ -11,9 +11,10 @@ import { FeatureStatusModal } from './components/modals/FeatureStatusModal';
 import { SupabaseBoundaryModal } from './components/modals/SupabaseBoundaryModal';
 import { SystemDetailsModal } from './components/modals/SystemDetailsModal';
 import { MediaStreamOverlays } from './components/media/MediaStreamOverlays';
-import { AppShellSkeleton, PageSkeleton } from './components/ui/Skeleton';
+import { PageSkeleton } from './components/ui/Skeleton';
 import { FriendlyErrorScreen } from './components/ui/FriendlyErrorScreen';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { AngelEmblem3D } from './components/branding/AngelEmblem3D';
 
 // Public Landing & Dedicated Authentication Pages
 import { LandingPage } from './components/landing/LandingPage';
@@ -21,7 +22,6 @@ import { SignInPage } from './components/auth/SignInPage';
 import { SignUpPage } from './components/auth/SignUpPage';
 import { EmailVerificationPage } from './components/auth/EmailVerificationPage';
 import { PasswordRecoveryPage } from './components/auth/PasswordRecoveryPage';
-import { AuthLayout } from './components/auth/AuthLayout';
 
 // Auth, Error Handling & Recovery Navigation Services
 import { authService, type AuthStateSnapshot } from './services/authService';
@@ -97,7 +97,7 @@ import { voiceEngine } from './services/voiceEngine';
 import { geminiModelService } from './services/geminiModelService';
 import { cloudSyncCoordinator } from './services/cloudSyncCoordinator';
 
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 
 interface AuthErrorRecoveryState {
   title: string;
@@ -119,7 +119,20 @@ export default function App() {
   const [verifySuccess, setVerifySuccess] = React.useState(false);
   const [recoveryError, setRecoveryError] = React.useState<string | null>(null);
   const [callbackProcessing, setCallbackProcessing] = React.useState(false);
+  const [isEnteringApp, setIsEnteringApp] = React.useState(false);
+  const entryTransitionTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [authErrorState, setAuthErrorState] = React.useState<AuthErrorRecoveryState | null>(null);
+
+  const triggerAppEntryTransition = React.useCallback(() => {
+    if (entryTransitionTimerRef.current) {
+      clearTimeout(entryTransitionTimerRef.current);
+    }
+    setIsEnteringApp(true);
+    entryTransitionTimerRef.current = setTimeout(() => {
+      setIsEnteringApp(false);
+      entryTransitionTimerRef.current = null;
+    }, 550);
+  }, []);
 
   const navigateRoute = React.useCallback(
     (route: AppRoute, options?: { email?: string; notice?: string | null; replace?: boolean }) => {
@@ -132,6 +145,10 @@ export default function App() {
       }
       if (route !== 'reset-password') {
         setRecoveryError(null);
+      }
+
+      if (route === 'app' && currentRoute !== 'app') {
+        triggerAppEntryTransition();
       }
 
       if (!options?.replace) {
@@ -152,7 +169,7 @@ export default function App() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     },
-    [currentRoute]
+    [currentRoute, triggerAppEntryTransition]
   );
 
   const {
@@ -303,6 +320,9 @@ export default function App() {
           if (cbResult.outcome === 'authenticated') {
             const safeNext = sanitizeRedirectPath(cbResult.parsed.nextPath, '/app');
             const targetRoute = parseAppRoute(safeNext);
+            if (targetRoute === 'app') {
+              triggerAppEntryTransition();
+            }
             pushSafeRoute(targetRoute);
             setCurrentRoute(targetRoute);
             window.history.replaceState({}, '', safeNext);
@@ -409,8 +429,11 @@ export default function App() {
       active = false;
       unsubscribe();
       clearMoreTimer();
+      if (entryTransitionTimerRef.current) {
+        clearTimeout(entryTransitionTimerRef.current);
+      }
     };
-  }, []);
+  }, [triggerAppEntryTransition]);
 
   // Bind all Companion engines to the verified Supabase identity, migrate unowned local records safely,
   // and reset all engine state on sign-out.
@@ -639,32 +662,28 @@ export default function App() {
         <CosmicEnvironment onSelectSpaceObject={showWorkspace ? handleSelectSpaceObject : undefined} />
       )}
 
-      {!isAppReady || callbackProcessing || authSnapshot.status === 'loading' ? (
-        callbackProcessing ? (
-          <AuthLayout
-            title="Completing verification"
-            subtitle="Validating your authentication callback with Supabase."
-            visualHeading="Verifying Your Identity"
-            visualDescription="Establishing your verified session before entering Angel."
-            theme={theme}
-            onToggleTheme={toggleTheme}
-            onNavigate={(r) => navigateRoute(r)}
+      {!isAppReady || callbackProcessing || authSnapshot.status === 'loading' || isEnteringApp ? (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-label="Loading Angel Companion"
+          className="relative z-10 min-h-screen w-full flex flex-col items-center justify-center gap-5 px-6"
+        >
+          <AngelEmblem3D
+            size={148}
+            seed="transition-loader"
+            renderMode="3d"
+            rotationSpeed={12}
+            pointerTracking={false}
+          />
+          <p
+            className={`text-sm font-semibold tracking-[0.22em] uppercase font-heading ${
+              theme === 'light' ? 'text-slate-700' : 'text-slate-200/90'
+            }`}
           >
-            <div className="py-10 flex flex-col items-center justify-center gap-3 text-xs">
-              <Loader2 className="w-7 h-7 animate-spin text-cyan-400" />
-              <span className="font-semibold">Verifying security state and tokens...</span>
-            </div>
-          </AuthLayout>
-        ) : currentRoute === 'app' ? (
-          <AppShellSkeleton collapsedSidebar={sidebarCollapsed} />
-        ) : (
-          <div className="relative z-10 min-h-screen w-full flex flex-col items-center justify-center gap-3 px-6">
-            <Loader2 className="w-7 h-7 animate-spin text-cyan-400" />
-            <span className="text-xs font-semibold tracking-wider uppercase opacity-70">
-              Loading Angel Companion
-            </span>
-          </div>
-        )
+            Loading...
+          </p>
+        </div>
       ) : authErrorState ? (
         <FriendlyErrorScreen
           title={authErrorState.title}

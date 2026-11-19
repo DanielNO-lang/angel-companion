@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { AlertCircle, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { AlertCircle, ChevronDown, ChevronUp, ExternalLink, Loader2 } from 'lucide-react';
 import { getVisibleAuthProviders, type AuthProviderStatus } from '../../services/authProviderRegistry';
 import { getSupabaseConfigState, probeSupabaseAuthSettings } from '../../services/supabaseClient';
 import { authService } from '../../services/authService';
@@ -25,6 +25,11 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
   const [liveExternalProviders, setLiveExternalProviders] = useState<Record<string, boolean> | null>(null);
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
   const [showSetupInfo, setShowSetupInfo] = useState(false);
+  const [topWindowFallback, setTopWindowFallback] = useState<{
+    providerName: string;
+    url: string;
+  } | null>(null);
+  const redirectFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const supabaseConfigured = getSupabaseConfigState().isConfigured;
 
@@ -41,6 +46,9 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
     });
     return () => {
       active = false;
+      if (redirectFallbackTimerRef.current) {
+        clearTimeout(redirectFallbackTimerRef.current);
+      }
     };
   }, [supabaseConfigured]);
 
@@ -49,6 +57,11 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
   const handleProviderClick = async (provider: AuthProviderStatus) => {
     const context = provider.id === 'google' ? 'google_oauth' : 'oauth';
     setAuthFlowOrigin(mode);
+    setTopWindowFallback(null);
+    if (redirectFallbackTimerRef.current) {
+      clearTimeout(redirectFallbackTimerRef.current);
+      redirectFallbackTimerRef.current = null;
+    }
 
     if (!provider.isReady) {
       setShowSetupInfo(true);
@@ -64,12 +77,33 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
     setLoadingProvider(provider.id);
     try {
       const result = await authService.signInWithOAuthProvider(provider.id, provider.scopes);
+      if (result.requiresTopWindowLink && result.redirectUrl) {
+        setLoadingProvider(null);
+        setTopWindowFallback({
+          providerName: provider.displayName,
+          url: result.redirectUrl,
+        });
+        return;
+      }
       if (!result.ok) {
         setLoadingProvider(null);
         const classified = toFriendlyError(result.message, context, {
           metadata: { provider: provider.id, code: result.code || 'oauth_start_failed' },
         });
         onError(classified.userMessage);
+        return;
+      }
+      // If running inside an embedded iframe and top-window navigation did not immediately unload,
+      // offer a direct full-window continuation link rather than leaving a spinner active.
+      if (result.redirectUrl) {
+        const redirectUrl = result.redirectUrl;
+        redirectFallbackTimerRef.current = setTimeout(() => {
+          setLoadingProvider(null);
+          setTopWindowFallback({
+            providerName: provider.displayName,
+            url: redirectUrl,
+          });
+        }, 900);
       }
     } catch (error) {
       setLoadingProvider(null);
@@ -98,7 +132,7 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
           let statusChip: string | null = null;
           let chipClass = '';
           if (!provider.isReady) {
-            statusChip = 'Unavailable';
+            statusChip = 'Setup Required';
             chipClass = isGoogle
               ? isLight
                 ? 'bg-amber-100/90 text-amber-800'
@@ -106,6 +140,11 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
               : isLight
                 ? 'bg-slate-100 text-slate-600'
                 : 'bg-slate-800/80 text-slate-400';
+          } else if (isGoogle) {
+            statusChip = 'Recommended';
+            chipClass = isLight
+              ? 'bg-sky-100 text-sky-800'
+              : 'bg-sky-500/15 text-sky-700';
           }
 
           return (
@@ -125,13 +164,13 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
                     : 'bg-white/[0.06] hover:bg-white/[0.12] text-slate-100 backdrop-blur-md'
               }`}
             >
-              <span className="flex items-center gap-3">
+              <span className="flex items-center gap-2.5 min-w-0 text-left">
                 {isBusy ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                  <Loader2 className="w-4 h-4 shrink-0 animate-spin text-indigo-500" />
                 ) : (
                   <ProviderLogo provider={provider.id} className="w-4 h-4 shrink-0" />
                 )}
-                <span>
+                <span className="truncate">
                   {mode === 'signup' && isGoogle
                     ? 'Continue with Google'
                     : provider.buttonLabel}
@@ -139,7 +178,7 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
               </span>
 
               {statusChip && (
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${chipClass}`}>
+                <span className={`shrink-0 whitespace-nowrap text-[10px] font-semibold px-2 py-0.5 rounded-full ${chipClass}`}>
                   {statusChip}
                 </span>
               )}
@@ -147,6 +186,32 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
           );
         })}
       </div>
+
+      {topWindowFallback && (
+        <div
+          role="region"
+          aria-label="Full window sign-in continuation"
+          className={`p-3.5 rounded-2xl text-xs leading-relaxed space-y-2.5 backdrop-blur-md angel-blurred-surface ${
+            isLight
+              ? 'bg-sky-50/90 text-slate-800 border border-sky-200/80'
+              : 'bg-cyan-500/10 text-slate-100 border border-cyan-400/30'
+          }`}
+        >
+          <p>
+            Embedded previews restrict {topWindowFallback.providerName} sign-in inside frames. Open sign-in in the full
+            window to continue safely.
+          </p>
+          <a
+            href={topWindowFallback.url}
+            target="_top"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold hover:brightness-110 transition-all"
+          >
+            <span>Continue with {topWindowFallback.providerName}</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </div>
+      )}
 
       {anyUnconfigured && (
         <div className="pt-0.5">
@@ -158,7 +223,7 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
             }`}
           >
             <AlertCircle className="w-3.5 h-3.5" />
-            <span>Why is a sign-in option temporarily unavailable?</span>
+            <span>Why is a sign-in option showing setup required?</span>
             {showSetupInfo ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
 
@@ -170,8 +235,8 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
                   : 'bg-white/[0.05] text-slate-300'
               }`}
             >
-              Some sign-in methods are unavailable right now. You can use any active option above or continue with your
-              email address below.
+              Some sign-in methods require additional provider setup before they can be used. You can use Google or
+              continue with your email address below.
             </div>
           )}
         </div>

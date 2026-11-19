@@ -13,6 +13,8 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import type { ThemeMode } from '../../services/authValidation';
 import { SmartImage } from '../ui/SmartImage';
@@ -179,18 +181,17 @@ interface CapabilitiesShowcaseProps {
 }
 
 export const CapabilitiesShowcase: React.FC<CapabilitiesShowcaseProps> = ({ theme }) => {
-  const [activeId, setActiveId] = useState<string>('conversations');
+  const [activeIndex, setActiveIndex] = useState<number>(0);
   const [isInViewport, setIsInViewport] = useState<boolean>(false);
-  const [isPausedByHover, setIsPausedByHover] = useState<boolean>(false);
   const [lightboxOpen, setLightboxOpen] = useState<boolean>(false);
   const [lightboxZoomed, setLightboxZoomed] = useState<boolean>(false);
+  const [autoTimerTick, setAutoTimerTick] = useState<number>(0);
 
   const containerRef = useRef<HTMLElement>(null);
-  const manualPauseUntilRef = useRef<number>(0);
+  const stageTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const lightboxTouchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const isLight = theme === 'light';
-  const activeIndex = Math.max(0, CAPABILITIES.findIndex((c) => c.id === activeId));
   const active = CAPABILITIES[activeIndex] || CAPABILITIES[0];
   const ActiveIcon = active.icon;
 
@@ -220,28 +221,17 @@ export const CapabilitiesShowcase: React.FC<CapabilitiesShowcaseProps> = ({ them
     }
     const timer = window.setInterval(() => {
       if (document.hidden) return;
-      setActiveId((prevId) => {
-        const idx = CAPABILITIES.findIndex((c) => c.id === prevId);
-        const nextIdx = (idx + 1) % CAPABILITIES.length;
-        return CAPABILITIES[nextIdx].id;
-      });
+      setActiveIndex((prev) => (prev + 1) % CAPABILITIES.length);
     }, CAPABILITY_AUTO_INTERVAL_MS);
 
     return () => window.clearInterval(timer);
-  }, [prefersReducedMotion, isInViewport, lightboxOpen]);
+  }, [prefersReducedMotion, isInViewport, lightboxOpen, autoTimerTick]);
 
-  const selectCapabilityManually = useCallback((id: string) => {
-    setActiveId(id);
+  const stepCapability = useCallback((delta: number) => {
+    setActiveIndex((prev) => (prev + delta + CAPABILITIES.length) % CAPABILITIES.length);
+    setLightboxZoomed(false);
+    setAutoTimerTick((t) => t + 1);
   }, []);
-
-  const stepCapability = useCallback(
-    (delta: number) => {
-      const nextIdx = (activeIndex + delta + CAPABILITIES.length) % CAPABILITIES.length;
-      setActiveId(CAPABILITIES[nextIdx].id);
-      setLightboxZoomed(false);
-    },
-    [activeIndex]
-  );
 
   useEffect(() => {
     if (!lightboxOpen) return;
@@ -261,27 +251,15 @@ export const CapabilitiesShowcase: React.FC<CapabilitiesShowcaseProps> = ({ them
     return () => window.removeEventListener('keydown', handleKey);
   }, [lightboxOpen, stepCapability]);
 
-  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
-    if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      selectCapabilityManually(CAPABILITIES[(index + 1) % CAPABILITIES.length].id);
-    } else if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      selectCapabilityManually(CAPABILITIES[(index - 1 + CAPABILITIES.length) % CAPABILITIES.length].id);
-    }
-  };
-
   return (
     <section
       ref={containerRef}
       aria-labelledby="capabilities-heading"
-      onMouseEnter={() => setIsPausedByHover(true)}
-      onMouseLeave={() => setIsPausedByHover(false)}
       className="landing-section-capabilities relative w-full py-14 sm:py-20"
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-3xl mx-auto space-y-3 mb-9 sm:mb-12">
-          <div className="inline-flex items-center justify-center gap-2">
+          <div className="inline-flex flex-row-reverse sm:flex-row items-center justify-center gap-2">
             <AngelEmblem3D size={22} seed="landing-cap-mark" renderMode="svg" rotationSpeed={14} />
             <p className={`text-xs font-bold uppercase tracking-[0.24em] font-heading ${isLight ? 'text-indigo-700' : 'text-cyan-300'}`}>
               Core Capabilities
@@ -294,62 +272,26 @@ export const CapabilitiesShowcase: React.FC<CapabilitiesShowcaseProps> = ({ them
             Nine Interconnected Environments Under One Companion
           </h2>
           <p className={`text-sm sm:text-base leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-            Explore every workspace interactively—previews rotate automatically and open in an inspectable viewer on click.
+            Explore every workspace interactively—slides advance automatically or step manually with forward and back controls.
           </p>
         </div>
 
-        {/* Responsive Intelligent Glass Capability Cards - Borderless glass */}
-        <div
-          role="tablist"
-          aria-label="Angel Core Capabilities"
-          className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2.5 sm:gap-3 mb-8"
-        >
-          {CAPABILITIES.map((cap, idx) => {
-            const Icon = cap.icon;
-            const isSelected = cap.id === active.id;
-            return (
-              <button
-                key={cap.id}
-                id={`cap-tab-${cap.id}`}
-                type="button"
-                role="tab"
-                aria-selected={isSelected}
-                aria-controls="capability-stage-panel"
-                data-active={isSelected ? 'true' : 'false'}
-                onClick={() => selectCapabilityManually(cap.id)}
-                onKeyDown={(e) => handleTabKeyDown(e, idx)}
-                className={`cap-card group relative px-2.5 sm:px-3.5 py-3 sm:py-3.5 rounded-2xl text-[11px] sm:text-xs font-semibold flex flex-col items-center justify-center gap-2 cursor-pointer transition-all duration-300 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
-                  isSelected
-                    ? isLight
-                      ? 'bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white shadow-[0_12px_32px_rgba(79,70,229,0.38)] -translate-y-1'
-                      : 'bg-gradient-to-br from-blue-600/95 via-indigo-600/95 to-purple-600/95 text-white shadow-[0_12px_32px_rgba(56,189,248,0.32)] -translate-y-1'
-                    : isLight
-                      ? 'bg-white/55 hover:bg-white/85 text-slate-700 shadow-[0_6px_20px_rgba(30,64,175,0.06)] hover:shadow-[0_10px_28px_rgba(59,130,246,0.15)] backdrop-blur-2xl'
-                      : 'bg-[#090e26]/32 hover:bg-[#0e1538]/65 text-slate-300 hover:text-white shadow-[0_6px_24px_rgba(0,0,0,0.22)] hover:shadow-[0_0_24px_rgba(56,189,248,0.22)] backdrop-blur-2xl'
-                }`}
-              >
-                <div
-                  className={`w-7 h-7 rounded-xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110 ${
-                    isSelected
-                      ? 'text-cyan-200 drop-shadow-[0_0_8px_rgba(56,189,248,0.8)]'
-                      : isLight
-                        ? 'text-indigo-600 group-hover:drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]'
-                        : 'text-cyan-400 group-hover:drop-shadow-[0_0_10px_rgba(56,189,248,0.8)]'
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 cap-icon icon-motion-${cap.motionKey}`} />
-                </div>
-                <span className="leading-tight text-center truncate w-full">{cap.shortTitle}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Interactive Feature & Screenshot Presentation Stage */}
+        {/* Auto-Sliding Feature & Screenshot Presentation Stage with Manual Backward / Forward Navigation */}
         <div
           id="capability-stage-panel"
-          role="tabpanel"
-          aria-labelledby={`cap-tab-${active.id}`}
+          role="region"
+          aria-label="Angel Capabilities Slideshow"
+          onPointerDown={(e) => {
+            stageTouchStartRef.current = { x: e.clientX, y: e.clientY };
+          }}
+          onPointerUp={(e) => {
+            const start = stageTouchStartRef.current;
+            stageTouchStartRef.current = null;
+            if (!start) return;
+            const dir = resolveHorizontalSwipeDirection(e.clientX - start.x, e.clientY - start.y, 48);
+            if (dir === 'next') stepCapability(1);
+            else if (dir === 'prev') stepCapability(-1);
+          }}
           className={`landing-glass-card angel-blurred-surface rounded-[28px] sm:rounded-[36px] p-5 sm:p-9 lg:p-11 ${
             isLight ? 'text-slate-900' : 'text-slate-100'
           }`}
@@ -380,10 +322,38 @@ export const CapabilitiesShowcase: React.FC<CapabilitiesShowcaseProps> = ({ them
 
           <div
             key={active.id}
-            className="animate-landing-reveal grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-7 lg:gap-11 items-center"
+            className="animate-landing-reveal grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-7 lg:gap-11 items-center relative"
           >
-            {/* Left: Clickable Lazy-Loaded Screenshot Viewport Frame */}
+            {/* Left: Clickable Lazy-Loaded Screenshot Viewport Frame with Side Flanking Navigation Buttons */}
             <div className="relative group transition-transform duration-500 hover:scale-[1.01]" style={{ perspective: '1200px' }}>
+              {/* Desktop Side Flanking Previous Button */}
+              <button
+                type="button"
+                onClick={() => stepCapability(-1)}
+                aria-label="Previous slide"
+                className={`hidden sm:flex absolute -left-5 lg:-left-6 top-1/2 -translate-y-1/2 z-20 items-center justify-center w-11 h-11 rounded-full cursor-pointer shadow-xl transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 ${
+                  isLight
+                    ? 'bg-white/95 text-slate-800 border border-slate-200'
+                    : 'bg-[#0f172a]/90 text-cyan-200 border border-cyan-500/30 backdrop-blur-md'
+                }`}
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+
+              {/* Desktop Side Flanking Next Button */}
+              <button
+                type="button"
+                onClick={() => stepCapability(1)}
+                aria-label="Next slide"
+                className={`hidden sm:flex absolute -right-5 lg:-right-6 top-1/2 -translate-y-1/2 z-20 items-center justify-center w-11 h-11 rounded-full cursor-pointer shadow-xl transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 ${
+                  isLight
+                    ? 'bg-white/95 text-slate-800 border border-slate-200'
+                    : 'bg-[#0f172a]/90 text-cyan-200 border border-cyan-500/30 backdrop-blur-md'
+                }`}
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+
               <button
                 type="button"
                 onClick={() => {

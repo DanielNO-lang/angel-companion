@@ -110,12 +110,12 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
       </header>
 
       {/* Main Split Desktop / Purpose-Built Compact Mobile Composition */}
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 flex items-center justify-center">
-        <div className="w-full grid grid-cols-1 lg:grid-cols-[1.08fr_1fr] gap-6 lg:gap-10 items-center">
-          {/* DESKTOP VISUAL SIDE */}
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 flex items-start justify-center">
+        <div className="w-full grid grid-cols-1 lg:grid-cols-[1.08fr_1fr] gap-6 lg:gap-10 items-start">
+          {/* DESKTOP VISUAL SIDE (Sticky while authentication card scrolls) */}
           <section
             aria-label="Angel Companion Visual Identity"
-            className={`hidden lg:flex flex-col items-center justify-center text-center relative rounded-[32px] p-10 min-h-[580px] overflow-hidden backdrop-blur-2xl angel-blurred-surface ${
+            className={`hidden lg:flex lg:sticky lg:top-20 flex-col items-center justify-center text-center relative rounded-[32px] p-10 min-h-[560px] overflow-hidden backdrop-blur-2xl angel-blurred-surface ${
               isLight
                 ? 'bg-white/45 shadow-[0_0_64px_rgba(30,64,175,0.16)]'
                 : 'bg-[#080d22]/45 shadow-[0_0_72px_rgba(56,189,248,0.12)]'
@@ -138,14 +138,6 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
             </div>
 
             <div className="max-w-md space-y-3 relative z-10 mt-2">
-              <div
-                className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-semibold tracking-wider uppercase ${
-                  isLight ? 'bg-sky-500/10 text-indigo-700' : 'bg-cyan-500/10 text-cyan-300'
-                }`}
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                <span>Angel Companion Environment</span>
-              </div>
               <h2
                 className={`text-2xl xl:text-3xl font-bold font-heading tracking-tight ${
                   isLight ? 'text-slate-900' : 'text-white'
@@ -168,12 +160,9 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
                   : 'bg-[#080d22]/65 text-slate-100 shadow-[0_0_72px_rgba(56,189,248,0.12)]'
               }`}
             >
-              {/* Purpose-Built Compact Mobile Presentation of Angel Branding */}
-              <div className="flex lg:hidden items-center gap-3.5 mb-5 pb-4">
-                <div className="shrink-0 flex items-center justify-center">
-                  <AngelEmblem3D size={50} seed="auth-mobile" rotationSpeed={16} tiltOnHover={true} />
-                </div>
-                <div className="min-w-0">
+              {/* Purpose-Built Compact Mobile Presentation of Angel Branding (Text Left, Emblem Right) */}
+              <div className="flex lg:hidden items-center justify-between gap-3.5 mb-5 pb-4">
+                <div className="min-w-0 text-left">
                   <span
                     className={`text-xs font-bold tracking-[0.2em] uppercase font-heading ${
                       isLight ? 'text-indigo-700' : 'text-cyan-300'
@@ -184,6 +173,9 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
                   <p className={`text-xs truncate ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
                     Universal Personal AI Companion
                   </p>
+                </div>
+                <div className="shrink-0 flex items-center justify-center ml-auto">
+                  <AngelEmblem3D size={50} seed="auth-mobile" rotationSpeed={16} tiltOnHover={true} />
                 </div>
               </div>
 

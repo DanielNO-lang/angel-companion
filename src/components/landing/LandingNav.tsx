@@ -85,17 +85,17 @@ export const LandingNav: React.FC<LandingNavProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 w-full px-2.5 sm:px-6 lg:px-8 pt-2 sm:pt-3 pb-1.5 transition-all duration-300">
+    <header className="sticky top-0 z-40 w-full px-2.5 sm:px-6 lg:px-8 pt-3 sm:pt-4 pb-2 transition-all duration-300 backdrop-blur-xl bg-gradient-to-b from-[rgba(7,11,32,0.92)] via-[rgba(7,11,32,0.72)] to-transparent">
       <nav
         aria-label="Primary Public Navigation"
-        className={`max-w-7xl mx-auto px-2 sm:px-5 py-2 rounded-2xl angel-blurred-surface flex items-center justify-between gap-1 sm:gap-3 transition-all duration-300 backdrop-blur-2xl ${
+        className={`max-w-7xl mx-auto px-2 sm:px-5 py-2.5 rounded-2xl angel-blurred-surface flex items-center justify-between gap-1 sm:gap-3 transition-all duration-300 backdrop-blur-2xl ${
           isLight
             ? scrolled
-              ? 'bg-white/78 text-slate-900 shadow-[0_14px_38px_-12px_rgba(30,64,175,0.16)]'
-              : 'bg-white/58 text-slate-900 shadow-[0_10px_30px_-10px_rgba(30,64,175,0.09)]'
+              ? 'bg-white/85 text-slate-900 shadow-[0_14px_38px_-12px_rgba(30,64,175,0.16)]'
+              : 'bg-white/65 text-slate-900 shadow-[0_10px_30px_-10px_rgba(30,64,175,0.09)]'
             : scrolled
-              ? 'bg-[#070b20]/76 text-slate-100 shadow-[0_14px_40px_-12px_rgba(6,182,212,0.18)]'
-              : 'bg-[#080c20]/42 text-slate-100 shadow-[0_8px_30px_rgba(0,0,0,0.24)]'
+              ? 'bg-[#070b20]/85 text-slate-100 shadow-[0_14px_40px_-12px_rgba(6,182,212,0.18)]'
+              : 'bg-[#080c20]/50 text-slate-100 shadow-[0_8px_30px_rgba(0,0,0,0.24)]'
         }`}
       >
         {/* Brand with Canonical Continuous 3D Motion Emblem */}
@@ -105,10 +105,10 @@ export const LandingNav: React.FC<LandingNavProps> = ({
           className="flex items-center gap-1 sm:gap-2.5 cursor-pointer group shrink-0 rounded-xl px-0.5 sm:px-1 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70"
           aria-label="Angel Companion Home"
         >
-          <div className="w-5 h-5 sm:w-8 sm:h-8 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-110">
-            <AngelEmblem3D size={28} seed="landing-nav" rotationSpeed={14} tiltOnHover={true} />
+          <div className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center shrink-0 transition-[scale] duration-300 group-hover:scale-110">
+            <AngelEmblem3D size={32} seed="landing-hero" rotationSpeed={18} tiltOnHover={true} />
           </div>
-          <span className="text-[10px] sm:text-base font-bold tracking-[0.12em] sm:tracking-[0.2em] font-heading">
+          <span className="text-xs sm:text-base font-bold tracking-[0.12em] sm:tracking-[0.2em] font-heading">
             ANGEL
           </span>
         </button>

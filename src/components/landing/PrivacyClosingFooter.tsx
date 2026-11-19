@@ -72,21 +72,17 @@ export const PrivacyClosingFooter: React.FC<PrivacyClosingFooterProps> = ({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
           {trustPillars.map((pillar) => {
             const Icon = pillar.icon;
             return (
               <div
                 key={pillar.title}
-                className={`group landing-glass-card angel-blurred-surface rounded-[28px] p-6 space-y-3.5 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_50px_rgba(56,189,248,0.2)] ${
-                  isLight ? 'text-slate-900' : 'text-slate-100'
-                }`}
+                className={`space-y-3 ${isLight ? 'text-slate-900' : 'text-slate-100'}`}
               >
                 <div
-                  className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-110 group-hover:shadow-[0_0_16px_rgba(56,189,248,0.6)] ${
-                    isLight
-                      ? 'bg-sky-100/80 text-indigo-600 shadow-sm'
-                      : 'bg-indigo-500/20 text-cyan-400 shadow-[0_0_16px_rgba(56,189,248,0.25)]'
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    isLight ? 'text-indigo-600' : 'text-cyan-400'
                   }`}
                 >
                   <Icon className="w-5 h-5" />

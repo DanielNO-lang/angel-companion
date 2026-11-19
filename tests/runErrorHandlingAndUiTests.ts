@@ -147,8 +147,20 @@ test('UI & structural requirements: single-row header, footer links, auto previe
 
   const capabilities = fs.readFileSync(path.resolve(process.cwd(), 'src/components/landing/CapabilitiesShowcase.tsx'), 'utf8');
   assert.equal(capabilities.includes('Auto-rotating'), false, 'CapabilitiesShowcase must not have manual Auto-rotating/Paused button');
-  assert.equal(capabilities.includes('Previous capability preview'), false, 'CapabilitiesShowcase lightbox must not have manual arrow buttons');
-  assert.equal(capabilities.includes('Next capability preview'), false, 'CapabilitiesShowcase lightbox must not have manual arrow buttons');
+  assert.equal(capabilities.includes('cap-tab-'), false, 'CapabilitiesShowcase option boxes must be removed');
+  assert.ok(capabilities.includes('Previous slide') && capabilities.includes('Next slide'), 'CapabilitiesShowcase must include manual Previous/Next slide controls');
+
+  const authLayout = fs.readFileSync(path.resolve(process.cwd(), 'src/components/auth/AuthLayout.tsx'), 'utf8');
+  assert.equal(authLayout.includes('Angel Companion Environment'), false, 'AuthLayout must remove Angel Companion Environment pill badge');
+  assert.ok(authLayout.includes('lg:sticky'), 'AuthLayout desktop identity panel must remain sticky while scrolling');
+  assert.ok(authLayout.includes('ml-auto'), 'AuthLayout compact mobile logo must sit on the right');
+
+  const appTsx = fs.readFileSync(path.resolve(process.cwd(), 'src/App.tsx'), 'utf8');
+  assert.ok(appTsx.includes('AngelEmblem3D') && appTsx.includes('Loading...'), 'App loading screen must show centered rotating 3D Angel logo above Loading...');
+
+  const cosmic = fs.readFileSync(path.resolve(process.cwd(), 'src/components/background/CosmicEnvironment.tsx'), 'utf8');
+  assert.ok(cosmic.includes('WebGLRenderer') && cosmic.includes('axialAngle') && cosmic.includes('buildEquirectangularPlanetCanvas'));
+  assert.equal(cosmic.includes('gl.finish'), false, 'CosmicEnvironment must not block frames with gl.finish()');
 
   const mobileShowcase = fs.readFileSync(path.resolve(process.cwd(), 'src/components/landing/MobileProductShowcase.tsx'), 'utf8');
   assert.equal(mobileShowcase.includes('Previous mobile view'), false, 'MobileProductShowcase must not have manual prev arrow button');

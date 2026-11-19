@@ -73,6 +73,29 @@ export interface AuthActionResult {
   message: string;
   email?: string;
   user?: AuthUser;
+  redirectUrl?: string;
+  requiresTopWindowLink?: boolean;
+}
+
+function attemptOAuthNavigation(url: string): {
+  navigated: boolean;
+  inIframe: boolean;
+  requiresTopWindowLink: boolean;
+} {
+  if (typeof window === 'undefined') {
+    return { navigated: false, inIframe: false, requiresTopWindowLink: false };
+  }
+  const inIframe = Boolean(window.top && window.top !== window.self);
+  if (inIframe && window.top) {
+    try {
+      window.top.location.href = url;
+      return { navigated: true, inIframe: true, requiresTopWindowLink: false };
+    } catch {
+      return { navigated: false, inIframe: true, requiresTopWindowLink: true };
+    }
+  }
+  window.location.assign(url);
+  return { navigated: true, inIframe: false, requiresTopWindowLink: false };
 }
 
 export function classifySupabaseAuthError(
@@ -712,15 +735,34 @@ class AuthService {
       const oauthOptions = buildOAuthSignInOptions(provider, getCallbackUrl('/auth/callback'), scopes);
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: provider as Parameters<typeof supabase.auth.signInWithOAuth>[0]['provider'],
-        options: oauthOptions,
+        options: {
+          ...oauthOptions,
+          skipBrowserRedirect: true,
+        },
       });
       if (error) {
         const classified = classifySupabaseAuthError(error.message || 'Failed to initiate ' + providerName + ' sign-in.', providerName);
         return { ok: false, diagnosticCategory: classified.category, code: 'ERROR', message: classified.message };
       }
       if (data?.url && typeof window !== 'undefined') {
-        window.location.assign(data.url);
-        return { ok: true, diagnosticCategory: 'ok', code: 'OAUTH_REDIRECT', message: 'Redirecting to ' + providerName + '...' };
+        const nav = attemptOAuthNavigation(data.url);
+        if (nav.requiresTopWindowLink) {
+          return {
+            ok: false,
+            diagnosticCategory: 'ok',
+            code: 'OAUTH_REDIRECT',
+            redirectUrl: data.url,
+            requiresTopWindowLink: true,
+            message: `Open ${providerName} sign-in in the full browser window to continue.`,
+          };
+        }
+        return {
+          ok: true,
+          diagnosticCategory: 'ok',
+          code: 'OAUTH_REDIRECT',
+          redirectUrl: nav.inIframe ? data.url : undefined,
+          message: 'Redirecting to ' + providerName + '...',
+        };
       }
       return { ok: false, diagnosticCategory: 'oauth_incomplete', code: 'ERROR', message: 'Supabase did not return an authorization URL for ' + providerName + '. Verify OAuth configuration in Supabase Authentication → Providers.' };
     } catch (error) {
@@ -1024,7 +1066,16 @@ class AuthService {
     }
 
     if (data?.url && typeof window !== 'undefined') {
-      window.location.assign(data.url);
+      const nav = attemptOAuthNavigation(data.url);
+      if (nav.requiresTopWindowLink) {
+        return {
+          ok: false,
+          code: 'OAUTH_REDIRECT',
+          redirectUrl: data.url,
+          requiresTopWindowLink: true,
+          message: `Open ${provider} linking in the full browser window to continue.`,
+        };
+      }
     }
 
     return {

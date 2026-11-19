@@ -18,7 +18,12 @@ import {
   buildOAuthSignInOptions,
   classifySupabaseAuthError,
 } from '../src/services/authService';
-import { getLogoMotionProfile } from '../src/utils/logoMotion';
+import {
+  ANGEL_LOGO_ANIMATION_CLASSES,
+  buildUnifiedLogoAnimation,
+  createRandomizedLogoMotionProfile,
+  getLogoMotionProfile,
+} from '../src/utils/logoMotion';
 import {
   getCircularCardOffset,
   getFanSlot,
@@ -518,10 +523,68 @@ test('Cosmic and cloudy environments retain their original Canvas2D renderers fo
 });
 test('All automatic Angel emblem instances use the lightweight rotating 3D trefoil', () => {
   const emblem3d = fs.readFileSync(path.join(process.cwd(), 'src/components/branding/AngelEmblem3D.tsx'), 'utf8');
+  const emblemSvg = fs.readFileSync(path.join(process.cwd(), 'src/components/branding/AngelEmblem.tsx'), 'utf8');
+  const heroSection = fs.readFileSync(path.join(process.cwd(), 'src/components/home/HeroSection.tsx'), 'utf8');
   const indexCss = fs.readFileSync(path.join(process.cwd(), 'src/index.css'), 'utf8');
   const reducedMotionBlock = indexCss.slice(indexCss.indexOf('@media (prefers-reduced-motion: reduce)'));
 
-  assert.ok(emblem3d.includes("const useCompactSvg = renderMode !== '3d' || !perfProfile.webglSupported;"));
+  assert.ok(
+    emblem3d.includes("renderMode === 'svg'") &&
+      emblem3d.includes('RoomEnvironment') &&
+      emblem3d.includes('MeshPhysicalMaterial')
+  );
+  assert.ok(emblem3d.includes('useAngelLogoAnimation'));
+  assert.ok(emblemSvg.includes('useAngelLogoAnimation'));
+  assert.equal(heroSection.includes('React.lazy'), false, 'HeroSection must statically import AngelEmblem3D');
+  assert.equal(heroSection.includes('NodeJS.Timeout'), false, 'HeroSection must use ReturnType<typeof setTimeout>');
+  assert.ok(indexCss.includes('--angel-spin-delay'));
+  assert.ok(indexCss.includes('--angel-orbit-dir'));
   assert.equal(reducedMotionBlock.includes('.angel-emblem-orbit'), false);
   assert.equal(reducedMotionBlock.includes('.angel-emblem-spin'), false);
 });
+
+test('Unified logo animation utility assigns randomized independent delays and durations using angel-emblem-orbit and angel-emblem-spin', () => {
+  assert.equal(ANGEL_LOGO_ANIMATION_CLASSES.orbit, 'angel-emblem-orbit');
+  assert.equal(ANGEL_LOGO_ANIMATION_CLASSES.spin, 'angel-emblem-spin');
+
+  const signatures = new Set<string>();
+  const instances = Array.from({ length: 8 }, () =>
+    buildUnifiedLogoAnimation({
+      seed: 'landing-hero',
+      rotationSpeed: 18,
+      size: 160,
+      tiltOnHover: true,
+    })
+  );
+
+  for (const inst of instances) {
+    assert.ok(inst.orbitClassName.includes('angel-emblem-orbit'));
+    assert.ok(inst.spinClassName.includes('angel-emblem-spin'));
+    assert.ok(inst.profile.orbitDurationSec >= 4.4 && inst.profile.orbitDurationSec <= 9.2);
+    assert.ok(inst.profile.spinDurationSec > 0);
+    assert.ok(inst.profile.orbitDelaySec <= 0);
+    assert.ok(inst.profile.spinDelaySec <= 0);
+    assert.equal(inst.orbitStyle['--angel-orbit-dur'], `${inst.profile.orbitDurationSec}s`);
+    assert.equal(inst.orbitStyle['--angel-orbit-delay'], `${inst.profile.orbitDelaySec}s`);
+    assert.equal(inst.orbitStyle['--angel-orbit-dir'], inst.profile.orbitDirection);
+    assert.equal(inst.orbitStyle['--angel-spin-dur'], `${inst.profile.spinDurationSec}s`);
+    assert.equal(inst.orbitStyle['--angel-spin-delay'], `${inst.profile.spinDelaySec}s`);
+    assert.equal(inst.orbitStyle['--angel-spin-dir'], inst.profile.spinDirection);
+    signatures.add(
+      `${inst.profile.orbitDurationSec}|${inst.profile.orbitDelaySec}|${inst.profile.spinDurationSec}|${inst.profile.spinDelaySec}`
+    );
+  }
+
+  // Repeated instances even with the exact same seed get distinct randomized delays & durations
+  assert.ok(signatures.size >= 6);
+
+  // Orbit and spin delays are independent from one another
+  const independentDiffs = instances.filter(
+    (inst) => inst.profile.orbitDelaySec !== inst.profile.spinDelaySec
+  );
+  assert.ok(independentDiffs.length >= 6);
+
+  const customProfile = createRandomizedLogoMotionProfile('dashboard-sidebar', 10, 32, () => 0.25);
+  assert.ok(customProfile.orbitRadiusPx >= 1.4 && customProfile.orbitRadiusPx <= 5.2);
+});
+

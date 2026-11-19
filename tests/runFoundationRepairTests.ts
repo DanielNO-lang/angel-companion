@@ -10,6 +10,7 @@ import {
   handleModelStatusRequest,
   handleTitleRequest,
   resetBackendCachesForTesting,
+  resolveConfiguredModel,
 } from '../server/geminiBackend';
 import { geminiModelService } from '../src/services/geminiModelService';
 import { conversationEngine } from '../src/services/conversationEngine';
@@ -326,6 +327,9 @@ test('Backend /api/model/status covers 5-state health machine & 60s caching vs f
     }
   );
   assert.equal(unavailable.body.state, 'provider_unavailable');
+  assert.equal(/503|service unavailable/i.test(String(unavailable.body.message)), false);
+  assert.equal(resolveConfiguredModel({ GEMINI_MODEL: 'Gemini 4 Hydrogen' }), 'gemini-4-hydrogen');
+  assert.equal(resolveConfiguredModel({ GEMINI_MODEL: 'models/gemini-4-hydrogen' }), 'gemini-4-hydrogen');
 
   // /api/title requires auth and generates title cleanly
   const titleUnauth = await handleTitleRequest(

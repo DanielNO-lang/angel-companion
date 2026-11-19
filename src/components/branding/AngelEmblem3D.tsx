@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { EmblemSkeleton } from '../ui/Skeleton';
 import { RenderLoopController } from '../../utils/renderLoopVisibility';
-import { getLogoMotionProfile } from '../../utils/logoMotion';
+import { useAngelLogoAnimation } from '../../utils/logoMotion';
 import { getDevicePerformanceProfile } from '../../utils/devicePerformance';
 import { AngelEmblem } from './AngelEmblem';
 
@@ -16,47 +17,20 @@ interface AngelEmblem3DProps {
   renderMode?: 'auto' | '3d' | 'svg';
 }
 
-let cachedStudioEnvTexture: THREE.CanvasTexture | null = null;
+class TrefoilCurve extends THREE.Curve<THREE.Vector3> {
+  scale: number;
+  constructor(scale = 1.5) {
+    super();
+    this.scale = scale;
+  }
 
-function getSharedChromeEnvTexture(): THREE.CanvasTexture | null {
-  if (typeof document === 'undefined') return null;
-  if (cachedStudioEnvTexture) return cachedStudioEnvTexture;
-
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 64;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-
-  // Deep cosmic backdrop with bright studio softboxes + cyan/violet rim bands
-  const bg = ctx.createLinearGradient(0, 0, 0, 64);
-  bg.addColorStop(0, '#e0f2fe');
-  bg.addColorStop(0.32, '#1e293b');
-  bg.addColorStop(0.58, '#0b1026');
-  bg.addColorStop(1, '#312e81');
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, 128, 64);
-
-  // Soft studio highlight panels for crisp silver-chrome speculars
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(10, 6, 36, 12);
-  ctx.fillRect(78, 10, 32, 10);
-
-  ctx.fillStyle = '#38bdf8';
-  ctx.fillRect(0, 28, 42, 8);
-
-  ctx.fillStyle = '#c084fc';
-  ctx.fillRect(82, 26, 46, 9);
-
-  ctx.fillStyle = '#f8fafc';
-  ctx.fillRect(46, 46, 36, 8);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.mapping = THREE.EquirectangularReflectionMapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.needsUpdate = true;
-  cachedStudioEnvTexture = tex;
-  return tex;
+  getPoint(t: number, optionalTarget = new THREE.Vector3()) {
+    const tau = t * Math.PI * 2;
+    const x = (Math.sin(tau) + 2 * Math.sin(2 * tau)) * 0.5 * this.scale;
+    const y = (Math.cos(tau) - 2 * Math.cos(2 * tau)) * 0.5 * this.scale;
+    const z = -Math.sin(3 * tau) * 0.6 * this.scale;
+    return optionalTarget.set(x, y, z);
+  }
 }
 
 export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
@@ -73,29 +47,36 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
   const [isFirstFrameReady, setIsFirstFrameReady] = useState(false);
   const [isInViewport, setIsInViewport] = useState(true);
 
-  const profile = useMemo(
-    () => getLogoMotionProfile(seed, rotationSpeed),
-    [seed, rotationSpeed]
-  );
+  const { profile, orbitClassName, orbitStyle } = useAngelLogoAnimation({
+    seed,
+    rotationSpeed,
+    size,
+    className,
+    tiltOnHover,
+  });
 
   const perfProfile = useMemo(() => getDevicePerformanceProfile(), []);
 
-  // Auto mode uses the canonical CSS/SVG 3D emblem at every size. This keeps
-  // repeated logos lightweight and avoids creating a separate WebGL context per logo.
-  // Explicit renderMode="3d" is reserved for a deliberate hero/feature visual.
-  const useCompactSvg = renderMode !== '3d' || !perfProfile.webglSupported;
+  // Canonical WebGL MeshPhysicalMaterial + RoomEnvironment glass emblem is enabled when
+  // renderMode is 'auto' (for primary marks >= 44px or explicit '3d') and WebGL is supported;
+  // compact header/badge emblems <= 40px and renderMode="svg" use the matching smooth SVG glass trefoil.
+  const useCompactSvg =
+    renderMode === 'svg' ||
+    !perfProfile.webglSupported ||
+    (renderMode === 'auto' && size < 44);
 
   useEffect(() => {
     if (useCompactSvg) return;
     const container = mountRef.current;
     if (!container) return;
 
+    const isSoftwareGl = perfProfile.isSoftwareRenderer;
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({
-        antialias: perfProfile.tier !== 'low',
+        antialias: !isSoftwareGl,
         alpha: true,
-        powerPreference: perfProfile.tier === 'high' ? 'high-performance' : 'default',
+        powerPreference: isSoftwareGl ? 'default' : perfProfile.tier === 'high' ? 'high-performance' : 'default',
       });
     } catch {
       setHasWebGlError(true);
@@ -104,10 +85,10 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
     }
 
     renderer.setSize(size, size);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, perfProfile.maxDpr));
+    renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, perfProfile.maxDpr));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.38;
+    renderer.toneMappingExposure = 1.2;
     container.appendChild(renderer.domElement);
 
     const handleContextLost = (e: Event) => {
@@ -120,82 +101,64 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
     camera.position.set(0, 0, 8.2);
 
-    const envTex = getSharedChromeEnvTexture();
-    if (envTex) {
-      scene.environment = envTex;
-    }
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    const roomEnv = new RoomEnvironment();
+    const pmremRenderTarget = pmremGenerator.fromScene(roomEnv, 0.04);
+    scene.environment = pmremRenderTarget.texture;
+    roomEnv.dispose();
+    pmremGenerator.dispose();
 
-    const ambientLight = new THREE.AmbientLight(0xe2e8f0, 0.95);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 3.0);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
     keyLight.position.set(5, 6, 8);
     scene.add(keyLight);
 
-    const rimLight = new THREE.DirectionalLight(0xc7d2fe, 1.6);
-    rimLight.position.set(-5, -4, 6);
-    scene.add(rimLight);
-
-    const blueLight = new THREE.PointLight(0x38bdf8, 4.5, 16);
-    blueLight.position.set(-6, 3, 4);
+    const blueLight = new THREE.PointLight(0x38bdf8, 4, 16);
+    blueLight.position.set(-5, 3, 5);
     scene.add(blueLight);
 
-    const violetLight = new THREE.PointLight(0xa855f7, 4.5, 16);
-    violetLight.position.set(6, -3, 4);
+    const violetLight = new THREE.PointLight(0xa855f7, 4, 16);
+    violetLight.position.set(5, -3, 5);
     scene.add(violetLight);
 
-    const hemiLight = new THREE.HemisphereLight(0xf0f9ff, 0x1e1b4b, 1.5);
+    const hemiLight = new THREE.HemisphereLight(0xf0f9ff, 0x1e1b4b, 1.4);
     scene.add(hemiLight);
 
     const emblemGroup = new THREE.Group();
-    // Apply deterministic starting phase rotation so every emblem starts cleanly oriented differently
     emblemGroup.rotation.y = profile.orbitPhaseRad;
     emblemGroup.rotation.x = Math.sin(profile.orbitPhaseRad) * 0.35;
 
-    class TrefoilCurve extends THREE.Curve<THREE.Vector3> {
-      scale: number;
-      constructor(scale = 1.6) {
-        super();
-        this.scale = scale;
-      }
+    const path = new TrefoilCurve(1.5);
+    const tubeSegs = isSoftwareGl ? Math.min(48, perfProfile.emblemTubeSegments) : perfProfile.emblemTubeSegments;
+    const radialSegs = isSoftwareGl ? Math.min(12, perfProfile.emblemRadialSegments) : perfProfile.emblemRadialSegments;
+    const tubeGeometry = new THREE.TubeGeometry(path, tubeSegs, 0.22, radialSegs, true);
 
-      getPoint(t: number, optionalTarget = new THREE.Vector3()) {
-        const tau = t * Math.PI * 2;
-        const x = (Math.sin(tau) + 2 * Math.sin(2 * tau)) * 0.5 * this.scale;
-        const y = (Math.cos(tau) - 2 * Math.cos(2 * tau)) * 0.5 * this.scale;
-        const z = -Math.sin(3 * tau) * 0.6 * this.scale;
-        return optionalTarget.set(x, y, z);
-      }
-    }
-
-    const path = new TrefoilCurve(1.48);
-    const tubeGeometry = new THREE.TubeGeometry(
-      path,
-      perfProfile.emblemTubeSegments,
-      0.22,
-      perfProfile.emblemRadialSegments,
-      true
-    );
-
-    const chromeMaterial = new THREE.MeshStandardMaterial({
-      color: 0xf8fafc,
-      metalness: 0.9,
-      roughness: 0.12,
-      envMapIntensity: 1.65,
+    // Exact canonical live glass-chrome material specification
+    const chromeMaterial = new THREE.MeshPhysicalMaterial({
+      color: 0xf0f4ff,
+      metalness: 0.98,
+      roughness: 0.08,
+      clearcoat: 1,
+      clearcoatRoughness: 0.05,
+      reflectivity: 1,
+      ior: 1.9,
     });
 
     const emblemMesh = new THREE.Mesh(tubeGeometry, chromeMaterial);
     emblemGroup.add(emblemMesh);
     scene.add(emblemGroup);
 
-    // Brand identity marks keep their gentle 3D rotation; ambient backgrounds still
-    // respect the operating-system reduced-motion preference.
     const prefersReducedMotion = false;
 
     let lastTime = performance.now();
     let lastRenderTime = 0;
-    const minFrameIntervalMs =
-      perfProfile.targetFps > 0 ? 1000 / Math.min(32, perfProfile.targetFps) : 1000 / 20;
+    const minFrameIntervalMs = isSoftwareGl
+      ? 1000 / 12
+      : perfProfile.targetFps > 0
+        ? 1000 / Math.min(32, perfProfile.targetFps)
+        : 1000 / 20;
     let targetTiltX = 0;
     let targetTiltY = 0;
     let currentTiltX = 0;
@@ -249,17 +212,15 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
       lastTime = now;
 
       if (!prefersReducedMotion) {
-        // Multi-axis 3D trefoil spin in seeded direction
         emblemGroup.rotation.y += profile.direction * baseSpeed * delta;
         emblemGroup.rotation.x +=
           Math.sin(elapsed * 0.85 + profile.orbitPhaseRad) * profile.tiltAxisRatio * baseSpeed * delta;
         emblemGroup.rotation.z +=
           Math.cos(elapsed * 0.65 + profile.orbitPhaseRad) * 0.55 * baseSpeed * delta;
 
-        // Subtle circular orbital motion in XY plane inside Three.js camera space
         const orbitAngle = elapsed * orbitSpeed * profile.direction + profile.orbitPhaseRad;
-        emblemGroup.position.x = Math.cos(orbitAngle) * 0.18;
-        emblemGroup.position.y = Math.sin(orbitAngle) * 0.18;
+        emblemGroup.position.x = Math.cos(orbitAngle) * 0.16;
+        emblemGroup.position.y = Math.sin(orbitAngle) * 0.16;
 
         currentTiltX += (targetTiltX - currentTiltX) * 0.1;
         currentTiltY += (targetTiltY - currentTiltY) * 0.1;
@@ -267,8 +228,8 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
         emblemMesh.rotation.x = currentTiltX;
         emblemMesh.rotation.z = currentTiltY * 0.5;
 
-        blueLight.intensity = 3.8 + Math.sin(elapsed * 2.2 + profile.orbitPhaseRad) * 1.2;
-        violetLight.intensity = 3.8 + Math.cos(elapsed * 2.2 + profile.orbitPhaseRad) * 1.2;
+        blueLight.intensity = 3.2 + Math.sin(elapsed * 2.2 + profile.orbitPhaseRad) * 0.9;
+        violetLight.intensity = 3.2 + Math.cos(elapsed * 2.2 + profile.orbitPhaseRad) * 0.9;
       }
 
       renderer.render(scene, camera);
@@ -323,6 +284,7 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
+      pmremRenderTarget.dispose();
       tubeGeometry.dispose();
       chromeMaterial.dispose();
       renderer.dispose();
@@ -337,26 +299,20 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
         rotationSpeed={rotationSpeed}
         tiltOnHover={tiltOnHover}
         className={className}
+        motionProfile={profile}
       />
     );
   }
-
-  const orbitContainerStyle = {
-    width: size,
-    height: size,
-    '--angel-orbit-r': `${profile.orbitRadiusPx}px`,
-    '--angel-orbit-dur': `${profile.orbitDurationSec}s`,
-    '--angel-orbit-delay': `${profile.phaseDelaySec}s`,
-  } as React.CSSProperties;
 
   return (
     <div
       data-angel-emblem="true"
       data-motion-seed={profile.seedKey}
+      data-motion-instance={profile.instanceSalt}
       data-motion-mode="webgl"
       data-motion-active={isInViewport ? 'true' : 'paused'}
-      className={`angel-emblem-orbit relative inline-flex items-center justify-center shrink-0 select-none ${className}`}
-      style={orbitContainerStyle}
+      className={orbitClassName}
+      style={orbitStyle}
     >
       {!isFirstFrameReady && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">

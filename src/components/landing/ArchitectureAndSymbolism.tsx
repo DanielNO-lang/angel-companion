@@ -114,27 +114,18 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
 
   return (
     <div className="landing-section-about w-full py-14 sm:py-20">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-20">
-      {/* 1. ABOUT ANGEL & THE 3D EMBLEM IN MOTION */}
-      <section aria-labelledby="emblem-story-heading">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-16">
+      {/* 1. ABOUT ANGEL & THE 3D EMBLEM IN MOTION (Housed in a section card box) */}
+      <section aria-labelledby="emblem-story-heading" className="landing-glass-card angel-blurred-surface rounded-[32px] sm:rounded-[36px] p-6 sm:p-10 lg:p-12">
         <div
-          className={`landing-glass-card angel-blurred-surface rounded-[28px] sm:rounded-[36px] p-6 sm:p-10 lg:p-12 grid grid-cols-1 lg:grid-cols-[0.95fr_1.15fr] gap-8 lg:gap-12 items-center ${
+          className={`grid grid-cols-1 lg:grid-cols-[0.95fr_1.15fr] gap-8 lg:gap-12 items-center ${
             isLight ? 'text-slate-900' : 'text-slate-100'
           }`}
         >
-          {/* Animated 3D Motion Emblem (Exact dashboard rotation, zero outlines) */}
-          <div className="relative flex flex-col items-center justify-center py-6">
-            <div className="relative flex items-center justify-center">
-              <div
-                className={`absolute w-48 h-48 rounded-full blur-3xl pointer-events-none ${
-                  isLight
-                    ? 'bg-gradient-to-tr from-sky-400/40 via-indigo-300/30 to-purple-400/40'
-                    : 'bg-gradient-to-tr from-cyan-400/35 via-indigo-500/25 to-purple-500/30 drop-shadow-[0_0_35px_rgba(56,189,248,0.5)]'
-                }`}
-              />
-              <div className="relative z-10 flex items-center justify-center transition-transform duration-300 hover:scale-105">
-                <AngelEmblem3D size={180} seed="landing-about" rotationSpeed={20} pointerTracking={true} tiltOnHover={true} />
-              </div>
+          {/* Animated 3D Motion Emblem */}
+          <div className="relative flex flex-col items-center justify-center py-4">
+            <div className="relative z-10 flex items-center justify-center">
+              <AngelEmblem3D size={180} seed="landing-about" rotationSpeed={20} pointerTracking={true} tiltOnHover={true} />
             </div>
             <p className={`mt-5 text-xs font-mono uppercase tracking-widest text-center ${isLight ? 'text-slate-600' : 'text-cyan-300/80'}`}>
               Continuous 3D Intertwined Trefoil Form
@@ -157,7 +148,7 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
               of thinking, building, and organizing remain distinct yet seamlessly connected inside one companion.
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 pt-2">
               {[
                 {
                   title: 'Connection',
@@ -169,16 +160,12 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
                 },
                 {
                   title: 'Balance',
-                  text: 'Blue and violet ambient highlights represent calm guidance paired with technical execution.',
+                  text: 'Cool silver-blue and violet reflections represent calm guidance paired with technical execution.',
                 },
               ].map((pillar) => (
                 <div
                   key={pillar.title}
-                  className={`p-4 rounded-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-lg ${
-                    isLight
-                      ? 'bg-white/65 hover:bg-white text-slate-800 shadow-xs backdrop-blur-xl'
-                      : 'bg-slate-950/38 hover:bg-slate-900/65 text-slate-200 shadow-md backdrop-blur-xl'
-                  }`}
+                  className={`py-1 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}
                 >
                   <h3 className={`text-sm font-bold font-heading ${isLight ? 'text-indigo-700' : 'text-cyan-300'}`}>
                     {pillar.title}
@@ -193,8 +180,8 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
         </div>
       </section>
 
-      {/* 2. HOW ANGEL WORKS TOGETHER (INTERACTIVE ARCHITECTURE DIAGRAM - NO OUTLINES) */}
-      <section aria-labelledby="ecosystem-diagram-heading" className="space-y-8">
+      {/* 2. HOW ANGEL WORKS TOGETHER (Housed in a section card box) */}
+      <section aria-labelledby="ecosystem-diagram-heading" className="landing-glass-card angel-blurred-surface rounded-[32px] sm:rounded-[36px] p-6 sm:p-10 lg:p-12 space-y-8">
         <div className="text-center max-w-3xl mx-auto space-y-3">
           <p className={`text-xs font-bold uppercase tracking-[0.24em] font-heading ${isLight ? 'text-indigo-700' : 'text-cyan-300'}`}>
             System Architecture
@@ -305,10 +292,10 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
             </div>
           </div>
 
-          {/* Selected Node Inspector (Blurred Edges) */}
+          {/* Selected Node Inspector */}
           <div
-            className={`landing-glass-card angel-blurred-surface rounded-[28px] p-6 sm:p-8 flex flex-col justify-between ${
-              isLight ? 'text-slate-900' : 'text-slate-100'
+            className={`rounded-2xl p-6 flex flex-col justify-between ${
+              isLight ? 'bg-white/80 text-slate-900 border border-slate-200/80' : 'bg-slate-950/70 text-slate-100 border border-slate-800/80'
             }`}
           >
             <div key={selectedNode.id} className="animate-landing-reveal space-y-4">
@@ -335,7 +322,7 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
               </p>
             </div>
 
-            <div className="pt-5 mt-5">
+            <div className="pt-5 mt-5 border-t border-slate-700/30">
               <span className={`text-[11px] font-bold uppercase tracking-wider block mb-2.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 Directly Interacts With
               </span>
@@ -364,8 +351,8 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
         </div>
       </section>
 
-      {/* 3. WHAT MAKES ANGEL DIFFERENT (NO OUTLINES) */}
-      <section aria-labelledby="different-heading" className="space-y-8">
+      {/* 3. WHAT MAKES ANGEL DIFFERENT / BEYOND PROMPT BOXES (Housed in section card box with quoted comparison items) */}
+      <section aria-labelledby="different-heading" className="landing-glass-card angel-blurred-surface rounded-[32px] sm:rounded-[36px] p-6 sm:p-10 lg:p-12 space-y-8">
         <div className="text-center max-w-3xl mx-auto space-y-3">
           <p className={`text-xs font-bold uppercase tracking-[0.24em] font-heading ${isLight ? 'text-indigo-700' : 'text-cyan-300'}`}>
             Beyond Prompt Boxes
@@ -378,47 +365,39 @@ export const ArchitectureAndSymbolism: React.FC<ArchitectureAndSymbolismProps> =
           </h2>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div
-            className={`landing-glass-card angel-blurred-surface rounded-[28px] p-6 sm:p-8 space-y-4 transition-transform duration-300 hover:scale-[1.01] ${
-              isLight ? 'text-slate-800' : 'text-slate-300'
-            }`}
-          >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-12">
+          <div className={`space-y-4 ${isLight ? 'text-slate-800' : 'text-slate-300'}`}>
             <h3 className={`text-lg font-bold font-heading ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>
               Ordinary Prompt Chatbot
             </h3>
-            <ul className="space-y-3 text-sm">
+            <ul className="space-y-3 text-sm italic">
               {[
-                'Isolated linear threads where work disappears once you start a new chat.',
-                'No dedicated workbenches, Studio scopes, or structured project file trees.',
-                'Blurs reference files, drafts, and casual prompts inside one stream.',
-                'Forces users to copy-paste between unrelated apps just to organize deliverables.',
+                '“Isolated linear threads where work disappears once you start a new chat.”',
+                '“No dedicated workbenches, Studio scopes, or structured project file trees.”',
+                '“Blurs reference files, drafts, and casual prompts inside one stream.”',
+                '“Forces users to copy-paste between unrelated apps just to organize deliverables.”',
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2.5">
-                  <XCircle className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                  <XCircle className="w-4 h-4 text-slate-400 shrink-0 mt-0.5 not-italic" />
                   <span>{item}</span>
                 </li>
               ))}
             </ul>
           </div>
 
-          <div
-            className={`landing-glass-card angel-blurred-surface rounded-[28px] p-6 sm:p-8 space-y-4 transition-transform duration-300 hover:scale-[1.01] ${
-              isLight ? 'text-slate-900' : 'text-slate-100'
-            }`}
-          >
+          <div className={`space-y-4 ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>
             <h3 className="text-lg font-bold font-heading gradient-text-angel">
               Angel Companion Environment
             </h3>
-            <ul className="space-y-3 text-sm">
+            <ul className="space-y-3 text-sm italic">
               {[
-                'Brings conversation together with Adaptive Workbenches, 8 Studios, and persistent Projects.',
-                'Separates your Knowledge Library from scoped memories and active project deliverables.',
-                'Provides bounded Agents, voice/camera/attachment controls, and transparent capability status.',
-                'Built to expand methodically—clearly distinguishing live features from connectors awaiting configuration.',
+                '“Brings conversation together with Adaptive Workbenches, 8 Studios, and persistent Projects.”',
+                '“Separates your Knowledge Library from scoped memories and active project deliverables.”',
+                '“Provides bounded Agents, voice/camera/attachment controls, and transparent capability status.”',
+                '“Built to expand methodically—clearly distinguishing live features from connectors awaiting configuration.”',
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5 drop-shadow-[0_0_8px_rgba(56,189,248,0.8)]" />
+                  <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5 not-italic" />
                   <span>{item}</span>
                 </li>
               ))}

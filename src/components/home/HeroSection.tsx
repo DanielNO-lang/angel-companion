@@ -1,11 +1,7 @@
-import React, { useState, useRef, Suspense } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { MessageSquare, Briefcase, CheckCircle2, Shuffle } from 'lucide-react';
 import { CompanionOrbState } from '../../types/angel';
-import { EmblemSkeleton } from '../ui/Skeleton';
-
-const AngelEmblem3D = React.lazy(() =>
-  import('../branding/AngelEmblem3D').then((m) => ({ default: m.AngelEmblem3D }))
-);
+import { AngelEmblem3D } from '../branding/AngelEmblem3D';
 
 interface HeroSectionProps {
   orbState: CompanionOrbState;
@@ -29,6 +25,39 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
     { id: 'explore-studios', label: 'Explore Studios', icon: Shuffle },
   ];
 
+  const [isMobileViewport, setIsMobileViewport] = useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(max-width: 639px)').matches
+      : false
+  );
+  const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  const scheduleTimer = (fn: () => void, ms: number) => {
+    const id = setTimeout(() => {
+      timersRef.current.delete(id);
+      fn();
+    }, ms);
+    timersRef.current.add(id);
+    return id;
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(max-width: 639px)');
+    const onChange = () => setIsMobileViewport(mq.matches);
+    onChange();
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach((id) => clearTimeout(id));
+      timersRef.current.clear();
+      if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+    };
+  }, []);
+
   const handleAngelClick = () => {
     const greetings = [
       "Hello! I'm Angel, your personal companion.",
@@ -39,9 +68,9 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
     const picked = greetings[Math.floor(Math.random() * greetings.length)];
     setSpeechBubble(picked);
     onOrbStateChange('speaking');
-    setTimeout(() => {
+    scheduleTimer(() => {
       onOrbStateChange('idle');
-      setTimeout(() => setSpeechBubble(null), 3500);
+      scheduleTimer(() => setSpeechBubble(null), 3500);
     }, 2800);
   };
 
@@ -50,7 +79,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
   const dragStartRef = useRef<{ pointerX: number; pointerY: number; posX: number; posY: number } | null>(null);
   const movedDistanceRef = useRef<number>(0);
   const clickCountRef = useRef<number>(0);
-  const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -99,16 +128,16 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           // Double-Click: Wake Up Companion
           onOrbStateChange('speaking');
           setSpeechBubble("Angel is awake! Ready to assist.");
-          setTimeout(() => {
+          scheduleTimer(() => {
             onOrbStateChange('idle');
-            setTimeout(() => setSpeechBubble(null), 3000);
+            scheduleTimer(() => setSpeechBubble(null), 3000);
           }, 2400);
         } else if (count >= 3) {
           // Triple-Click: Put Companion to Sleep
           onOrbStateChange('sleeping');
           setSpeechBubble("Angel is now resting zZZ... Double-click to wake me up.");
-          setTimeout(() => {
-            setTimeout(() => setSpeechBubble(null), 4000);
+          scheduleTimer(() => {
+            scheduleTimer(() => setSpeechBubble(null), 4000);
           }, 3500);
         } else if (count === 1) {
           // Single Click Friendly Greeting
@@ -153,15 +182,13 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
             ? 'opacity-70 scale-95 drop-shadow-[0_0_15px_rgba(99,102,241,0.3)]'
             : 'group-hover:scale-105 drop-shadow-[0_0_25px_rgba(56,189,248,0.5)]'
         }`}>
-          <Suspense fallback={<EmblemSkeleton size={typeof window !== 'undefined' && window.innerWidth < 640 ? 150 : 210} />}>
-            <AngelEmblem3D 
-              size={typeof window !== 'undefined' && window.innerWidth < 640 ? 150 : 210} 
-              seed="dashboard-hero"
-              rotationSpeed={isDragging ? 4 : orbState === 'sleeping' ? 48 : 12} 
-              tiltOnHover={true}
-              pointerTracking={true}
-            />
-          </Suspense>
+          <AngelEmblem3D
+            size={isMobileViewport ? 150 : 210}
+            seed="dashboard-hero"
+            rotationSpeed={isDragging ? 4 : orbState === 'sleeping' ? 48 : 12}
+            tiltOnHover={true}
+            pointerTracking={true}
+          />
         </div>
       </div>
 

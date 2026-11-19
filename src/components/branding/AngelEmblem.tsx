@@ -1,5 +1,8 @@
-import React, { useId, useMemo } from 'react';
-import { getLogoMotionProfile } from '../../utils/logoMotion';
+import React, { useId } from 'react';
+import {
+  useAngelLogoAnimation,
+  type RandomizedLogoMotionProfile,
+} from '../../utils/logoMotion';
 
 interface AngelEmblemProps {
   size?: number;
@@ -8,205 +11,242 @@ interface AngelEmblemProps {
   seed?: string;
   rotationSpeed?: number;
   tiltOnHover?: boolean;
+  motionProfile?: RandomizedLogoMotionProfile;
 }
 
-interface TrefoilSegment {
-  key: number;
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  zMid: number;
-  bodyStroke: string;
-  rimStroke: string;
-  specOpacity: number;
+interface TrefoilPoint {
+  x: number;
+  y: number;
+  z: number;
 }
 
 /**
- * Generates back-to-front depth-sorted segments sampled directly from the same
- * parametric 3D TrefoilCurve as AngelEmblem3D:
+ * Samples points along the exact parametric 3D TrefoilCurve used in AngelEmblem3D:
  *   x(τ) = sin(τ) + 2sin(2τ)
  *   y(τ) = cos(τ) - 2cos(2τ)
  *   z(τ) = -sin(3τ)
  */
-function buildCanonicalTrefoilSegments(segmentCount = 72): TrefoilSegment[] {
-  const samplePoint = (t: number) => {
-    const tau = t * Math.PI * 2;
-    const rx = (Math.sin(tau) + 2 * Math.sin(2 * tau)) * 0.5;
-    const ry = (Math.cos(tau) - 2 * Math.cos(2 * tau)) * 0.5;
-    const rz = -Math.sin(3 * tau) * 0.6;
+function sampleTrefoilPoint(t: number): TrefoilPoint {
+  const tau = t * Math.PI * 2;
+  const rx = (Math.sin(tau) + 2 * Math.sin(2 * tau)) * 0.5;
+  const ry = (Math.cos(tau) - 2 * Math.cos(2 * tau)) * 0.5;
+  const rz = -Math.sin(3 * tau) * 0.6;
 
-    // Slight 3D perspective pitch/yaw so interwoven over-under crossings read crisply
-    const yaw = 0.24;
-    const pitch = 0.18;
-    const cosY = Math.cos(yaw);
-    const sinY = Math.sin(yaw);
-    const xYaw = rx * cosY - rz * sinY;
-    const zYaw = rx * sinY + rz * cosY;
+  // Match live emblem camera angle so the symmetric 3-lobe intertwined knot reads cleanly
+  const yaw = 0.22;
+  const pitch = 0.16;
+  const cosY = Math.cos(yaw);
+  const sinY = Math.sin(yaw);
+  const xYaw = rx * cosY - rz * sinY;
+  const zYaw = rx * sinY + rz * cosY;
 
-    const cosP = Math.cos(pitch);
-    const sinP = Math.sin(pitch);
-    const yRot = ry * cosP - zYaw * sinP;
-    const zRot = ry * sinP + zYaw * cosP;
+  const cosP = Math.cos(pitch);
+  const sinP = Math.sin(pitch);
+  const yRot = ry * cosP - zYaw * sinP;
+  const zRot = ry * sinP + zYaw * cosP;
 
-    const persp = 1 + zRot * 0.14;
-    return {
-      sx: Number((50 + xYaw * 24.5 * persp).toFixed(2)),
-      sy: Number((50 - yRot * 24.5 * persp).toFixed(2)),
-      z: zRot,
-    };
+  const persp = 1 + zRot * 0.13;
+  return {
+    x: Number((50 + xYaw * 24.8 * persp).toFixed(2)),
+    y: Number((50 - yRot * 24.8 * persp).toFixed(2)),
+    z: zRot,
   };
-
-  const segments: TrefoilSegment[] = [];
-  const step = 1 / segmentCount;
-  const overlap = step * 0.22;
-
-  for (let i = 0; i < segmentCount; i++) {
-    const t0 = i * step;
-    const t1 = (i + 1) * step + overlap;
-    const p0 = samplePoint(t0);
-    const p1 = samplePoint(t1);
-    const zMid = (p0.z + p1.z) * 0.5;
-    const xNorm = ((p0.sx + p1.sx) * 0.5 - 50) / 36; // [-1, 1]
-    const depthNorm = Math.max(0, Math.min(1, (zMid + 0.72) / 1.44));
-
-    // Metallic chrome shading with subtle cyan left rim & violet right rim
-    const r = Math.round(200 + depthNorm * 52 - (xNorm < 0 ? Math.abs(xNorm) * 40 : 0));
-    const g = Math.round(212 + depthNorm * 40 - (xNorm > 0 ? xNorm * 38 : 0));
-    const b = Math.round(234 + depthNorm * 21);
-    const bodyStroke = `rgb(${Math.min(255, r)}, ${Math.min(255, g)}, ${Math.min(255, b)})`;
-
-    const rimStroke =
-      depthNorm < 0.36
-        ? '#0f172a'
-        : xNorm < 0
-          ? '#1e3a5f'
-          : '#312e81';
-
-    segments.push({
-      key: i,
-      x1: p0.sx,
-      y1: p0.sy,
-      x2: p1.sx,
-      y2: p1.sy,
-      zMid,
-      bodyStroke,
-      rimStroke,
-      specOpacity: Number((0.18 + depthNorm * 0.68).toFixed(2)),
-    });
-  }
-
-  return segments.sort((a, b) => a.zMid - b.zMid);
 }
 
-const CANONICAL_TREFOIL_SEGMENTS = buildCanonicalTrefoilSegments(72);
+/**
+ * Builds a smooth closed SVG quadratic-midpoint path from dense curve samples so there are zero
+ * notched line-segment artifacts.
+ */
+function buildClosedSmoothPath(samples: number = 144): string {
+  const pts: TrefoilPoint[] = [];
+  for (let i = 0; i < samples; i++) {
+    pts.push(sampleTrefoilPoint(i / samples));
+  }
+  const cmds: string[] = [];
+  const startMidX = ((pts[samples - 1].x + pts[0].x) * 0.5).toFixed(2);
+  const startMidY = ((pts[samples - 1].y + pts[0].y) * 0.5).toFixed(2);
+  cmds.push(`M ${startMidX} ${startMidY}`);
+
+  for (let i = 0; i < samples; i++) {
+    const p = pts[i];
+    const next = pts[(i + 1) % samples];
+    const midX = ((p.x + next.x) * 0.5).toFixed(2);
+    const midY = ((p.y + next.y) * 0.5).toFixed(2);
+    cmds.push(`Q ${p.x} ${p.y} ${midX} ${midY}`);
+  }
+  cmds.push('Z');
+  return cmds.join(' ');
+}
 
 /**
- * Canonical GPU-composited metallic chrome 3D trefoil emblem.
- * Uses the exact parametric TrefoilCurve silhouette and depth-sorted crossings of AngelEmblem3D
- * with deterministic circular orbital motion and multi-axis rotation for compact surfaces.
+ * Extracts the three continuous foreground over-crossing spans (z > 0.12) to give authentic
+ * over-under glass-chrome knot depth without broken notches.
+ */
+function buildOverCrossingPaths(samples: number = 180): string[] {
+  const pts: TrefoilPoint[] = [];
+  for (let i = 0; i < samples; i++) {
+    pts.push(sampleTrefoilPoint(i / samples));
+  }
+
+  const spans: TrefoilPoint[][] = [];
+  let current: TrefoilPoint[] = [];
+  for (let i = 0; i < samples; i++) {
+    if (pts[i].z > 0.08) {
+      current.push(pts[i]);
+    } else if (current.length > 0) {
+      spans.push(current);
+      current = [];
+    }
+  }
+  if (current.length > 0) {
+    if (spans.length > 0 && pts[0].z > 0.08) {
+      spans[0] = [...current, ...spans[0]];
+    } else {
+      spans.push(current);
+    }
+  }
+
+  return spans
+    .filter((s) => s.length >= 4)
+    .map((span) => {
+      const cmds = [`M ${span[0].x} ${span[0].y}`];
+      for (let i = 1; i < span.length - 1; i++) {
+        const midX = ((span[i].x + span[i + 1].x) * 0.5).toFixed(2);
+        const midY = ((span[i].y + span[i + 1].y) * 0.5).toFixed(2);
+        cmds.push(`Q ${span[i].x} ${span[i].y} ${midX} ${midY}`);
+      }
+      const last = span[span.length - 1];
+      cmds.push(`L ${last.x} ${last.y}`);
+      return cmds.join(' ');
+    });
+}
+
+const CANONICAL_CLOSED_PATH = buildClosedSmoothPath(144);
+const CANONICAL_OVER_SPANS = buildOverCrossingPaths(180);
+
+/**
+ * Canonical silver-chrome glass Angel emblem in SVG form.
+ * Shares exact parametric TrefoilCurve silhouette and continuous ribbon speculars with AngelEmblem3D.
  */
 export const AngelEmblem: React.FC<AngelEmblemProps> = ({
   size = 36,
   className = '',
-  glow = true,
+  glow = false,
   seed = 'emblem-compact',
   rotationSpeed = 14,
   tiltOnHover = true,
+  motionProfile,
 }) => {
   const uid = useId().replace(/:/g, '');
-  const profile = useMemo(() => getLogoMotionProfile(seed, rotationSpeed), [seed, rotationSpeed]);
-  const orbitRadius = Math.max(1.5, Math.min(4.5, Math.round(size * 0.09)));
-
-  const orbitStyle = {
-    '--angel-orbit-r': `${orbitRadius}px`,
-    '--angel-orbit-dur': `${profile.orbitDurationSec}s`,
-    '--angel-orbit-delay': `${profile.phaseDelaySec}s`,
-    '--angel-spin-dur': `${profile.spinDurationSec}s`,
-    '--angel-spin-dir': profile.direction === 1 ? 'normal' : 'reverse',
-  } as React.CSSProperties;
+  const { profile, orbitClassName, spinClassName, orbitStyle, spinStyle } = useAngelLogoAnimation({
+    seed,
+    rotationSpeed,
+    size,
+    className,
+    spinClassName: 'relative w-full h-full drop-shadow-[0_2px_10px_rgba(224,242,254,0.35)]',
+    tiltOnHover,
+    profile: motionProfile,
+  });
 
   return (
     <div
       data-angel-emblem="true"
       data-motion-seed={profile.seedKey}
+      data-motion-instance={profile.instanceSalt}
       data-motion-mode="svg-orbit"
-      className={`angel-emblem-orbit relative inline-flex items-center justify-center shrink-0 select-none ${
-        tiltOnHover ? 'transition-transform duration-300 hover:scale-110' : ''
-      } ${className}`}
-      style={{ width: size, height: size, perspective: '220px', transformStyle: 'preserve-3d', ...orbitStyle }}
+      className={orbitClassName}
+      style={orbitStyle}
     >
-      {/* Subtle aura glow */}
       {glow && (
         <div
-          className="absolute inset-0 rounded-full blur-md opacity-60 animate-pulse-glow pointer-events-none"
+          className="absolute inset-0 rounded-full blur-md opacity-40 pointer-events-none"
           style={{
             background:
-              'radial-gradient(circle, rgba(56, 189, 248, 0.5) 0%, rgba(168, 85, 247, 0.32) 55%, transparent 80%)',
+              'radial-gradient(circle, rgba(224, 242, 254, 0.35) 0%, rgba(196, 181, 253, 0.2) 55%, transparent 80%)',
           }}
         />
       )}
 
-      {/* Continuous 3D-rotating canonical TrefoilCurve silhouette */}
       <svg
         viewBox="0 0 100 100"
-        className="angel-emblem-spin relative w-full h-full drop-shadow-[0_2px_10px_rgba(56,189,248,0.45)]"
-        style={{ transformStyle: 'preserve-3d' }}
+        className={spinClassName}
+        style={spinStyle}
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
         aria-hidden="true"
       >
         <defs>
-          <linearGradient id={`chromeOverlay-${uid}`} x1="6%" y1="6%" x2="94%" y2="94%">
-            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.45" />
-            <stop offset="45%" stopColor="#38bdf8" stopOpacity="0.18" />
-            <stop offset="100%" stopColor="#a855f7" stopOpacity="0.32" />
+          <linearGradient id={`glassEdge-${uid}`} x1="8%" y1="6%" x2="92%" y2="94%">
+            <stop offset="0%" stopColor="#94a3b8" />
+            <stop offset="35%" stopColor="#475569" />
+            <stop offset="68%" stopColor="#64748b" />
+            <stop offset="100%" stopColor="#334155" />
+          </linearGradient>
+          <linearGradient id={`glassCore-${uid}`} x1="12%" y1="8%" x2="88%" y2="92%">
+            <stop offset="0%" stopColor="#ffffff" />
+            <stop offset="28%" stopColor="#e2e8f0" />
+            <stop offset="56%" stopColor="#c7d2fe" />
+            <stop offset="82%" stopColor="#f1f5f9" />
+            <stop offset="100%" stopColor="#bae6fd" />
+          </linearGradient>
+          <linearGradient id={`glassSpec-${uid}`} x1="18%" y1="10%" x2="82%" y2="90%">
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.96" />
+            <stop offset="50%" stopColor="#f8fafc" stopOpacity="0.65" />
+            <stop offset="100%" stopColor="#e0f2fe" stopOpacity="0.92" />
           </linearGradient>
         </defs>
 
-        <g>
-          {CANONICAL_TREFOIL_SEGMENTS.map((seg) => (
-            <g key={seg.key}>
-              <line
-                x1={seg.x1}
-                y1={seg.y1}
-                x2={seg.x2}
-                y2={seg.y2}
-                stroke={seg.rimStroke}
-                strokeWidth="10.8"
-                strokeLinecap="round"
-              />
-              <line
-                x1={seg.x1}
-                y1={seg.y1}
-                x2={seg.x2}
-                y2={seg.y2}
-                stroke={seg.bodyStroke}
-                strokeWidth="8.2"
-                strokeLinecap="round"
-              />
-              <line
-                x1={seg.x1}
-                y1={seg.y1}
-                x2={seg.x2}
-                y2={seg.y2}
-                stroke="#ffffff"
-                strokeOpacity={seg.specOpacity}
-                strokeWidth="2.4"
-                strokeLinecap="round"
-              />
-            </g>
-          ))}
-        </g>
-
-        <circle
-          cx="50"
-          cy="50"
-          r="38"
-          fill={`url(#chromeOverlay-${uid})`}
-          opacity="0.16"
-          pointerEvents="none"
+        {/* Continuous smooth under-pass ribbon */}
+        <path
+          d={CANONICAL_CLOSED_PATH}
+          stroke={`url(#glassEdge-${uid})`}
+          strokeWidth="10.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         />
+        <path
+          d={CANONICAL_CLOSED_PATH}
+          stroke={`url(#glassCore-${uid})`}
+          strokeWidth="8.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d={CANONICAL_CLOSED_PATH}
+          stroke={`url(#glassSpec-${uid})`}
+          strokeWidth="2.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        {/* Woven foreground over-crossing spans */}
+        {CANONICAL_OVER_SPANS.map((spanPath, idx) => (
+          <g key={idx}>
+            <path
+              d={spanPath}
+              stroke="#1e293b"
+              strokeOpacity="0.45"
+              strokeWidth="11.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d={spanPath}
+              stroke={`url(#glassCore-${uid})`}
+              strokeWidth="8.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d={spanPath}
+              stroke="#ffffff"
+              strokeOpacity="0.92"
+              strokeWidth="3.1"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </g>
+        ))}
       </svg>
     </div>
   );
