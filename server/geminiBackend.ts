@@ -810,10 +810,10 @@ export async function handleModelStatusRequest(
   if (probeError || (lastGenerationVerification && !lastGenerationVerification.verified && !providerReachable)) {
     state = 'provider_unavailable';
     logEvent('/api/model/status', {
-      statusCode: 502,
+      statusCode: 200,
       latencyMs: latencyMs ?? 0,
       model,
-      code: 'PROVIDER_PROBE_FAILED',
+      code: 'PROVIDER_UNAVAILABLE',
     });
     message = 'Gemini server credentials are configured, but the model service could not be reached right now.';
   } else if (generationVerified) {

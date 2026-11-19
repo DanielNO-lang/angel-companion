@@ -51,50 +51,52 @@ export const PrivacyClosingFooter: React.FC<PrivacyClosingFooterProps> = ({
 
   return (
     <>
-      {/* PRIVACY, TRUST AND SECURITY - No Outlines */}
+      {/* PRIVACY, TRUST AND SECURITY - Housed in a section card box */}
       <section
         aria-labelledby="privacy-heading"
         className="landing-section-privacy w-full py-14 sm:py-20"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-3xl mx-auto space-y-3 mb-10">
-          <p className={`text-xs font-bold uppercase tracking-[0.24em] font-heading ${isLight ? 'text-indigo-700' : 'text-cyan-300'}`}>
-            Privacy, Trust & Security
-          </p>
-          <h2
-            id="privacy-heading"
-            className={`text-2xl sm:text-4xl font-bold font-heading tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}
-          >
-            Transparent Protection Built Into the Architecture
-          </h2>
-          <p className={`text-sm sm:text-base leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-            Every safeguard stated here reflects actual technical controls implemented in Angel.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
-          {trustPillars.map((pillar) => {
-            const Icon = pillar.icon;
-            return (
-              <div
-                key={pillar.title}
-                className={`space-y-3 ${isLight ? 'text-slate-900' : 'text-slate-100'}`}
+          <div className="landing-glass-card angel-blurred-surface rounded-[32px] sm:rounded-[36px] p-6 sm:p-10 lg:p-12 space-y-10">
+            <div className="text-center max-w-3xl mx-auto space-y-3">
+              <p className={`text-xs font-bold uppercase tracking-[0.24em] font-heading ${isLight ? 'text-indigo-700' : 'text-cyan-300'}`}>
+                Privacy, Trust & Security
+              </p>
+              <h2
+                id="privacy-heading"
+                className={`text-2xl sm:text-4xl font-bold font-heading tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}
               >
-                <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                    isLight ? 'text-indigo-600' : 'text-cyan-400'
-                  }`}
-                >
-                  <Icon className="w-5 h-5" />
-                </div>
-                <h3 className="text-base font-bold font-heading">{pillar.title}</h3>
-                <p className={`text-xs leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-                  {pillar.body}
-                </p>
-              </div>
-            );
-          })}
-        </div>
+                Transparent Protection Built Into the Architecture
+              </h2>
+              <p className={`text-sm sm:text-base leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                Every safeguard stated here reflects actual technical controls implemented in Angel.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
+              {trustPillars.map((pillar) => {
+                const Icon = pillar.icon;
+                return (
+                  <div
+                    key={pillar.title}
+                    className={`space-y-3 ${isLight ? 'text-slate-900' : 'text-slate-100'}`}
+                  >
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                        isLight ? 'text-indigo-600' : 'text-cyan-400'
+                      }`}
+                    >
+                      <Icon className="w-5 h-5" />
+                    </div>
+                    <h3 className="text-base font-bold font-heading">{pillar.title}</h3>
+                    <p className={`text-xs leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                      {pillar.body}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </section>
 
