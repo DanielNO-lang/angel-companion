@@ -352,16 +352,6 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
               <span className="text-[10px] text-cyan-400/80 font-mono">
                 ({universalAttachmentService.formatFileSize(att.size)})
               </span>
-              {att.status === 'pending_integration' && (
-                <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">
-                  Preserved
-                </span>
-              )}
-              {att.status === 'processed' && (
-                <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono">
-                  Processed
-                </span>
-              )}
               <button
                 onClick={() => handleRemoveAttachment(att.id)}
                 className="text-cyan-400 hover:text-white font-bold ml-1 cursor-pointer"
