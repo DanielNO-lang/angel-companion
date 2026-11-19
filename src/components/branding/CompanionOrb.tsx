@@ -183,30 +183,11 @@ export const CompanionOrb: React.FC<CompanionOrbProps> = ({
     };
   }, [state, size]);
 
-  const stateLabels: Record<OrbState, string> = {
-    idle: 'Idle',
-    listening: 'Listening...',
-    thinking: 'Thinking...',
-    speaking: 'Speaking...',
-    attention: 'Attention Signal',
-    sleeping: 'Sleeping Resting',
-  };
-
-  const nextStateMap: Record<OrbState, OrbState> = {
-    idle: 'listening',
-    listening: 'thinking',
-    thinking: 'speaking',
-    speaking: 'attention',
-    attention: 'idle',
-    sleeping: 'idle',
-  };
-
   return (
     <div className={`relative flex flex-col items-center justify-center select-none ${className}`}>
       {/* Canvas Orb Rendering */}
       <div 
         className="relative cursor-pointer group"
-        onClick={() => onStateChange && onStateChange(nextStateMap[state])}
         title="Click to cycle Angel Companion Orb state"
       >
         <canvas
@@ -216,36 +197,7 @@ export const CompanionOrb: React.FC<CompanionOrbProps> = ({
           className="drop-shadow-[0_10px_30px_rgba(99,102,241,0.4)] animate-float"
         />
 
-        {/* State Badge floating over Orb */}
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-slate-950/80 border border-indigo-500/30 backdrop-blur-md text-[11px] font-medium tracking-wide text-indigo-200 flex items-center gap-1.5 shadow-lg group-hover:border-indigo-400 transition-all">
-          <span className={`w-2 h-2 rounded-full ${
-            state === 'idle' ? 'bg-cyan-400 animate-pulse' :
-            state === 'listening' ? 'bg-blue-400 animate-ping' :
-            state === 'thinking' ? 'bg-purple-400 animate-spin' :
-            'bg-pink-400 animate-bounce'
-          }`} />
-          {stateLabels[state]}
-        </div>
       </div>
-
-      {/* State Switcher Micro Controls */}
-      {onStateChange && (
-        <div className="mt-2 flex items-center gap-1.5 p-1 rounded-lg bg-slate-900/60 border border-slate-800/80 backdrop-blur-sm text-[10px]">
-          {(['idle', 'listening', 'thinking', 'speaking'] as OrbState[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => onStateChange(s)}
-              className={`px-2 py-0.5 rounded capitalize transition-all ${
-                state === s
-                  ? 'bg-indigo-600 text-white font-semibold shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-              }`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   );
 };
