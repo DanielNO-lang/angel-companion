@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Camera, Monitor, X } from 'lucide-react';
+import { Camera, X } from 'lucide-react';
 import { mediaStreamService } from '../../services/mediaStreamService';
 
 interface MediaStreamOverlaysProps {
