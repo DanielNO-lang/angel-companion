@@ -3,7 +3,6 @@ import {
   Shield,
   KeyRound,
   LogOut,
-  CheckCircle2,
   Link2,
   Unlink,
   ExternalLink,
