@@ -364,27 +364,6 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
         </div>
       )}
 
-      {/* Detected URL badges */}
-      {detectedUrls.length > 0 && (
-        <div className="mb-1.5 flex flex-wrap gap-1 px-1">
-          {detectedUrls.map((u) => {
-            let host = u;
-            try {
-              host = new URL(u).hostname;
-            } catch {}
-            return (
-              <div
-                key={u}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-950/70 border border-indigo-400/40 text-indigo-200 text-[11px]"
-              >
-                <Globe className="w-3 h-3 text-sky-400 shrink-0" />
-                <span className="truncate max-w-[180px]">{host}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
       {/* Composer Input Bar */}
       {variant === 'compact' ? (
         /* Compact Variant (e.g. Panel / Inline) */
