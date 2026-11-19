@@ -76,21 +76,6 @@ export const SystemStatusPage: React.FC = () => {
     },
   ];
 
-  const badgeClass = (status: SystemServiceStatus['status']) => {
-    switch (status) {
-      case 'operational':
-        return 'bg-emerald-950/75 text-emerald-300';
-      case 'configured':
-        return 'bg-sky-950/75 text-sky-300';
-      case 'standby':
-        return 'bg-amber-950/75 text-amber-300';
-      case 'degraded':
-      case 'unavailable':
-      default:
-        return 'bg-rose-950/75 text-rose-300';
-    }
-  };
-
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="rounded-3xl glass-panel-glow angel-blurred-surface bg-slate-950/38 backdrop-blur-2xl p-6 flex flex-wrap items-center justify-between gap-4">
@@ -165,9 +150,7 @@ export const SystemStatusPage: React.FC = () => {
               <span className="text-indigo-300">
                 {svc.latencyMs !== null ? `${svc.latencyMs}ms` : '—'}
               </span>
-              <span className={`px-3 py-1 rounded-full capitalize ${badgeClass(svc.status)}`}>
-                {svc.status}
-              </span>
+              <span className="capitalize text-slate-300">{svc.status}</span>
             </div>
           </div>
         ))}
