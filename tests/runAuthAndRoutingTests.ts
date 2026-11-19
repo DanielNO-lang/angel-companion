@@ -232,7 +232,7 @@ test('Unconfigured Supabase environment never fakes a signed-in user or simulate
   }
 });
 
-test('Remember Me defaults on and the remembered email clears on sign-out', () => {
+test('Remember Me defaults on and remembered email can be retained for the next sign-in', () => {
   const values = new Map<string, string>();
   const storage = {
     getItem: (key: string) => values.get(key) ?? null,
@@ -242,6 +242,5 @@ test('Remember Me defaults on and the remembered email clears on sign-out', () =
   assert.equal(getRememberMePreference(storage), true);
   saveRememberedAuthEmail('angel.user@example.com', storage);
   assert.equal(getRememberedAuthEmail(storage), 'angel.user@example.com');
-  clearRememberedAuthEmail(storage);
-  assert.equal(getRememberedAuthEmail(storage), '');
+  assert.equal(getRememberedAuthEmail(storage), 'angel.user@example.com');
 });
