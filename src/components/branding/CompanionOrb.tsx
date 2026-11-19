@@ -11,7 +11,6 @@ interface CompanionOrbProps {
 
 export const CompanionOrb: React.FC<CompanionOrbProps> = ({
   state = 'idle',
-  onStateChange,
   className = '',
   size = 200,
 }) => {
@@ -188,7 +187,7 @@ export const CompanionOrb: React.FC<CompanionOrbProps> = ({
       {/* Canvas Orb Rendering */}
       <div 
         className="relative cursor-pointer group"
-        title="Click to cycle Angel Companion Orb state"
+        title="Angel Companion Orb"
       >
         <canvas
           ref={canvasRef}
