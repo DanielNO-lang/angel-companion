@@ -30,7 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuthModal,
   isIncognitoActive = false,
   onOpenIncognitoChat,
-  activeThreadTitle = 'Project Planning',
+  activeThreadTitle = 'New Conversation',
   onResetConversation,
   onClearMessages,
   onExportConversation,
@@ -128,11 +128,6 @@ export const Header: React.FC<HeaderProps> = ({
               title="Notifications"
             >
               <Bell className="w-4 h-4 text-cyan-300" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[17px] h-[17px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold shadow-md shadow-red-500/50">
-                  {unreadCount}
-                </span>
-              )}
             </button>
 
             {/* Incognito Private Session Button */}
