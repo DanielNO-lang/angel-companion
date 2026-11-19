@@ -371,7 +371,7 @@ class AuthService {
         } catch {
           // Ignore local cleanup error
         }
-            this.snapshot = {
+        this.snapshot = {
           status: 'unauthenticated',
           user: null,
           session: null,
@@ -1144,7 +1144,6 @@ class AuthService {
       throw new Error('The session is still active after sign-out. Please try again.');
     }
 
-    clearRememberedAuthEmail();
     this.snapshot = {
       status: getSupabaseConfigState().isConfigured ? 'unauthenticated' : 'unconfigured',
       user: null,
