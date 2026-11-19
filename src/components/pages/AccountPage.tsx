@@ -110,10 +110,6 @@ export const AccountPage: React.FC<AccountPageProps> = ({
               <h2 className="text-xl font-bold font-heading text-white truncate">
                 {user?.fullName || 'Authenticated Angel User'}
               </h2>
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-950/75 text-emerald-300 text-[10px] font-bold inline-flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" />
-                <span>{user?.emailVerified ? 'Verified Account' : 'Authenticated'}</span>
-              </span>
             </div>
             <p className="text-xs text-slate-300 truncate mt-0.5">{user?.email || 'No email provided'}</p>
           </div>
@@ -190,15 +186,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                 </div>
               </div>
             </div>
-            <span
-              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 ${
-                emailConnected
-                  ? 'bg-emerald-950/75 text-emerald-300'
-                  : 'bg-slate-800/80 text-slate-400'
-              }`}
-            >
-              {emailConnected ? 'Connected' : 'Not connected'}
-            </span>
+            <span className="text-[10px] text-slate-500 shrink-0">{emailConnected ? 'Connected' : 'Not connected'}</span>
           </div>
 
           {/* OAuth Provider Identity Rows */}
@@ -298,9 +286,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="font-bold text-white">{app.name}</span>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800/80 text-slate-300">
-                  {app.status}
-                </span>
+                <span className="text-[10px] text-slate-500">{app.status}</span>
               </div>
               <p className="text-[11px] text-slate-300 leading-relaxed">{app.description}</p>
               <p className="text-[10px] text-cyan-300/85">
