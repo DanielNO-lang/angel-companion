@@ -364,30 +364,11 @@ export const LibraryPage: React.FC = () => {
                     {item.description || item.content.slice(0, 100)}
                   </p>
 
-                  {/* Association Badges */}
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    {linkedStudio && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-950/80 border border-cyan-500/30 text-cyan-300 font-semibold flex items-center gap-1">
-                        <Clapperboard className="w-3 h-3" />
-                        <span>{linkedStudio.name}</span>
-                      </span>
-                    )}
-                    {linkedProject && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950/80 border border-indigo-500/30 text-indigo-300 font-semibold flex items-center gap-1">
-                        <Folder className="w-3 h-3" />
-                        <span>{linkedProject.name}</span>
-                      </span>
-                    )}
-                    {item.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 text-slate-400 border border-slate-800 flex items-center gap-1"
-                      >
-                        <Tag className="w-2.5 h-2.5 text-slate-500" />
-                        <span>{tag}</span>
-                      </span>
-                    ))}
-                  </div>
+                  {(linkedStudio || linkedProject || item.tags.length > 0) && (
+                    <p className="text-[10px] text-slate-500 pt-1">
+                      {[linkedStudio?.name, linkedProject?.name, ...item.tags].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between text-[10px] text-slate-500 pt-3 border-t border-slate-900">
