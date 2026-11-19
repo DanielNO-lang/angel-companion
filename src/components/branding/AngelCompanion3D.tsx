@@ -15,10 +15,8 @@ interface AngelCompanion3DProps {
 
 export const AngelCompanion3D: React.FC<AngelCompanion3DProps> = ({
   state = 'idle',
-  onStateChange,
   size = 180,
   className = '',
-  showControls = true,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<CompanionOrbState>(state);
