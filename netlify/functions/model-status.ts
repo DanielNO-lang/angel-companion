@@ -4,7 +4,8 @@ export default async (request: Request): Promise<Response> => {
   const url = new URL(request.url);
   const forceRefresh = url.searchParams.get("refresh") === "1" || url.searchParams.get("refresh") === "true";
   const probeParam = url.searchParams.get("probe");
-  const liveProbe = probeParam === "generate" ? true : probeParam !== "none";
+  const liveProbe =
+    probeParam === "generate" ? true : probeParam === "none" ? false : undefined;
 
   const result = await handleModelStatusRequest({
     method: request.method,

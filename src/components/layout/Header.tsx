@@ -1,6 +1,8 @@
 import React from 'react';
-import { Bell, Glasses, Shield, Sun, Moon, Plus, Trash2, Share2 } from 'lucide-react';
+import { Bell, Glasses, Shield, Sun, Moon, Plus, Trash2, Share2, WifiOff } from 'lucide-react';
 import { AngelEmblem3D } from '../branding/AngelEmblem3D';
+import { PWAInstallButton } from '../pwa/PWAInstallButton';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { PrimaryNavItem } from '../../types/angel';
 
 interface HeaderProps {
@@ -30,12 +32,13 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuthModal,
   isIncognitoActive = false,
   onOpenIncognitoChat,
-  activeThreadTitle = 'New Conversation',
+  activeThreadTitle = 'Project Planning',
   onResetConversation,
   onClearMessages,
   onExportConversation,
 }) => {
   const isConversationMode = activeTab === 'new-conversation';
+  const isOnline = useOnlineStatus();
 
   return (
     <header className="sticky top-0 z-30 w-full py-2.5 px-3 sm:px-4 md:px-6 flex items-center justify-between pointer-events-auto select-none bg-transparent">
@@ -46,8 +49,8 @@ export const Header: React.FC<HeaderProps> = ({
           className="md:hidden p-1.5 rounded-2xl glass-panel hover:bg-slate-800/60 flex items-center gap-2 shrink-0 cursor-pointer"
           title="Open Navigation"
         >
-          <div className="w-7 h-7 flex items-center justify-center shrink-0">
-            <AngelEmblem3D size={28} seed="dashboard-header" rotationSpeed={10} tiltOnHover={true} />
+          <div className="w-8 h-8 flex items-center justify-center shrink-0">
+            <AngelEmblem3D size={32} seed="dashboard-header" renderMode="3d" rotationSpeed={18} tiltOnHover={true} />
           </div>
           <span className="text-xs font-bold font-heading text-white">ANGEL</span>
         </button>
@@ -102,7 +105,24 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         ) : (
           /* STANDARD HOME TOP OPTIONS */
-          <> 
+          <>
+            <PWAInstallButton compact theme={theme} />
+
+            {/* Verified Account / Offline Session Badge */}
+            <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-[#090d24]/40 backdrop-blur-md text-[11px] sm:text-xs font-medium text-slate-200 border-0 shadow-[0_0_12px_rgba(99,102,241,0.2)]">
+              {!isOnline ? (
+                <>
+                  <WifiOff className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span className="text-amber-300 font-semibold">Offline Cache</span>
+                </>
+              ) : (
+                <>
+                  <span className="bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-400 bg-clip-text text-transparent font-bold">Account</span>
+                  <span className="text-slate-500">•</span>
+                  <span className="text-slate-300 font-medium">Verified</span>
+                </>
+              )}
+            </div>
 
             {/* Theme Toggle */}
             {onToggleTheme && (
@@ -128,6 +148,11 @@ export const Header: React.FC<HeaderProps> = ({
               title="Notifications"
             >
               <Bell className="w-4 h-4 text-cyan-300" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[17px] h-[17px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold shadow-md shadow-red-500/50">
+                  {unreadCount}
+                </span>
+              )}
             </button>
 
             {/* Incognito Private Session Button */}

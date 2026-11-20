@@ -1,0 +1,32 @@
+{
+  "id": "/",
+  "name": "Angel - Universal Personal AI Companion",
+  "short_name": "Angel",
+  "description": "Unified personal AI companion with offline-capable conversation history, adaptive workspaces, and specialized studios.",
+  "lang": "en",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#070815",
+  "background_color": "#070815",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

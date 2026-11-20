@@ -186,7 +186,7 @@ export class AgentEngine {
       }
       this.persist(false);
     } catch (error) {
-      console.warn('[AgentEngine] Cloud restore deferred:', error);
+      companionData.reportEngineSyncError('companion_agent_executions', error);
     }
   }
 
@@ -195,7 +195,7 @@ export class AgentEngine {
     storageService.save(this.scopedKey(HISTORY_KEY), this.executionHistory);
     if (syncToCloud && this.accessToken && this.activeUserId && companionData.isCloudConfigured() && this.executionHistory.length > 0) {
       void companionData.syncAgentExecutions(this.accessToken, this.executionHistory, this.activeUserId).catch((error) => {
-        console.warn('[AgentEngine] Cloud sync deferred:', error);
+        companionData.reportEngineSyncError('companion_agent_executions', error);
       });
     }
   }

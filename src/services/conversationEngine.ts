@@ -4,6 +4,15 @@ import { memoryEngine } from './memoryEngine';
 import { companionData } from './companionData';
 import { extractIntelligentTitle, geminiModelService } from './geminiModelService';
 import { toFriendlyError } from './errorHandlingService';
+import {
+  loadRecentConversationsFromCache,
+  mergeConversationSnapshots,
+  pruneThreadsForLocalCache,
+  readSnapshotFromCacheStorage,
+  saveRecentConversationsToCache,
+  writeSnapshotToCacheStorage,
+  type OfflineCacheStatus,
+} from './conversationCache';
 
 export type ConversationScope = 'general' | 'studio';
 
@@ -46,9 +55,21 @@ export class ConversationEngine {
   private cloudHydrationToken: string | null = null;
   private inFlightThreads = new Set<string>();
   private changeListeners = new Set<() => void>();
+  private pendingCloudSync = false;
+  private lastCachedAt: string | null = null;
+  private onlineSyncBound = false;
 
   constructor() {
     this.loadCurrentScope();
+    this.bindOnlineReconnectListener();
+  }
+
+  private bindOnlineReconnectListener(): void {
+    if (this.onlineSyncBound || typeof window === 'undefined') return;
+    this.onlineSyncBound = true;
+    window.addEventListener('online', () => {
+      void this.reconcileOnReconnect();
+    });
   }
 
   public subscribe(listener: () => void): () => void {
@@ -72,17 +93,34 @@ export class ConversationEngine {
     return this.activeUserId ? `${base}:user:${this.activeUserId}` : base;
   }
 
+  private cacheScopeKey(): string {
+    return this.activeUserId || 'anon';
+  }
+
+  private isBrowserOffline(): boolean {
+    return typeof navigator !== 'undefined' && navigator.onLine === false;
+  }
+
   private loadCurrentScope(): void {
+    const scopeKey = this.cacheScopeKey();
     const loaded = storageService.load<ConversationThread[]>(
       this.scopedKey(STORAGE_KEYS.conversations),
       DEFAULT_CONVERSATIONS
     );
-    const demoSeedIds = new Set(['conv_general_1', 'conv_studio_res_1', 'conv_studio_dev_1']);
-    this.threads = Array.isArray(loaded)
-      ? loaded
-          .filter((thread) => !demoSeedIds.has(thread.id))
-          .map((thread) => (thread.scope ? thread : { ...thread, scope: 'general' as const }))
-      : [];
+    const primaryThreads = pruneThreadsForLocalCache(Array.isArray(loaded) ? loaded : []);
+    const cachedSnapshot = loadRecentConversationsFromCache(scopeKey);
+
+    if (cachedSnapshot) {
+      this.pendingCloudSync = cachedSnapshot.pendingCloudSync;
+      this.lastCachedAt = cachedSnapshot.cachedAt;
+    } else {
+      this.pendingCloudSync = false;
+      this.lastCachedAt = null;
+    }
+
+    this.threads = cachedSnapshot?.threads.length
+      ? mergeConversationSnapshots(primaryThreads, cachedSnapshot.threads)
+      : primaryThreads;
 
     this.activeGeneralId = storageService.load<string>(
       this.scopedKey(STORAGE_KEYS.activeConversationId),
@@ -92,17 +130,100 @@ export class ConversationEngine {
       this.scopedKey('angel_active_studio_convs_v1'),
       {}
     );
+
+    if (this.threads.length > 0 && !this.lastCachedAt) {
+      const snapshot = saveRecentConversationsToCache(scopeKey, this.threads, this.pendingCloudSync);
+      this.lastCachedAt = snapshot.cachedAt;
+      void writeSnapshotToCacheStorage(snapshot);
+    }
+
     this.notifyChange();
+
+    // Hydrate from Service Worker / CacheStorage mirror asynchronously if it holds newer or missing threads
+    void this.hydrateFromCacheStorage(scopeKey);
+  }
+
+  private async hydrateFromCacheStorage(scopeKey: string): Promise<void> {
+    const swSnapshot = await readSnapshotFromCacheStorage(scopeKey);
+    if (!swSnapshot || swSnapshot.threads.length === 0) return;
+    if (this.cacheScopeKey() !== scopeKey) return;
+
+    const merged = mergeConversationSnapshots(this.threads, swSnapshot.threads);
+    const changed =
+      merged.length !== this.threads.length ||
+      merged.some((thread, idx) => {
+        const current = this.threads[idx];
+        return (
+          !current ||
+          current.id !== thread.id ||
+          current.updatedAt !== thread.updatedAt ||
+          current.messages.length !== thread.messages.length
+        );
+      });
+
+    if (changed) {
+      this.threads = merged;
+      this.lastCachedAt = swSnapshot.cachedAt;
+      this.pendingCloudSync = this.pendingCloudSync || swSnapshot.pendingCloudSync;
+      storageService.save(this.scopedKey(STORAGE_KEYS.conversations), this.threads);
+      saveRecentConversationsToCache(scopeKey, this.threads, this.pendingCloudSync);
+      this.notifyChange();
+    }
   }
 
   private persist(): void {
+    const scopeKey = this.cacheScopeKey();
+    const shouldDeferCloud =
+      Boolean(this.accessToken && companionData.isCloudConfigured()) && this.isBrowserOffline();
+    if (shouldDeferCloud) {
+      this.pendingCloudSync = true;
+    }
+
     storageService.save(this.scopedKey(STORAGE_KEYS.conversations), this.threads);
     storageService.save(this.scopedKey(STORAGE_KEYS.activeConversationId), this.activeGeneralId);
     storageService.save(this.scopedKey('angel_active_studio_convs_v1'), this.activeStudioIds);
+
+    const snapshot = saveRecentConversationsToCache(scopeKey, this.threads, this.pendingCloudSync);
+    this.lastCachedAt = snapshot.cachedAt;
+    void writeSnapshotToCacheStorage(snapshot);
+
     this.notifyChange();
-    if (this.accessToken && companionData.isCloudConfigured()) {
+    if (this.accessToken && companionData.isCloudConfigured() && !this.isBrowserOffline()) {
       void this.syncCloud();
     }
+  }
+
+  public async reconcileOnReconnect(): Promise<void> {
+    if (this.isBrowserOffline()) return;
+    if (!this.accessToken || !this.activeUserId || !companionData.isCloudConfigured()) return;
+    if (this.pendingCloudSync) {
+      await this.syncCloud();
+    }
+    await this.restoreCloud(this.accessToken);
+  }
+
+  public getOfflineCacheStatus(): OfflineCacheStatus {
+    const messageCount = this.threads.reduce((sum, thread) => sum + thread.messages.length, 0);
+    return {
+      cachedAt: this.lastCachedAt,
+      threadCount: this.threads.filter((thread) => !thread.isArchived).length,
+      messageCount,
+      pendingCloudSync: this.pendingCloudSync,
+    };
+  }
+
+  public getRecentThreads(limit: number = 8): ConversationThread[] {
+    const activeThreads = this.threads.filter((thread) => !thread.isArchived);
+    const withMessages = activeThreads.filter((thread) => thread.messages.length > 0);
+    const source = withMessages.length > 0 ? activeThreads : activeThreads;
+    return [...source]
+      .sort((a, b) => {
+        if ((a.messages.length > 0) !== (b.messages.length > 0)) {
+          return a.messages.length > 0 ? -1 : 1;
+        }
+        return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+      })
+      .slice(0, Math.max(1, limit));
   }
 
   public setAccessToken(token: string | null, userId?: string | null): void {
@@ -122,7 +243,7 @@ export class ConversationEngine {
       return;
     }
 
-    if ((this.cloudHydrationToken !== token || identityChanged) && companionData.isCloudConfigured()) {
+    if ((this.cloudHydrationToken !== token || identityChanged) && companionData.isCloudConfigured() && !this.isBrowserOffline()) {
       this.cloudHydrationToken = token;
       void this.restoreCloud(token);
     }
@@ -134,6 +255,10 @@ export class ConversationEngine {
 
   private async syncCloud(): Promise<void> {
     if (!this.accessToken || !this.activeUserId || !companionData.isCloudConfigured()) return;
+    if (this.isBrowserOffline()) {
+      this.pendingCloudSync = true;
+      return;
+    }
     if (this.cloudSyncRunning) {
       this.cloudSyncQueued = true;
       return;
@@ -148,7 +273,12 @@ export class ConversationEngine {
         if (!token || !ownerId) break;
         await companionData.syncThreads(token, this.threads, ownerId);
       } while (this.cloudSyncQueued && this.accessToken);
+      this.pendingCloudSync = false;
+      const snapshot = saveRecentConversationsToCache(this.cacheScopeKey(), this.threads, false);
+      this.lastCachedAt = snapshot.cachedAt;
+      void writeSnapshotToCacheStorage(snapshot);
     } catch (error) {
+      this.pendingCloudSync = true;
       console.warn('[ConversationEngine] Cloud sync deferred:', error);
     } finally {
       this.cloudSyncRunning = false;
@@ -157,7 +287,7 @@ export class ConversationEngine {
 
   private async restoreCloud(token: string): Promise<void> {
     const ownerId = this.activeUserId;
-    if (!ownerId || !companionData.isCloudConfigured()) return;
+    if (!ownerId || !companionData.isCloudConfigured() || this.isBrowserOffline()) return;
     try {
       const cloudThreads = await companionData.loadThreads(token);
       if (this.accessToken !== token || this.activeUserId !== ownerId) return;

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bot, User, Volume2, Copy, Check, RotateCw, ArrowDown, AlertCircle } from 'lucide-react';
+import { Bot, User, Volume2, Copy, Check, RotateCw, ArrowDown, AlertCircle, WifiOff } from 'lucide-react';
 import { CompanionOrbState, StudioId } from '../../types/angel';
 import { conversationEngine, ConversationThread } from '../../services/conversationEngine';
 import { voiceEngine } from '../../services/voiceEngine';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { ComposerBar } from '../home/ComposerBar';
 import { MessageAttachmentsAndLinks } from '../chat/MessageAttachmentsAndLinks';
 
@@ -172,6 +173,7 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
   orbState,
   onOrbStateChange,
 }) => {
+  const isOnline = useOnlineStatus();
   const [activeThread, setActiveThread] = useState<ConversationThread>(() =>
     conversationEngine.getActiveThread('general')
   );
@@ -215,6 +217,11 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
   }, [activeThread.messages]);
 
   const handleRetry = async () => {
+    if (!isOnline) {
+      setStatusNotice('Offline — viewing cached history. Reconnect to generate a fresh reply.');
+      setTimeout(() => setStatusNotice(null), 3500);
+      return;
+    }
     setIsRetrying(true);
     setStatusNotice('Re-attempting response...');
     try {
@@ -248,6 +255,17 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
       {statusNotice && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 px-4 py-1.5 rounded-full bg-slate-950/90 text-xs text-cyan-200 font-semibold shadow-[0_0_20px_rgba(56,189,248,0.5)] border border-cyan-500/20 animate-in fade-in">
           {statusNotice}
+        </div>
+      )}
+
+      {/* Offline Cached Thread Strip */}
+      {!isOnline && (
+        <div
+          data-thread-offline-strip="true"
+          className="mx-2 sm:mx-4 mt-2 px-3.5 py-2 rounded-2xl bg-amber-500/15 border border-amber-400/30 text-amber-200 text-xs flex items-center gap-2 shrink-0 backdrop-blur-md"
+        >
+          <WifiOff className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+          <span>Offline — showing locally cached conversation history. Live replies resume when reconnected.</span>
         </div>
       )}
 

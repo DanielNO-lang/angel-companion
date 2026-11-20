@@ -12,6 +12,7 @@ import { companionData } from './companionData';
 import { voiceEngine } from './voiceEngine';
 import { mediaStreamService } from './mediaStreamService';
 import { getStoredThemeMode, saveStoredThemeMode } from './authValidation';
+import { eventBus } from './AngelEventBus';
 
 export interface CloudAuthContextInput {
   status: string;
@@ -122,6 +123,7 @@ class CloudSyncCoordinator {
     permissionsEngine.setUserContext(null);
     universalComposerService.setUserContext(null);
     universalAttachmentService.setUserContext(null);
+    eventBus.clearHistory();
   }
 }
 

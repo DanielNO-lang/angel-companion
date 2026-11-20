@@ -175,13 +175,13 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({
                   </p>
                 </div>
                 <div className="shrink-0 flex items-center justify-center ml-auto">
-                  <AngelEmblem3D size={50} seed="auth-mobile" rotationSpeed={16} tiltOnHover={true} />
+                  <AngelEmblem3D size={50} seed="auth-mobile" renderMode="3d" rotationSpeed={18} tiltOnHover={true} />
                 </div>
               </div>
 
               {/* Desktop subtle canonical emblem mark in form header */}
               <div className="hidden lg:flex items-center gap-2.5 mb-3">
-                <AngelEmblem3D size={24} seed="auth-header-desktop" renderMode="svg" rotationSpeed={16} />
+                <AngelEmblem3D size={28} seed="auth-header-desktop" renderMode="3d" rotationSpeed={18} tiltOnHover={true} />
                 <span
                   className={`text-xs font-bold tracking-[0.22em] uppercase font-heading ${
                     isLight ? 'text-indigo-700' : 'text-cyan-300'

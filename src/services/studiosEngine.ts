@@ -161,7 +161,7 @@ export class StudiosEngine {
       });
       this.persist(false);
     } catch (error) {
-      console.warn('[StudiosEngine] Cloud restore deferred:', error);
+      companionData.reportEngineSyncError('companion_studios_state', error);
     }
   }
 
@@ -177,7 +177,7 @@ export class StudiosEngine {
     storageService.save(this.scopedKey(STORAGE_KEYS.studiosState), this.studioStates);
     if (syncToCloud && this.accessToken && this.activeUserId && companionData.isCloudConfigured()) {
       void companionData.syncStudiosState(this.accessToken, this.studioStates, this.activeUserId).catch((error) => {
-        console.warn('[StudiosEngine] Cloud sync deferred:', error);
+        companionData.reportEngineSyncError('companion_studios_state', error);
       });
     }
   }

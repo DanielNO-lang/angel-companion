@@ -159,7 +159,7 @@ export const PrivacyClosingFooter: React.FC<PrivacyClosingFooterProps> = ({
         >
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 flex items-center justify-center shrink-0">
-              <AngelEmblem3D size={32} seed="landing-footer" rotationSpeed={14} />
+              <AngelEmblem3D size={32} seed="landing-footer" renderMode="3d" rotationSpeed={18} tiltOnHover={true} />
             </div>
             <div className="text-left">
               <div className={`text-sm font-bold tracking-[0.2em] font-heading ${isLight ? 'text-slate-900' : 'text-white'}`}>

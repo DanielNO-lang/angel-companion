@@ -91,13 +91,21 @@ export class CentralStore {
 
     // Listen to event bus and auth service for auto-synchronizing store
     authService.subscribe((snap) => {
+      const isAuthed = snap.status === 'authenticated';
       this.state.userSession = {
         userId: snap.user?.id || '',
         name: snap.user?.fullName || 'Guest',
         email: snap.user?.email || '',
-        tier: snap.status === 'authenticated' ? 'Verified Account' : 'Unauthenticated',
-        isAuthenticated: snap.status === 'authenticated',
+        tier: isAuthed ? 'Verified Account' : 'Unauthenticated',
+        isAuthenticated: isAuthed,
       };
+      if (!isAuthed) {
+        this.state.currentDestination = 'home';
+        this.state.orbState = 'idle';
+        this.state.activeStudioId = 'research-studio';
+        this.syncState();
+        return;
+      }
       this.notify();
     });
     eventBus.subscribe('conversation:updated', () => this.syncState());

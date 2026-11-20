@@ -4,6 +4,7 @@ import type { LibraryItem } from './libraryService';
 import type { WorkspaceProject } from './workspaceEngine';
 import type { StudioState } from './studiosEngine';
 import type { AgentExecutionRecord } from './agentEngine';
+import { logSanitizedDiagnostic } from './errorHandlingService';
 
 const viteEnv = (import.meta as unknown as {
   env?: Record<string, string | undefined>;
@@ -29,6 +30,47 @@ function readSupabaseConfig(): { url: string | null; key: string | null } {
 
 export const PRIVATE_STORAGE_BUCKET = 'companion-private';
 
+export interface CloudSyncHealthState {
+  status: 'healthy' | 'degraded' | 'missing_tables';
+  missingTables: string[];
+  lastError: string | null;
+  lastErrorAt: string | null;
+}
+
+const cloudSyncHealth: CloudSyncHealthState = {
+  status: 'healthy',
+  missingTables: [],
+  lastError: null,
+  lastErrorAt: null,
+};
+
+const cloudHealthListeners = new Set<(state: CloudSyncHealthState) => void>();
+
+function notifyCloudHealth() {
+  const snapshot: CloudSyncHealthState = {
+    ...cloudSyncHealth,
+    missingTables: [...cloudSyncHealth.missingTables],
+  };
+  cloudHealthListeners.forEach((fn) => fn(snapshot));
+}
+
+function extractTableNameFromPath(path: string): string | null {
+  const clean = path.split('?')[0].replace(/^\/+/, '');
+  return clean.startsWith('companion_') ? clean : null;
+}
+
+function isMissingRelationError(status: number, body: any): boolean {
+  const code = String(body?.code || '').toUpperCase();
+  const msg = String(body?.message || body?.details || '').toLowerCase();
+  return (
+    code === 'PGRST205' ||
+    code === '42P01' ||
+    (status === 404 && (msg.includes('could not find the table') || msg.includes('schema cache') || msg.includes('does not exist'))) ||
+    msg.includes('could not find the table') ||
+    (msg.includes('relation') && msg.includes('does not exist'))
+  );
+}
+
 async function restRequest(path: string, token: string, init: RequestInit = {}) {
   const { url, key } = readSupabaseConfig();
   if (!url || !key) {
@@ -49,7 +91,33 @@ async function restRequest(path: string, token: string, init: RequestInit = {}) 
   if (response.status === 204) return null;
   const body = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(body?.message || body?.details || `Cloud sync request failed (${response.status}).`);
+    const tableName = extractTableNameFromPath(path);
+    const missingTable = isMissingRelationError(response.status, body);
+    const message = body?.message || body?.details || `Cloud sync request failed (${response.status}).`;
+
+    if (missingTable && tableName && !cloudSyncHealth.missingTables.includes(tableName)) {
+      cloudSyncHealth.missingTables.push(tableName);
+    }
+    cloudSyncHealth.status = cloudSyncHealth.missingTables.length > 0 ? 'missing_tables' : 'degraded';
+    cloudSyncHealth.lastError = missingTable && tableName
+      ? `Cloud table public.${tableName} is not provisioned in Supabase yet.`
+      : 'Cloud synchronization encountered a temporary server error.';
+    cloudSyncHealth.lastErrorAt = new Date().toISOString();
+
+    logSanitizedDiagnostic({
+      category: 'server_failure',
+      context: 'feature',
+      statusCode: response.status,
+      rawError: message,
+      metadata: {
+        table: tableName || 'unknown',
+        missingTable,
+        pgCode: typeof body?.code === 'string' ? body.code : 'none',
+      },
+    });
+    notifyCloudHealth();
+
+    throw new Error(message);
   }
   return body;
 }
@@ -82,6 +150,55 @@ export const companionData = {
   isCloudConfigured(): boolean {
     const { url, key } = readSupabaseConfig();
     return Boolean(url && key);
+  },
+
+  getCloudSyncHealth(): CloudSyncHealthState {
+    return {
+      ...cloudSyncHealth,
+      missingTables: [...cloudSyncHealth.missingTables],
+    };
+  },
+
+  subscribeCloudSyncHealth(listener: (state: CloudSyncHealthState) => void): () => void {
+    cloudHealthListeners.add(listener);
+    listener(this.getCloudSyncHealth());
+    return () => {
+      cloudHealthListeners.delete(listener);
+    };
+  },
+
+  resetCloudSyncHealth(): void {
+    cloudSyncHealth.status = 'healthy';
+    cloudSyncHealth.missingTables = [];
+    cloudSyncHealth.lastError = null;
+    cloudSyncHealth.lastErrorAt = null;
+    notifyCloudHealth();
+  },
+
+  reportEngineSyncError(table: string, error: unknown): void {
+    const rawMsg = error instanceof Error ? error.message : String(error || 'Cloud sync failure');
+    const lower = rawMsg.toLowerCase();
+    const missing =
+      lower.includes('could not find the table') ||
+      lower.includes('does not exist') ||
+      lower.includes('pgrst205') ||
+      lower.includes('schema cache');
+
+    if (missing && !cloudSyncHealth.missingTables.includes(table)) {
+      cloudSyncHealth.missingTables.push(table);
+    }
+    cloudSyncHealth.status = cloudSyncHealth.missingTables.length > 0 ? 'missing_tables' : 'degraded';
+    cloudSyncHealth.lastError = missing
+      ? `Cloud table public.${table} is pending migration; changes are preserved locally.`
+      : 'Cloud sync paused temporarily; changes are preserved locally.';
+    cloudSyncHealth.lastErrorAt = new Date().toISOString();
+    logSanitizedDiagnostic({
+      category: 'server_failure',
+      context: 'feature',
+      rawError: rawMsg,
+      metadata: { table, missingTable: missing },
+    });
+    notifyCloudHealth();
   },
 
   // --- CONVERSATIONS & MESSAGES ---

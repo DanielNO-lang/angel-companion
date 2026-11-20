@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Moon, Sun, ArrowRight } from 'lucide-react';
 import { AngelEmblem3D } from '../branding/AngelEmblem3D';
+import { PWAInstallButton } from '../pwa/PWAInstallButton';
 import type { AppRoute, ThemeMode } from '../../services/authValidation';
 
 interface LandingNavProps {
@@ -106,7 +107,7 @@ export const LandingNav: React.FC<LandingNavProps> = ({
           aria-label="Angel Companion Home"
         >
           <div className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center shrink-0 transition-[scale] duration-300 group-hover:scale-110">
-            <AngelEmblem3D size={32} seed="landing-hero" rotationSpeed={18} tiltOnHover={true} />
+            <AngelEmblem3D size={34} seed="landing-hero" renderMode="3d" rotationSpeed={18} tiltOnHover={true} />
           </div>
           <span className="text-xs sm:text-base font-bold tracking-[0.12em] sm:tracking-[0.2em] font-heading">
             ANGEL
@@ -146,8 +147,9 @@ export const LandingNav: React.FC<LandingNavProps> = ({
           })}
         </div>
 
-        {/* Right Controls: Theme Toggle, Sign In, Get Started */}
+        {/* Right Controls: Install App (when eligible), Theme Toggle, Sign In, Get Started */}
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          <PWAInstallButton compact theme={theme} />
           <button
             type="button"
             onClick={onToggleTheme}

@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { PrimaryNavItem, CompanionOrbState, ActivityRecord, NotificationItem, FeatureMeta } from '../types/angel';
+import { useState, useEffect, useCallback } from 'react';
+import { PrimaryNavItem, CompanionOrbState, ActivityRecord, NotificationItem, FeatureMeta, StudioId } from '../types/angel';
 import { ANGEL_FEATURE_REGISTRY } from '../services/featureStatus';
-import { conversationEngine } from '../services/conversationEngine';
+import { conversationEngine, type ConversationScope } from '../services/conversationEngine';
+import { studiosEngine } from '../services/studiosEngine';
 import { getStoredThemeMode, saveStoredThemeMode } from '../services/authValidation';
 
 export function useAngelState() {
@@ -98,6 +99,22 @@ export function useAngelState() {
     setActiveTab(navId);
   };
 
+  const handleSelectThread = useCallback(
+    (threadId: string, scope: ConversationScope = 'general', studioId?: StudioId) => {
+      setActiveQuickChip(null);
+      conversationEngine.setActiveThread(threadId);
+      if (scope === 'studio' && studioId) {
+        studiosEngine.setActiveStudioId(studioId);
+        setActiveTab('studios');
+      } else {
+        setActiveTab('new-conversation');
+      }
+      setMorePopupOpen(false);
+      setMobileMenuOpen(false);
+    },
+    []
+  );
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -112,6 +129,21 @@ export function useAngelState() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const resetStateOnSignOut = useCallback(() => {
+    setActiveTab('home');
+    setMorePopupOpen(false);
+    setMobileMenuOpen(false);
+    setSidebarCollapsed(false);
+    setOrbState('idle');
+    setComposerText('');
+    setActiveQuickChip(null);
+    setActiveModal(null);
+    setModalFeature(null);
+    setSearchQuery('');
+    setActivities([]);
+    setNotifications([]);
   }, []);
 
   return {
@@ -141,6 +173,8 @@ export function useAngelState() {
     notifications,
     unreadNotificationCount,
     handleNavClick,
+    handleSelectThread,
+    resetStateOnSignOut,
     markNotificationsRead: () => setNotifications((prev) => prev.map((n) => ({ ...n, read: true }))),
     deleteNotifications: (ids: string[]) => setNotifications((prev) => prev.filter((n) => !ids.includes(n.id))),
   };

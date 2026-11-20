@@ -807,3 +807,67 @@ test('Agent permissions, cancellation, mediaStreamService, voiceEngine, and Rend
     agentEngine.setAgentStatus('agent_code', 'idle');
   }
 });
+
+test('Supabase repair migration covers all 3 tables, companionData surfaces missing_tables cleanly, and Gemini maps 429 quota cleanly', async () => {
+  const migrationPath = path.resolve(
+    process.cwd(),
+    'supabase/migrations/20261120120000_ensure_companion_workspace_studios_agents.sql'
+  );
+  assert.ok(fs.existsSync(migrationPath), 'Idempotent repair migration must exist');
+  const sql = fs.readFileSync(migrationPath, 'utf8');
+  assert.ok(sql.includes('companion_projects'));
+  assert.ok(sql.includes('companion_studios_state'));
+  assert.ok(sql.includes('companion_agent_executions'));
+  assert.ok(sql.toLowerCase().includes('notify pgrst'));
+
+  // Missing table report updates cloudSyncHealth instead of silently hiding schema errors
+  companionData.resetCloudSyncHealth();
+  companionData.reportEngineSyncError(
+    'companion_projects',
+    new Error('Supabase request failed (404): Could not find the table public.companion_projects in the schema cache (PGRST205)')
+  );
+  const health = companionData.getCloudSyncHealth();
+  assert.equal(health.status, 'missing_tables');
+  assert.ok(health.missingTables.includes('companion_projects'));
+  companionData.resetCloudSyncHealth();
+
+  // Gemini 429 quota exceeded maps to 429 RATE_LIMITED in chat and keeps providerReachable true in status when models.get passes
+  resetBackendCachesForTesting();
+  const quotaChat = await handleChatRequest(
+    { method: 'POST', authorizationHeader: 'Bearer tok', body: { messages: [{ role: 'user', content: 'hi' }] } },
+    {
+      env: AUTH_ENV,
+      fetchImpl: makeAuthFetch('user_quota'),
+      createGeminiClient: () => ({
+        models: {
+          generateContent: async () => {
+            throw new Error('429 RESOURCE_EXHAUSTED: Quota exceeded');
+          },
+        },
+      }),
+    }
+  );
+  assert.equal(quotaChat.statusCode, 429);
+  assert.equal(quotaChat.body.code, 'RATE_LIMITED');
+
+  resetBackendCachesForTesting();
+  const statusQuotaProbe = await handleModelStatusRequest(
+    { method: 'GET', forceRefresh: true, liveProbe: true },
+    {
+      env: AUTH_ENV,
+      createGeminiClient: () => ({
+        models: {
+          get: async () => ({ name: DEFAULT_GEMINI_MODEL }),
+          generateContent: async () => {
+            throw new Error('429 RESOURCE_EXHAUSTED: Quota exceeded');
+          },
+        },
+      }),
+    }
+  );
+  assert.equal(statusQuotaProbe.statusCode, 200);
+  assert.equal(statusQuotaProbe.body.providerReachable, true);
+  assert.equal(statusQuotaProbe.body.state, 'provider_reachable');
+  assert.equal(statusQuotaProbe.body.probeDiagnosticCode, 'QUOTA_EXCEEDED');
+});
+

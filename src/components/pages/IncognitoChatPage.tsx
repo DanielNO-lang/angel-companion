@@ -63,8 +63,8 @@ export const IncognitoChatPage: React.FC<IncognitoChatPageProps> = ({ onReturnTo
       <header className="w-full sticky top-0 z-30 px-4 sm:px-6 py-3 bg-transparent border-0 flex items-center justify-between shrink-0">
         {/* Top Left Branding - Icon & Title always visible */}
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 flex items-center justify-center shrink-0">
-            <AngelEmblem3D size={28} seed="incognito-header" rotationSpeed={10} tiltOnHover={true} />
+          <div className="w-8 h-8 flex items-center justify-center shrink-0">
+            <AngelEmblem3D size={30} seed="incognito-header" renderMode="3d" rotationSpeed={18} tiltOnHover={true} />
           </div>
           <span className="text-sm font-bold font-heading text-white tracking-wide">
             Private Mode

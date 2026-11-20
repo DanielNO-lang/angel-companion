@@ -13,8 +13,14 @@ import {
   parseAuthCallbackParams,
   saveRememberMePreference,
   saveRememberedAuthEmail,
+  clearRememberedAuthEmail,
   type ParsedAuthCallback,
 } from './authValidation';
+import {
+  clearSupabaseAuthTokensFromStorage,
+  hasSupabaseSessionTokenInStorage,
+  saveRememberedAccount,
+} from './rememberedAccounts';
 
 export type AuthStatus = 'loading' | 'unauthenticated' | 'authenticated' | 'unconfigured';
 
@@ -73,28 +79,67 @@ export interface AuthActionResult {
   email?: string;
   user?: AuthUser;
   redirectUrl?: string;
-  requiresTopWindowLink?: boolean;
 }
 
-function attemptOAuthNavigation(url: string): {
+const AUTH_SYNC_CHANNEL_NAME = 'angel_auth_sync_v1';
+const AUTH_SYNC_STORAGE_KEY = 'angel_auth_sync_event_v1';
+
+export function broadcastCrossTabAuthEvent(type: 'authenticated' | 'signed_out'): void {
+  if (typeof window === 'undefined') return;
+  const payload = { type, ts: Date.now() };
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const ch = new BroadcastChannel(AUTH_SYNC_CHANNEL_NAME);
+      ch.postMessage(payload);
+      ch.close();
+    }
+  } catch {
+    // Ignore BroadcastChannel unavailability
+  }
+  try {
+    window.localStorage.setItem(AUTH_SYNC_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+export function attemptOAuthNavigation(url: string): {
   navigated: boolean;
+  openedNewTab: boolean;
   inIframe: boolean;
-  requiresTopWindowLink: boolean;
 } {
   if (typeof window === 'undefined') {
-    return { navigated: false, inIframe: false, requiresTopWindowLink: false };
+    return { navigated: false, openedNewTab: false, inIframe: false };
   }
   const inIframe = Boolean(window.top && window.top !== window.self);
+
+  if (typeof document !== 'undefined' && document.body) {
+    try {
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return { navigated: true, openedNewTab: true, inIframe };
+    } catch {
+      // Fall through to top-window or current-window redirect
+    }
+  }
+
   if (inIframe && window.top) {
     try {
       window.top.location.href = url;
-      return { navigated: true, inIframe: true, requiresTopWindowLink: false };
+      return { navigated: true, openedNewTab: false, inIframe: true };
     } catch {
-      return { navigated: false, inIframe: true, requiresTopWindowLink: true };
+      // Cross-origin frame restriction fallback
     }
   }
+
   window.location.assign(url);
-  return { navigated: true, inIframe: false, requiresTopWindowLink: false };
+  return { navigated: true, openedNewTab: false, inIframe };
 }
 
 export function classifySupabaseAuthError(
@@ -169,6 +214,33 @@ function mapSupabaseUser(user: User): AuthUser {
   };
 }
 
+function recordRememberedUserAccount(
+  mappedUser: AuthUser,
+  rawUser?: User | null,
+  preferredProvider?: string
+): void {
+  if (!mappedUser.email) return;
+  const appMetaProvider =
+    typeof rawUser?.app_metadata?.provider === 'string'
+      ? rawUser.app_metadata.provider
+      : undefined;
+  const primaryProvider =
+    preferredProvider ||
+    appMetaProvider ||
+    mappedUser.providers[0] ||
+    'email';
+
+  saveRememberedAccount({
+    id: mappedUser.id,
+    email: mappedUser.email,
+    fullName: mappedUser.fullName,
+    initials: mappedUser.initials,
+    avatarUrl: mappedUser.avatarUrl,
+    primaryProvider,
+    providers: mappedUser.providers.length > 0 ? mappedUser.providers : [primaryProvider],
+  });
+}
+
 function mapIdentities(user: User | null, explicitList?: UserIdentity[]): AuthIdentityInfo[] {
   const rawList = explicitList || user?.identities || [];
   return rawList.map((item) => ({
@@ -200,15 +272,21 @@ export interface BuiltOAuthSignInOptions {
 export function buildOAuthSignInOptions(
   provider: AuthProviderId,
   redirectTo: string = getCallbackUrl('/auth/callback'),
-  scopes?: string
+  scopes?: string,
+  loginHint?: string
 ): BuiltOAuthSignInOptions {
   const options: BuiltOAuthSignInOptions = {
     redirectTo,
     ...(scopes ? { scopes } : {}),
   };
 
+  const cleanHint = loginHint?.trim();
   if (provider === 'google') {
-    options.queryParams = { prompt: 'select_account' };
+    options.queryParams = cleanHint
+      ? { login_hint: cleanHint }
+      : { prompt: 'select_account' };
+  } else if (provider === 'azure' && cleanHint) {
+    options.queryParams = { login_hint: cleanHint };
   }
 
   return options;
@@ -272,6 +350,72 @@ class AuthService {
     this.codeExchangeCache.clear();
   }
 
+  public subscribeToCrossTabAuthSync(
+    onAuthenticated: () => void,
+    onSignedOut: () => void
+  ): () => void {
+    if (typeof window === 'undefined') return () => {};
+
+    let channel: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        channel = new BroadcastChannel(AUTH_SYNC_CHANNEL_NAME);
+        channel.onmessage = (event: MessageEvent<{ type?: string }>) => {
+          if (event.data?.type === 'authenticated') {
+            onAuthenticated();
+          } else if (event.data?.type === 'signed_out') {
+            onSignedOut();
+          }
+        };
+      }
+    } catch {
+      channel = null;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key) return;
+      if (event.key === AUTH_SYNC_STORAGE_KEY && event.newValue) {
+        try {
+          const parsed = JSON.parse(event.newValue) as { type?: string };
+          if (parsed.type === 'authenticated') onAuthenticated();
+          else if (parsed.type === 'signed_out') onSignedOut();
+        } catch {
+          // Ignore malformed payload
+        }
+        return;
+      }
+      if (event.key.startsWith('sb-') && event.key.includes('auth-token') && !event.key.includes('code-verifier')) {
+        if (event.newValue) {
+          onAuthenticated();
+        } else {
+          onSignedOut();
+        }
+      }
+    };
+
+    const handleVisibilityOrFocus = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (this.snapshot.status === 'unauthenticated' && !this.callbackInProgress && hasSupabaseSessionTokenInStorage()) {
+        onAuthenticated();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    }
+
+    return () => {
+      channel?.close();
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      }
+    };
+  }
+
   private ensureAuthListener() {
     if (this.authSubscriptionInitialized) return;
     const supabase = getSupabaseClient();
@@ -280,6 +424,7 @@ class AuthService {
 
     supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
       if (!session || !session.user) {
+        if (event === 'SIGNED_OUT') clearRememberedAuthEmail();
         if (this.callbackInProgress && event === 'INITIAL_SESSION') {
           return;
         }
@@ -308,6 +453,7 @@ class AuthService {
 
       const mapped = mapSupabaseUser(session.user);
       if (session.user.email) saveRememberedAuthEmail(session.user.email);
+      recordRememberedUserAccount(mapped, session.user);
       this.snapshot = {
         status: 'authenticated',
         user: mapped,
@@ -359,18 +505,57 @@ class AuthService {
         return this.snapshot;
       }
 
+      const isOfflineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
+      if (isOfflineNow && sessionData.session.user) {
+        const mappedOffline = mapSupabaseUser(sessionData.session.user);
+        recordRememberedUserAccount(mappedOffline, sessionData.session.user);
+        this.snapshot = {
+          status: 'authenticated',
+          user: mappedOffline,
+          session: sessionData.session,
+          identities: mapIdentities(sessionData.session.user),
+          error: null,
+        };
+        this.emit();
+        return this.snapshot;
+      }
+
       const { data: userData, error: userError } = await withTimeout(
         supabase.auth.getUser(),
         10000,
         'Timed out verifying user identity with Supabase. Please sign in again.'
       );
       if (userError || !userData.user) {
+        const rawErrMsg = (userError?.message || '').toLowerCase();
+        const errStatus = (userError as { status?: number } | null)?.status;
+        const isTransientNetworkFailure =
+          sessionData.session.user &&
+          errStatus !== 401 &&
+          errStatus !== 403 &&
+          (/failed to fetch|networkerror|network request failed|timed out|offline/i.test(rawErrMsg) ||
+            (typeof navigator !== 'undefined' && navigator.onLine === false));
+
+        if (isTransientNetworkFailure && sessionData.session.user) {
+          const mappedCached = mapSupabaseUser(sessionData.session.user);
+          recordRememberedUserAccount(mappedCached, sessionData.session.user);
+          this.snapshot = {
+            status: 'authenticated',
+            user: mappedCached,
+            session: sessionData.session,
+            identities: mapIdentities(sessionData.session.user),
+            error: null,
+          };
+          this.emit();
+          return this.snapshot;
+        }
+
         // Stale or revoked session token — sign out locally to clear corrupted session
         try {
           await supabase.auth.signOut({ scope: 'local' });
         } catch {
           // Ignore local cleanup error
         }
+        clearRememberedAuthEmail();
         this.snapshot = {
           status: 'unauthenticated',
           user: null,
@@ -392,10 +577,12 @@ class AuthService {
         // Fallback to user.identities if getUserIdentities isn't available
       }
 
+      const mapped = mapSupabaseUser(userData.user);
       if (userData.user.email) saveRememberedAuthEmail(userData.user.email);
+      recordRememberedUserAccount(mapped, userData.user);
       this.snapshot = {
         status: 'authenticated',
-        user: mapSupabaseUser(userData.user),
+        user: mapped,
         session: sessionData.session,
         identities,
         error: null,
@@ -403,6 +590,27 @@ class AuthService {
       this.emit();
       return this.snapshot;
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : '';
+      if (/failed to fetch|networkerror|network request failed|timed out/i.test(errMsg)) {
+        try {
+          const { data: fallbackSession } = await supabase.auth.getSession();
+          if (fallbackSession.session?.user) {
+            const mappedCached = mapSupabaseUser(fallbackSession.session.user);
+            recordRememberedUserAccount(mappedCached, fallbackSession.session.user);
+            this.snapshot = {
+              status: 'authenticated',
+              user: mappedCached,
+              session: fallbackSession.session,
+              identities: mapIdentities(fallbackSession.session.user),
+              error: null,
+            };
+            this.emit();
+            return this.snapshot;
+          }
+        } catch {
+          // Fall through to unauthenticated snapshot
+        }
+      }
       this.snapshot = {
         status: 'unauthenticated',
         user: null,
@@ -455,6 +663,7 @@ class AuthService {
     }
 
     const mapped = mapSupabaseUser(data.user);
+    recordRememberedUserAccount(mapped, data.user, 'email');
     this.snapshot = {
       status: 'authenticated',
       user: mapped,
@@ -463,6 +672,7 @@ class AuthService {
       error: null,
     };
     this.emit();
+    broadcastCrossTabAuthEvent('authenticated');
 
     return {
       ok: true,
@@ -509,6 +719,7 @@ class AuthService {
 
     if (data.session && data.user) {
       const mapped = mapSupabaseUser(data.user);
+      recordRememberedUserAccount(mapped, data.user, 'email');
       this.snapshot = {
         status: 'authenticated',
         user: mapped,
@@ -718,7 +929,11 @@ class AuthService {
     };
   }
 
-  public async signInWithOAuthProvider(provider: AuthProviderId, scopes?: string): Promise<AuthActionResult> {
+  public async signInWithOAuthProvider(
+    provider: AuthProviderId,
+    scopes?: string,
+    options?: { loginHint?: string }
+  ): Promise<AuthActionResult> {
     const config = getSupabaseConfigState();
     const supabase = getSupabaseClient();
     if (!supabase || !config.isConfigured) {
@@ -729,7 +944,12 @@ class AuthService {
     this.ensureAuthListener();
     const providerName = provider === 'azure' ? 'Microsoft' : provider.charAt(0).toUpperCase() + provider.slice(1);
     try {
-      const oauthOptions = buildOAuthSignInOptions(provider, getCallbackUrl('/auth/callback'), scopes);
+      const oauthOptions = buildOAuthSignInOptions(
+        provider,
+        getCallbackUrl('/auth/callback'),
+        scopes,
+        options?.loginHint
+      );
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: provider as Parameters<typeof supabase.auth.signInWithOAuth>[0]['provider'],
         options: {
@@ -743,22 +963,14 @@ class AuthService {
       }
       if (data?.url && typeof window !== 'undefined') {
         const nav = attemptOAuthNavigation(data.url);
-        if (nav.requiresTopWindowLink) {
-          return {
-            ok: false,
-            diagnosticCategory: 'ok',
-            code: 'OAUTH_REDIRECT',
-            redirectUrl: data.url,
-            requiresTopWindowLink: true,
-            message: `Open ${providerName} sign-in in the full browser window to continue.`,
-          };
-        }
         return {
-          ok: true,
+          ok: nav.navigated,
           diagnosticCategory: 'ok',
           code: 'OAUTH_REDIRECT',
-          redirectUrl: nav.inIframe ? data.url : undefined,
-          message: 'Redirecting to ' + providerName + '...',
+          redirectUrl: data.url,
+          message: nav.openedNewTab
+            ? `Opened ${providerName} sign-in in a new tab.`
+            : `Redirecting to ${providerName}...`,
         };
       }
       return { ok: false, diagnosticCategory: 'oauth_incomplete', code: 'ERROR', message: 'Supabase did not return an authorization URL for ' + providerName + '. Verify OAuth configuration in Supabase Authentication → Providers.' };
@@ -1003,7 +1215,9 @@ class AuthService {
         hash,
         () => this.restoreVerifiedSession()
       );
-      if (result.outcome === 'error' && this.snapshot.status === 'loading') {
+      if (result.outcome === 'authenticated') {
+        broadcastCrossTabAuthEvent('authenticated');
+      } else if (result.outcome === 'error' && this.snapshot.status === 'loading') {
         this.snapshot = {
           status: 'unauthenticated',
           user: null,
@@ -1063,22 +1277,13 @@ class AuthService {
     }
 
     if (data?.url && typeof window !== 'undefined') {
-      const nav = attemptOAuthNavigation(data.url);
-      if (nav.requiresTopWindowLink) {
-        return {
-          ok: false,
-          code: 'OAUTH_REDIRECT',
-          redirectUrl: data.url,
-          requiresTopWindowLink: true,
-          message: `Open ${provider} linking in the full browser window to continue.`,
-        };
-      }
+      attemptOAuthNavigation(data.url);
     }
 
     return {
       ok: true,
       code: 'OAUTH_REDIRECT',
-      message: `Redirecting to link ${provider}...`,
+      message: `Opening ${provider} linking in a new tab...`,
     };
   }
 
@@ -1125,33 +1330,55 @@ class AuthService {
   }
 
   public async signOut(): Promise<void> {
+    const config = getSupabaseConfigState();
     const supabase = getSupabaseClient();
-    if (!supabase) {
+
+    this.codeExchangeCache.clear();
+    this.callbackInProgress = false;
+
+    if (supabase) {
+      // Sign out this browser session only. Never revoke every device session as a fallback.
+      const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
+      clearSupabaseAuthTokensFromStorage();
+
+      if (signOutError) {
+        throw new Error(signOutError.message || 'Supabase could not clear the local session.');
+      }
+
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) {
+        throw new Error(sessionError.message || 'Could not verify that the session was cleared.');
+      }
+      if (data.session) {
+        throw new Error('The session is still active after sign-out. Please try again.');
+      }
+    } else if (config.isConfigured) {
+      clearSupabaseAuthTokensFromStorage();
       throw new Error('Supabase is unavailable. The current session could not be cleared.');
+    } else {
+      clearSupabaseAuthTokensFromStorage();
     }
 
-    // Sign out this browser session only. Never revoke every device session as a fallback.
-    const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
-    if (signOutError) {
-      throw new Error(signOutError.message || 'Supabase could not clear the local session.');
-    }
+    // Clear the transient legacy email field while preserving the saved-accounts list for quick re-entry.
+    clearRememberedAuthEmail();
 
-    const { data, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError) {
-      throw new Error(sessionError.message || 'Could not verify that the session was cleared.');
-    }
-    if (data.session) {
-      throw new Error('The session is still active after sign-out. Please try again.');
+    if (typeof navigator !== 'undefined' && navigator.credentials?.preventSilentAccess) {
+      try {
+        await navigator.credentials.preventSilentAccess();
+      } catch {
+        // Ignore unsupported Credential Management restrictions
+      }
     }
 
     this.snapshot = {
-      status: getSupabaseConfigState().isConfigured ? 'unauthenticated' : 'unconfigured',
+      status: config.isConfigured ? 'unauthenticated' : 'unconfigured',
       user: null,
       session: null,
       identities: [],
       error: null,
     };
     this.emit();
+    broadcastCrossTabAuthEvent('signed_out');
   }
 }
 

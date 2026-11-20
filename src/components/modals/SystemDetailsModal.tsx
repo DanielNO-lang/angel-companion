@@ -3,6 +3,7 @@ import { X, CheckCircle2, AlertTriangle, ActivitySquare } from 'lucide-react';
 import { geminiModelService, type ModelHealthStatus } from '../../services/geminiModelService';
 import { getSupabaseConfigState } from '../../services/supabaseClient';
 import { cloudMigrationService, type CloudMigrationStatus } from '../../services/cloudMigrationService';
+import { companionData, type CloudSyncHealthState } from '../../services/companionData';
 import { toFriendlyError } from '../../services/errorHandlingService';
 
 interface SystemDetailsModalProps {
@@ -16,13 +17,16 @@ export const SystemDetailsModal: React.FC<SystemDetailsModalProps> = ({
 }) => {
   const [modelStatus, setModelStatus] = useState<ModelHealthStatus>(() => geminiModelService.getCachedStatus());
   const [migrationStatus, setMigrationStatus] = useState<CloudMigrationStatus>(() => cloudMigrationService.getStatus());
+  const [cloudHealth, setCloudHealth] = useState<CloudSyncHealthState>(() => companionData.getCloudSyncHealth());
 
   useEffect(() => {
     const unsubModel = geminiModelService.subscribeStatus(setModelStatus);
     const unsubMigration = cloudMigrationService.subscribe(setMigrationStatus);
+    const unsubCloud = companionData.subscribeCloudSyncHealth(setCloudHealth);
     return () => {
       unsubModel();
       unsubMigration();
+      unsubCloud();
     };
   }, []);
 
@@ -43,9 +47,15 @@ export const SystemDetailsModal: React.FC<SystemDetailsModalProps> = ({
     },
     {
       name: 'Supabase Auth & Persistence',
-      status: supabaseConfig.isConfigured ? 'Configured' : 'Not Configured',
-      latency: 'PKCE + RLS',
-      ok: supabaseConfig.isConfigured,
+      status: !supabaseConfig.isConfigured
+        ? 'Not Configured'
+        : cloudHealth.status === 'missing_tables'
+          ? 'Migration Pending'
+          : cloudHealth.status === 'degraded'
+            ? 'Sync Deferred'
+            : 'Configured',
+      latency: cloudHealth.missingTables.length > 0 ? `${cloudHealth.missingTables.length} table(s)` : 'PKCE + RLS',
+      ok: supabaseConfig.isConfigured && cloudHealth.status === 'healthy',
     },
     {
       name: 'Local-to-Cloud Sync Engine',
@@ -81,7 +91,7 @@ export const SystemDetailsModal: React.FC<SystemDetailsModalProps> = ({
               </div>
               <p className="text-xs text-slate-400">
                 {modelStatus.state === 'provider_unavailable'
-                  ? toFriendlyError(modelStatus.message, 'ai').userMessage
+                  ? toFriendlyError(modelStatus.message, 'ai', { logDiagnostic: false }).userMessage
                   : modelStatus.message}
               </p>
             </div>

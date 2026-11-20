@@ -85,7 +85,8 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
     }
 
     renderer.setSize(size, size);
-    renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, perfProfile.maxDpr));
+    const compactDpr = size < 44 ? Math.max(window.devicePixelRatio || 1, 2) : window.devicePixelRatio || 1;
+    renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(compactDpr, Math.max(perfProfile.maxDpr, size < 44 ? 2 : 1)));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;
@@ -133,7 +134,8 @@ export const AngelEmblem3D: React.FC<AngelEmblem3DProps> = ({
     const path = new TrefoilCurve(1.5);
     const tubeSegs = isSoftwareGl ? Math.min(48, perfProfile.emblemTubeSegments) : perfProfile.emblemTubeSegments;
     const radialSegs = isSoftwareGl ? Math.min(12, perfProfile.emblemRadialSegments) : perfProfile.emblemRadialSegments;
-    const tubeGeometry = new THREE.TubeGeometry(path, tubeSegs, 0.22, radialSegs, true);
+    const tubeRadius = size < 44 ? 0.25 : 0.22;
+    const tubeGeometry = new THREE.TubeGeometry(path, tubeSegs, tubeRadius, radialSegs, true);
 
     // Exact canonical live glass-chrome material specification
     const chromeMaterial = new THREE.MeshPhysicalMaterial({

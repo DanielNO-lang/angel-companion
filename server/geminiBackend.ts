@@ -29,6 +29,7 @@ export interface ModelHealthStatus {
   latencyMs: number | null;
   message: string;
   statusCode?: number;
+  probeDiagnosticCode?: string;
 }
 
 export interface ChatRequestMessage {
@@ -332,6 +333,21 @@ function isThinkingConfigRejection(error: unknown): boolean {
   );
 }
 
+function sanitizeProviderErrorCode(error: unknown): string {
+  const msg = error instanceof Error ? error.message.toLowerCase() : String(error || '').toLowerCase();
+  const anyErr = error as { status?: number; statusCode?: number; code?: string | number } | undefined;
+  const status = typeof anyErr?.status === 'number' ? anyErr.status : typeof anyErr?.statusCode === 'number' ? anyErr.statusCode : undefined;
+
+  if (msg.includes('timed out') || msg.includes('timeout')) return 'TIMEOUT';
+  if (msg.includes('api_key_invalid') || msg.includes('api key not valid') || msg.includes('invalid api key')) return 'API_KEY_INVALID';
+  if (status === 404 || msg.includes('404') || msg.includes('not_found') || msg.includes('is not found')) return 'MODEL_NOT_FOUND';
+  if (status === 403 || msg.includes('403') || msg.includes('permission_denied')) return 'PERMISSION_DENIED';
+  if (status === 429 || msg.includes('429') || msg.includes('resource_exhausted') || msg.includes('quota')) return 'QUOTA_EXCEEDED';
+  if (status === 400 || msg.includes('400') || msg.includes('invalid_argument')) return 'INVALID_ARGUMENT';
+  if (msg.includes('enotfound') || msg.includes('econnrefused') || msg.includes('fetch failed') || msg.includes('network')) return 'NETWORK_ERROR';
+  return 'PROVIDER_ERROR';
+}
+
 export function validateChatPayload(body: ChatRequestBody): {
   valid: boolean;
   statusCode: number;
@@ -591,7 +607,24 @@ export async function handleChatRequest(
   } catch (error) {
     const latencyMs = nowFn() - startedAt;
     const message = error instanceof Error ? error.message : 'Model generation error';
-    const isTimeout = message.toLowerCase().includes('timed out');
+    const errorCode = sanitizeProviderErrorCode(error);
+    const statusCode =
+      errorCode === 'TIMEOUT'
+        ? 504
+        : errorCode === 'QUOTA_EXCEEDED'
+          ? 429
+          : errorCode === 'API_KEY_INVALID' || errorCode === 'PERMISSION_DENIED'
+            ? 503
+            : 502;
+    const clientCode = errorCode === 'QUOTA_EXCEEDED' ? 'RATE_LIMITED' : errorCode;
+    const clientError =
+      errorCode === 'TIMEOUT'
+        ? 'Angel took too long to respond. Please try again.'
+        : errorCode === 'QUOTA_EXCEEDED'
+          ? 'Angel is experiencing high demand right now. Please wait a moment and try again.'
+          : errorCode === 'API_KEY_INVALID' || errorCode === 'PERMISSION_DENIED'
+            ? 'Gemini model access is currently unavailable in this environment.'
+            : 'Angel could not reach the conversation model. Please try again.';
 
     lastGenerationVerification = {
       verified: false,
@@ -603,22 +636,20 @@ export async function handleChatRequest(
     healthCache = null;
 
     logEvent('/api/chat', {
-      statusCode: isTimeout ? 504 : 502,
+      statusCode,
       latencyMs,
       userId: authResult.userId,
       mode: requestedMode,
       model: modelUsed,
-      code: isTimeout ? 'TIMEOUT' : 'PROVIDER_ERROR',
+      code: clientCode,
     });
 
     return {
-      statusCode: isTimeout ? 504 : 502,
+      statusCode,
       body: {
         success: false,
-        error: isTimeout
-          ? 'Angel took too long to respond. Please try again.'
-          : 'Angel could not reach the conversation model. Please try again.',
-        code: isTimeout ? 'TIMEOUT' : 'PROVIDER_ERROR',
+        error: clientError,
+        code: clientCode,
       },
     };
   }
@@ -766,17 +797,25 @@ export async function handleModelStatusRequest(
       nowFn() - lastGenerationVerification.at < 15 * 60 * 1000
   );
   let probeError: string | null = null;
+  let probeDiagnosticCode: string | undefined;
   let latencyMs: number | null = lastGenerationVerification?.latencyMs ?? null;
 
   if (params.liveProbe !== false) {
-    try {
-      if (typeof ai.models.get === 'function') {
+    if (typeof ai.models.get === 'function') {
+      try {
         await withTimeout(ai.models.get({ model }), HEALTH_PROBE_TIMEOUT_MS, 'Gemini health probe');
         providerReachable = true;
         latencyMs = nowFn() - probeStarted;
+      } catch (getErr) {
+        probeError = getErr instanceof Error ? getErr.message : 'Provider unreachable';
+        probeDiagnosticCode = sanitizeProviderErrorCode(getErr);
+        providerReachable = false;
+        latencyMs = nowFn() - probeStarted;
       }
+    }
 
-      if (params.liveProbe === true) {
+    if (params.liveProbe === true && (providerReachable || typeof ai.models.get !== 'function' || probeDiagnosticCode === 'MODEL_NOT_FOUND' || probeDiagnosticCode === 'INVALID_ARGUMENT')) {
+      try {
         const genRes = await withTimeout(
           ai.models.generateContent({
             model,
@@ -788,6 +827,8 @@ export async function handleModelStatusRequest(
         if (genRes.text && genRes.text.trim()) {
           providerReachable = true;
           generationVerified = true;
+          probeError = null;
+          probeDiagnosticCode = undefined;
           latencyMs = nowFn() - probeStarted;
           lastGenerationVerification = {
             verified: true,
@@ -796,11 +837,18 @@ export async function handleModelStatusRequest(
             model,
           };
         }
+      } catch (genErr) {
+        const genCode = sanitizeProviderErrorCode(genErr);
+        probeDiagnosticCode = genCode;
+        generationVerified = false;
+        latencyMs = nowFn() - probeStarted;
+        if (providerReachable && genCode === 'QUOTA_EXCEEDED') {
+          probeError = null;
+        } else {
+          probeError = genErr instanceof Error ? genErr.message : 'Provider unreachable';
+          providerReachable = false;
+        }
       }
-    } catch (err) {
-      probeError = err instanceof Error ? err.message : 'Provider unreachable';
-      providerReachable = false;
-      latencyMs = nowFn() - probeStarted;
     }
   }
 
@@ -813,7 +861,7 @@ export async function handleModelStatusRequest(
       statusCode: 200,
       latencyMs: latencyMs ?? 0,
       model,
-      code: 'PROVIDER_UNAVAILABLE',
+      code: probeDiagnosticCode || 'PROVIDER_UNAVAILABLE',
     });
     message = 'Gemini server credentials are configured, but the model service could not be reached right now.';
   } else if (generationVerified) {
@@ -821,7 +869,10 @@ export async function handleModelStatusRequest(
     message = `Gemini (${model}) is reachable and verified with live generation.`;
   } else if (providerReachable) {
     state = 'provider_reachable';
-    message = `Gemini (${model}) credentials valid and provider API is reachable.`;
+    message =
+      probeDiagnosticCode === 'QUOTA_EXCEEDED'
+        ? `Gemini (${model}) credentials are valid and reachable, though live generation probe hit quota limits.`
+        : `Gemini (${model}) credentials valid and provider API is reachable.`;
   }
 
   const statusPayload: ModelHealthStatus = {
@@ -835,6 +886,7 @@ export async function handleModelStatusRequest(
     checkedAt,
     latencyMs,
     message,
+    ...(probeDiagnosticCode ? { probeDiagnosticCode } : {}),
   };
 
   healthCache = {

@@ -160,6 +160,19 @@ export function scrubCallbackUrlFromHistory(targetRoute: AppRoute): void {
   }
 }
 
+export function resetNavigationStateOnSignOut(): void {
+  routeStack.length = 0;
+  memoryAuthOrigin = 'signin';
+  memoryDraft = null;
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(AUTH_ORIGIN_KEY);
+    window.sessionStorage.removeItem(SAFE_DRAFT_KEY);
+  } catch {
+    // Ignore storage access restrictions
+  }
+}
+
 export function resetRecoveryNavigationForTests(): void {
   routeStack.length = 0;
   memoryAuthOrigin = 'signin';

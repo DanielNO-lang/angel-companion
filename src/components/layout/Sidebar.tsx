@@ -18,6 +18,7 @@ import {
   Quote,
   Activity
 } from 'lucide-react';
+import { conversationEngine, type ConversationThread } from '../../services/conversationEngine';
 import type { AuthUser } from '../../services/authService';
 import { PrimaryNavItem, SecondaryNavItem } from '../../types/angel';
 import { AngelEmblem3D } from '../branding/AngelEmblem3D';
@@ -25,6 +26,7 @@ import { AngelEmblem3D } from '../branding/AngelEmblem3D';
 interface SidebarProps {
   activeTab: PrimaryNavItem;
   onNavClick: (item: PrimaryNavItem) => void;
+  onSelectThread?: (thread: ConversationThread) => void;
   onSecondaryNavClick: (item: SecondaryNavItem) => void;
   onToggleMore: () => void;
   onHoverMore?: () => void;
@@ -54,6 +56,7 @@ const COSMIC_QUOTES = [
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   onNavClick,
+  onSelectThread,
   onSecondaryNavClick,
   onToggleMore,
   onHoverMore,
@@ -72,6 +75,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [isHoverExpanded, setIsHoverExpanded] = useState(false);
+  const [recentThreads, setRecentThreads] = useState<ConversationThread[]>(() =>
+    conversationEngine.getRecentThreads(8)
+  );
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
 
@@ -123,6 +129,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const syncThreads = () => {
+      setRecentThreads(conversationEngine.getRecentThreads(8));
+    };
+    syncThreads();
+    return conversationEngine.subscribe(syncThreads);
+  }, []);
+
   // Primary top 3 navigation items
   const stickyNavItems: { id: PrimaryNavItem; label: string; icon: React.FC<{ className?: string }> }[] = [
     { id: 'home', label: 'Home', icon: Home },
@@ -157,6 +171,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  const handleThreadClick = (thread: ConversationThread) => {
+    if (onSelectThread) {
+      onSelectThread(thread);
+    } else {
+      conversationEngine.setActiveThread(thread.id);
+      handleNavAction(thread.scope === 'studio' ? 'studios' : 'new-conversation');
+    }
+    if (onCloseMore) {
+      onCloseMore();
+    }
+    if (collapsed) {
+      setIsHoverExpanded(false);
+    }
+  };
+
   const sidebarContent = (
     <div className="flex flex-col h-full select-none relative z-10">
 
@@ -168,7 +197,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           title="Angel Home"
         >
           <div className="w-8 h-8 flex items-center justify-center shrink-0 drop-shadow-[0_0_12px_rgba(147,197,253,0.7)] group-hover:scale-105 transition-transform">
-            <AngelEmblem3D size={32} seed="dashboard-sidebar" rotationSpeed={10} tiltOnHover={true} />
+            <AngelEmblem3D size={32} seed="dashboard-sidebar" renderMode="3d" rotationSpeed={18} tiltOnHover={true} />
           </div>
           {isExpandedView && (
             <span className="text-base font-bold tracking-widest text-white font-heading">
@@ -299,6 +328,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         )}
 
+        {/* RECENT CONVERSATIONS - persisted & cached locally for offline viewing */}
+        {isExpandedView && (
+          <div className="pt-3 pb-1 px-3 flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-heading">
+              Recent Conversations
+            </span>
+            {recentThreads.length > 0 && (
+              <span className="text-[10px] font-medium text-cyan-400/80" title="Cached locally for offline access">
+                {recentThreads.length}
+              </span>
+            )}
+          </div>
+        )}
+
+        {isExpandedView && recentThreads.length === 0 && (
+          <div className="px-3 py-1.5 text-[11px] text-slate-500">
+            No cached conversations yet
+          </div>
+        )}
+
+        {isExpandedView &&
+          recentThreads.map((thread) => (
+            <button
+              key={thread.id}
+              data-recent-thread-id={thread.id}
+              onClick={() => handleThreadClick(thread)}
+              title={`${thread.title} (${thread.messages.length} message${thread.messages.length === 1 ? '' : 's'})`}
+              className="w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl text-xs font-medium text-slate-300 hover:text-cyan-300 bg-transparent transition-colors group text-left cursor-pointer"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <MessageSquare className="w-3.5 h-3.5 text-slate-400 group-hover:text-cyan-300 shrink-0 transition-colors" />
+                <span className="truncate text-xs group-hover:text-white transition-colors">{thread.title}</span>
+              </div>
+              {thread.messages.length > 0 && (
+                <span className="text-[10px] text-slate-500 group-hover:text-cyan-300 shrink-0">
+                  {thread.messages.length}
+                </span>
+              )}
+            </button>
+          ))}
       </div>
 
       {/* ROTATING DAILY COSMIC QUOTES WIDGET - only when expanded */}

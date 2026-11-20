@@ -150,7 +150,7 @@ export class WorkspaceEngine {
         this.persist(false);
       }
     } catch (error) {
-      console.warn('[WorkspaceEngine] Cloud restore deferred:', error);
+      companionData.reportEngineSyncError('companion_projects', error);
     }
   }
 
@@ -160,7 +160,7 @@ export class WorkspaceEngine {
       const toSync = this.projects.filter((p) => !isUntouchedStarter(p));
       if (toSync.length > 0) {
         void companionData.syncWorkspaceProjects(this.accessToken, toSync, this.activeUserId).catch((error) => {
-          console.warn('[WorkspaceEngine] Cloud sync deferred:', error);
+          companionData.reportEngineSyncError('companion_projects', error);
         });
       }
     }
@@ -315,7 +315,7 @@ export class WorkspaceEngine {
       this.persist(false);
       if (this.accessToken && companionData.isCloudConfigured()) {
         void companionData.deleteWorkspaceProject(this.accessToken, projectId).catch((error) => {
-          console.warn('[WorkspaceEngine] Cloud delete deferred:', error);
+          companionData.reportEngineSyncError('companion_projects', error);
         });
       }
       return true;

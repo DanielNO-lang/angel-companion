@@ -1,4 +1,5 @@
 import express from 'express';
+import http from 'http';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import fs from 'fs';
@@ -45,7 +46,8 @@ async function startServer() {
 
   app.get('/api/model/status', async (req, res) => {
     const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
-    const liveProbe = req.query.probe === 'generate' ? true : req.query.probe !== 'none';
+    const liveProbe =
+      req.query.probe === 'generate' ? true : req.query.probe === 'none' ? false : undefined;
     const result = await handleModelStatusRequest({
       method: req.method,
       forceRefresh,
@@ -81,20 +83,40 @@ async function startServer() {
     res.status(result.statusCode).json(result.body);
   });
 
+  app.get('/manifest.webmanifest', (_req, res) => {
+    const distManifest = path.resolve(process.cwd(), 'dist', 'manifest.webmanifest');
+    const publicManifest = path.resolve(process.cwd(), 'public', 'manifest.webmanifest');
+    const manifestPath =
+      process.env.NODE_ENV === 'production' && fs.existsSync(distManifest)
+        ? distManifest
+        : publicManifest;
+    res.setHeader('content-type', 'application/manifest+json; charset=utf-8');
+    res.setHeader('cache-control', 'public, max-age=0, must-revalidate');
+    res.sendFile(manifestPath);
+  });
+
+  const httpServer = http.createServer(app);
+
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.resolve(process.cwd(), 'dist')));
     app.get('*', (req, res) => {
       res.sendFile(path.resolve(process.cwd(), 'dist', 'index.html'));
     });
   } else {
+    const hmrDisabled = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: hmrDisabled ? false : true,
+        ws: { server: httpServer },
+        watch: hmrDisabled ? null : {},
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`[AngelServer] Running on http://0.0.0.0:${PORT}`);
   });
 }

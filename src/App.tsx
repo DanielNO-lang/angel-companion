@@ -15,6 +15,7 @@ import { PageSkeleton } from './components/ui/Skeleton';
 import { FriendlyErrorScreen } from './components/ui/FriendlyErrorScreen';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { AngelEmblem3D } from './components/branding/AngelEmblem3D';
+import { OfflineIndicator } from './components/pwa/OfflineIndicator';
 
 // Public Landing & Dedicated Authentication Pages
 import { LandingPage } from './components/landing/LandingPage';
@@ -34,6 +35,7 @@ import {
   getAuthFlowOrigin,
   popSafeReturnRoute,
   pushSafeRoute,
+  resetNavigationStateOnSignOut,
   scrubCallbackUrlFromHistory,
 } from './services/recoveryNavigationService';
 import {
@@ -55,9 +57,7 @@ import { SystemStatusPanel } from './components/home/SystemStatusPanel';
 
 // Direct & Lazy-Loaded Destination Pages
 import { LibraryPage } from './components/pages/LibraryPage';
-const NewConversationPage = React.lazy(() =>
-  import('./components/pages/NewConversationPage').then((m) => ({ default: m.NewConversationPage }))
-);
+import { NewConversationPage } from './components/pages/NewConversationPage';
 const AdaptiveWorkspacePage = React.lazy(() =>
   import('./components/pages/AdaptiveWorkspacePage').then((m) => ({ default: m.AdaptiveWorkspacePage }))
 );
@@ -121,6 +121,7 @@ export default function App() {
   const [callbackProcessing, setCallbackProcessing] = React.useState(false);
   const [isEnteringApp, setIsEnteringApp] = React.useState(false);
   const entryTransitionTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const signingOutRef = React.useRef(false);
   const [authErrorState, setAuthErrorState] = React.useState<AuthErrorRecoveryState | null>(null);
 
   const triggerAppEntryTransition = React.useCallback(() => {
@@ -195,6 +196,8 @@ export default function App() {
     notifications,
     unreadNotificationCount,
     handleNavClick,
+    handleSelectThread,
+    resetStateOnSignOut,
     markNotificationsRead,
     deleteNotifications,
   } = useAngelState();
@@ -258,7 +261,7 @@ export default function App() {
   }) => {
     if (!canAccessWorkspace(authSnapshot.status)) return;
     const activeThread = conversationEngine.getActiveThread('general');
-    handleNavClick('new-conversation');
+    handleSelectThread(activeThread.id, 'general');
     await conversationEngine.addMessage(activeThread.id, data.prompt, 'user');
     setOrbState('thinking');
     setCosmicToast(`🔭 Intercepted Telemetry: ${data.title}`);
@@ -319,13 +322,15 @@ export default function App() {
 
           if (cbResult.outcome === 'authenticated') {
             const safeNext = sanitizeRedirectPath(cbResult.parsed.nextPath, '/app');
-            const targetRoute = parseAppRoute(safeNext);
+            const parsedTarget = parseAppRoute(safeNext);
+            const targetRoute: AppRoute = parsedTarget === 'landing' ? 'app' : parsedTarget;
+            const finalPath = targetRoute === 'app' ? '/app' : safeNext;
             if (targetRoute === 'app') {
               triggerAppEntryTransition();
             }
             pushSafeRoute(targetRoute);
             setCurrentRoute(targetRoute);
-            window.history.replaceState({}, '', safeNext);
+            window.history.replaceState({}, '', finalPath);
           } else if (cbResult.outcome === 'recovery') {
             setCurrentRoute('reset-password');
             window.history.replaceState({}, '', '/reset-password');
@@ -425,9 +430,37 @@ export default function App() {
 
     bootstrapApp();
 
+    const unsubscribeCrossTab = authService.subscribeToCrossTabAuthSync(
+      () => {
+        if (!active) return;
+        void authService.restoreVerifiedSession().then((snap) => {
+          if (active && snap.status === 'authenticated') {
+            triggerAppEntryTransition();
+            pushSafeRoute('app');
+            setCurrentRoute('app');
+            if (typeof window !== 'undefined') {
+              window.history.replaceState({}, '', '/app');
+            }
+          }
+        });
+      },
+      () => {
+        if (!active) return;
+        void authService.restoreVerifiedSession();
+      }
+    );
+
+    const handleOnlineRestore = () => {
+      if (!active) return;
+      void authService.restoreVerifiedSession();
+    };
+    window.addEventListener('online', handleOnlineRestore);
+
     return () => {
       active = false;
       unsubscribe();
+      unsubscribeCrossTab();
+      window.removeEventListener('online', handleOnlineRestore);
       clearMoreTimer();
       if (entryTransitionTimerRef.current) {
         clearTimeout(entryTransitionTimerRef.current);
@@ -458,7 +491,7 @@ export default function App() {
   const isAuthenticated = canAccessWorkspace(authSnapshot.status);
 
   React.useEffect(() => {
-    if (!isAppReady || callbackProcessing || authSnapshot.status === 'loading' || authErrorState) return;
+    if (!isAppReady || callbackProcessing || authSnapshot.status === 'loading' || authErrorState || signingOutRef.current) return;
 
     if (!isAuthenticated && currentRoute === 'app') {
       navigateRoute('signin', {
@@ -493,11 +526,24 @@ export default function App() {
 
   const handleSignOut = async () => {
     setSignOutError(null);
+    signingOutRef.current = true;
     try {
       await authService.signOut();
       cloudSyncCoordinator.resetAllEnginesOnSignOut();
-      setActiveTab('home');
-      navigateRoute('landing', { replace: true });
+      resetStateOnSignOut();
+      resetNavigationStateOnSignOut();
+      clearMoreTimer();
+      setIsMorePinned(false);
+      setCosmicToast(null);
+      setPendingVerifyEmail('');
+      setAuthNotice(null);
+      setVerifyError(null);
+      setVerifySuccess(false);
+      setRecoveryError(null);
+      setAuthErrorState(null);
+      prevWorkspaceTabRef.current = 'home';
+      lastWorkspaceTabRef.current = 'home';
+      navigateRoute('signin', { replace: true });
     } catch (error) {
       setSignOutError('Angel could not confirm that sign-out completed. Please try again.');
       logSanitizedDiagnostic({
@@ -506,6 +552,8 @@ export default function App() {
         rawError: error,
         metadata: { action: 'sign_out' },
       });
+    } finally {
+      signingOutRef.current = false;
     }
   };
 
@@ -523,7 +571,6 @@ export default function App() {
                 setTimeout(() => {
                   setActiveQuickChip(null);
                   if (actionId === 'ask') {
-                    conversationEngine.createThread('general', undefined, 'New Conversation');
                     handleNavClick('new-conversation');
                   }
                   else if (actionId === 'plan-project') handleNavClick('workspace');
@@ -555,12 +602,7 @@ export default function App() {
 
               <QuickAccessPanel
                 onSelectAction={(actionId) => {
-                  if (actionId === 'new-conversation') {
-                    conversationEngine.createThread('general', undefined, 'New Conversation');
-                    handleNavClick('new-conversation');
-                  } else {
-                    handleNavClick(actionId);
-                  }
+                  handleNavClick(actionId);
                 }}
               />
 
@@ -801,6 +843,10 @@ export default function App() {
                 handleCloseAllMore();
                 handleNavClick(item);
               }}
+              onSelectThread={(thread) => {
+                handleCloseAllMore();
+                handleSelectThread(thread.id, thread.scope, thread.studioId);
+              }}
               onSecondaryNavClick={(secondaryId) => {
                 handleCloseAllMore();
                 handleNavClick(secondaryId as any);
@@ -846,14 +892,13 @@ export default function App() {
                 activeTab={activeTab}
                 activeThreadTitle={conversationEngine.getActiveThread('general').title}
                 onResetConversation={() => {
-                  conversationEngine.createThread('general');
                   handleNavClick('new-conversation');
                 }}
                 onClearMessages={() => {
                   const active = conversationEngine.getActiveThread('general');
                   active.messages = [];
                   conversationEngine.renameThread(active.id, 'New Conversation');
-                  handleNavClick('new-conversation');
+                  setActiveTab('new-conversation');
                 }}
                 onExportConversation={() => {
                   const active = conversationEngine.getActiveThread('general');
@@ -937,6 +982,9 @@ export default function App() {
           <MediaStreamOverlays />
         </>
       )}
+
+      {/* Non-intrusive Offline Cached History Indicator */}
+      <OfflineIndicator />
     </div>
   );
 }

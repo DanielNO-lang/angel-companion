@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, ChevronDown, ChevronUp, ExternalLink, Loader2 } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { getVisibleAuthProviders, type AuthProviderStatus } from '../../services/authProviderRegistry';
 import { getSupabaseConfigState, probeSupabaseAuthSettings } from '../../services/supabaseClient';
 import { authService } from '../../services/authService';
@@ -25,11 +25,7 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
   const [liveExternalProviders, setLiveExternalProviders] = useState<Record<string, boolean> | null>(null);
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
   const [showSetupInfo, setShowSetupInfo] = useState(false);
-  const [topWindowFallback, setTopWindowFallback] = useState<{
-    providerName: string;
-    url: string;
-  } | null>(null);
-  const redirectFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadingResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const supabaseConfigured = getSupabaseConfigState().isConfigured;
 
@@ -46,8 +42,8 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
     });
     return () => {
       active = false;
-      if (redirectFallbackTimerRef.current) {
-        clearTimeout(redirectFallbackTimerRef.current);
+      if (loadingResetTimerRef.current) {
+        clearTimeout(loadingResetTimerRef.current);
       }
     };
   }, [supabaseConfigured]);
@@ -57,10 +53,9 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
   const handleProviderClick = async (provider: AuthProviderStatus) => {
     const context = provider.id === 'google' ? 'google_oauth' : 'oauth';
     setAuthFlowOrigin(mode);
-    setTopWindowFallback(null);
-    if (redirectFallbackTimerRef.current) {
-      clearTimeout(redirectFallbackTimerRef.current);
-      redirectFallbackTimerRef.current = null;
+    if (loadingResetTimerRef.current) {
+      clearTimeout(loadingResetTimerRef.current);
+      loadingResetTimerRef.current = null;
     }
 
     if (!provider.isReady) {
@@ -77,14 +72,6 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
     setLoadingProvider(provider.id);
     try {
       const result = await authService.signInWithOAuthProvider(provider.id, provider.scopes);
-      if (result.requiresTopWindowLink && result.redirectUrl) {
-        setLoadingProvider(null);
-        setTopWindowFallback({
-          providerName: provider.displayName,
-          url: result.redirectUrl,
-        });
-        return;
-      }
       if (!result.ok) {
         setLoadingProvider(null);
         const classified = toFriendlyError(result.message, context, {
@@ -93,18 +80,10 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
         onError(classified.userMessage);
         return;
       }
-      // If running inside an embedded iframe and top-window navigation did not immediately unload,
-      // offer a direct full-window continuation link rather than leaving a spinner active.
-      if (result.redirectUrl) {
-        const redirectUrl = result.redirectUrl;
-        redirectFallbackTimerRef.current = setTimeout(() => {
-          setLoadingProvider(null);
-          setTopWindowFallback({
-            providerName: provider.displayName,
-            url: redirectUrl,
-          });
-        }, 900);
-      }
+      // New tab opened cleanly; reset button busy state shortly so the tab never stays locked if the user switches back
+      loadingResetTimerRef.current = setTimeout(() => {
+        setLoadingProvider(null);
+      }, 650);
     } catch (error) {
       setLoadingProvider(null);
       const classified = toFriendlyError(error, context, {
@@ -186,32 +165,6 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
           );
         })}
       </div>
-
-      {topWindowFallback && (
-        <div
-          role="region"
-          aria-label="Full window sign-in continuation"
-          className={`p-3.5 rounded-2xl text-xs leading-relaxed space-y-2.5 backdrop-blur-md angel-blurred-surface ${
-            isLight
-              ? 'bg-sky-50/90 text-slate-800 border border-sky-200/80'
-              : 'bg-cyan-500/10 text-slate-100 border border-cyan-400/30'
-          }`}
-        >
-          <p>
-            Embedded previews restrict {topWindowFallback.providerName} sign-in inside frames. Open sign-in in the full
-            window to continue safely.
-          </p>
-          <a
-            href={topWindowFallback.url}
-            target="_top"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold hover:brightness-110 transition-all"
-          >
-            <span>Continue with {topWindowFallback.providerName}</span>
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
-        </div>
-      )}
 
       {anyUnconfigured && (
         <div className="pt-0.5">
