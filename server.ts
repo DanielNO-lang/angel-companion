@@ -48,11 +48,16 @@ async function startServer() {
     const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
     const liveProbe =
       req.query.probe === 'generate' ? true : req.query.probe === 'none' ? false : undefined;
+    const includeTiers = req.query.tiers === '1' || req.query.tiers === 'true';
     const result = await handleModelStatusRequest({
       method: req.method,
       forceRefresh,
       liveProbe,
+      includeTiers,
     });
+    if (result.headers) {
+      Object.entries(result.headers).forEach(([k, v]) => res.setHeader(k, v));
+    }
     res.setHeader('cache-control', 'no-store');
     res.status(result.statusCode).json(result.body);
   });

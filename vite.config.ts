@@ -25,8 +25,20 @@ export default defineConfig(() => {
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,jpg,jpeg,woff,woff2,webmanifest}'],
           navigateFallback: '/index.html',
-          navigateFallbackDenylist: [/^\/api\//, /^\/auth\//, /^\/manifest\.webmanifest$/, /\.webmanifest$/i, /^\/assets\//],
+          navigateFallbackAllowlist: [
+            /^\/$/,
+            /^\/(app|signin|signup|verify-email|forgot-password|reset-password|preview-auth|debug\/preview-auth|auth\/callback|auth\/preview-callback)(\/.*)?$/i,
+          ],
+          navigateFallbackDenylist: [/^\/api\//, /^\/auth\/v1\//, /^\/manifest\.webmanifest$/, /\.webmanifest$/i, /^\/assets\//],
           runtimeCaching: [
+            {
+              urlPattern: /^\/api\/.*/i,
+              handler: 'NetworkOnly',
+            },
+            {
+              urlPattern: /^https:\/\/[^/]+\.supabase\.co\/.*/i,
+              handler: 'NetworkOnly',
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',
@@ -55,28 +67,16 @@ export default defineConfig(() => {
                 },
               },
             },
-            {
-              urlPattern: /^https:\/\/[^/]+\.supabase\.co\/rest\/v1\/companion_(conversations|messages).*/i,
-              handler: 'NetworkFirst',
-              method: 'GET',
-              options: {
-                cacheName: 'angel-supabase-threads-cache',
-                networkTimeoutSeconds: 4,
-                expiration: {
-                  maxEntries: 30,
-                  maxAgeSeconds: 60 * 60 * 24 * 7,
-                },
-                cacheableResponse: {
-                  statuses: [0, 200],
-                },
-              },
-            },
           ],
         },
         devOptions: {
           enabled: true,
           type: 'module',
           navigateFallback: '/index.html',
+          navigateFallbackAllowlist: [
+            /^\/$/,
+            /^\/(app|signin|signup|verify-email|forgot-password|reset-password|preview-auth|debug\/preview-auth|auth\/callback|auth\/preview-callback)(\/.*)?$/i,
+          ],
         },
       }),
     ],

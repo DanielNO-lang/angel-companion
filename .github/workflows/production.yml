@@ -32,13 +32,23 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm install
+        run: npm ci
       - name: Type-check
         run: npm run lint
       - name: Run tests
         run: npm run test
       - name: Build application
         run: npm run build
+      - name: Verify Netlify function bundling
+        run: |
+          npx esbuild netlify/functions/chat.ts netlify/functions/title.ts netlify/functions/model-status.ts \
+            --bundle --platform=node --format=esm --outdir=/tmp/netlify-functions-check
+      - name: Scan client bundle for server secrets
+        run: |
+          if grep -rqE 'sb_secret_[A-Za-z0-9]{12,}|AIzaSy[A-Za-z0-9_-]{20,}|service_role' dist/assets/; then
+            echo "::error::Sensitive secret pattern found in client bundle!"
+            exit 1
+          fi
 
   deploy-supabase:
     name: Apply Supabase migrations
@@ -75,7 +85,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm install
+        run: npm ci
       - name: Resolve public build variables from GitHub or Netlify site configuration
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}

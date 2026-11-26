@@ -6,6 +6,9 @@ export type AppRoute =
   | 'forgot-password'
   | 'reset-password'
   | 'auth-callback'
+  | 'auth-preview-callback'
+  | 'preview-auth'
+  | 'debug-preview-auth'
   | 'app';
 
 export type ThemeMode = 'dark' | 'light';
@@ -51,6 +54,9 @@ const ROUTE_TO_PATH: Record<AppRoute, string> = {
   'forgot-password': '/forgot-password',
   'reset-password': '/reset-password',
   'auth-callback': '/auth/callback',
+  'auth-preview-callback': '/auth/preview-callback',
+  'preview-auth': '/preview-auth',
+  'debug-preview-auth': '/debug/preview-auth',
   app: '/app',
 };
 
@@ -62,8 +68,19 @@ const ALLOWED_INTERNAL_PREFIXES = [
   '/forgot-password',
   '/reset-password',
   '/auth/callback',
+  '/auth/preview-callback',
+  '/preview-auth',
+  '/debug/preview-auth',
   '/app',
 ];
+
+export const PRODUCTION_CALLBACK_PATH = '/auth/callback';
+export const PREVIEW_CALLBACK_PATH = '/auth/preview-callback';
+export const DEBUG_PREVIEW_AUTH_PATH = '/debug/preview-auth';
+
+export const PRODUCTION_APP_ORIGIN = 'https://angel-companion.netlify.app';
+export const AISTUDIO_DEV_PREVIEW_ORIGIN = 'https://ais-dev-67j3uvdue42nvzmwjvks5f-244498784849.europe-west2.run.app';
+export const AISTUDIO_SHARED_PREVIEW_ORIGIN = 'https://ais-pre-67j3uvdue42nvzmwjvks5f-244498784849.europe-west2.run.app';
 
 export const THEME_STORAGE_KEY = 'angel_theme_mode_v1';
 export const REMEMBER_ME_STORAGE_KEY = 'angel_auth_remember_me_v1';
@@ -234,6 +251,12 @@ export function parseAppRoute(pathname: string): AppRoute {
       return 'reset-password';
     case '/auth/callback':
       return 'auth-callback';
+    case '/auth/preview-callback':
+      return 'auth-preview-callback';
+    case '/preview-auth':
+      return 'preview-auth';
+    case '/debug/preview-auth':
+      return 'debug-preview-auth';
     case '/app':
       return 'app';
     default:
@@ -243,6 +266,119 @@ export function parseAppRoute(pathname: string): AppRoute {
 
 export function getPathForRoute(route: AppRoute): string {
   return ROUTE_TO_PATH[route] || '/';
+}
+
+export function isAiStudioPreviewHostname(hostname: string): boolean {
+  const clean = (hostname || '').trim().toLowerCase();
+  if (!clean) return false;
+  if (clean === 'aistudio.google.com' || clean.endsWith('.aistudio.google.com')) {
+    return false;
+  }
+  return /^ais-(dev|pre)-[a-z0-9.-]+\.run\.app$/i.test(clean);
+}
+
+export function isDevelopmentPreviewEnvironment(hostname?: string, isViteDev?: boolean): boolean {
+  const resolvedHost = (
+    hostname ?? (typeof window !== 'undefined' ? window.location.hostname : '')
+  )
+    .trim()
+    .toLowerCase();
+
+  if (resolvedHost === 'angel-companion.netlify.app') {
+    return false;
+  }
+  if (
+    resolvedHost === 'localhost' ||
+    resolvedHost === '127.0.0.1' ||
+    isAiStudioPreviewHostname(resolvedHost) ||
+    resolvedHost === 'aistudio.google.com' ||
+    resolvedHost.endsWith('.aistudio.google.com') ||
+    /^deploy-preview-\d+--angel-companion\.netlify\.app$/i.test(resolvedHost) ||
+    /--angel-companion\.netlify\.app$/i.test(resolvedHost)
+  ) {
+    return true;
+  }
+  return Boolean(isViteDev);
+}
+
+/**
+ * Returns distinct OAuth callback routes per environment:
+ * - Production strictly uses '/auth/callback'
+ * - AI Studio preview and local dev use '/auth/preview-callback'
+ */
+export function getOAuthCallbackPath(hostname?: string, isViteDev?: boolean): string {
+  return isDevelopmentPreviewEnvironment(hostname, isViteDev)
+    ? PREVIEW_CALLBACK_PATH
+    : PRODUCTION_CALLBACK_PATH;
+}
+
+export function resolveOAuthRedirectUrl(
+  origin?: string,
+  path?: string,
+  isViteDev?: boolean
+): string {
+  const candidateOrigin = (origin ?? (typeof window !== 'undefined' ? window.location.origin : '')).trim();
+  let parsedOrigin: URL | null = null;
+  if (candidateOrigin) {
+    try {
+      const candidate = new URL(candidateOrigin);
+      if (candidate.protocol === 'http:' || candidate.protocol === 'https:') {
+        parsedOrigin = candidate;
+      }
+    } catch {
+      parsedOrigin = null;
+    }
+  }
+
+  let resolvedHost = parsedOrigin?.hostname || (typeof window !== 'undefined' ? window.location.hostname : '');
+
+  // If the host is the AI Studio shell origin (aistudio.google.com), do not mistake it for the application preview origin.
+  // Map it to the canonical application preview origin so authentication returns to /auth/preview-callback, avoiding aistudio.google.com/404.
+  if (resolvedHost.toLowerCase() === 'aistudio.google.com' || resolvedHost.toLowerCase().endsWith('.aistudio.google.com')) {
+    const fallbackPreview = isViteDev ? AISTUDIO_DEV_PREVIEW_ORIGIN : AISTUDIO_SHARED_PREVIEW_ORIGIN;
+    parsedOrigin = new URL(fallbackPreview);
+    resolvedHost = parsedOrigin.hostname;
+  }
+
+  const isDevPreview = isDevelopmentPreviewEnvironment(resolvedHost, isViteDev);
+  const envCallbackPath = getOAuthCallbackPath(resolvedHost, isViteDev);
+
+  let normalizedPath: string;
+  if (!path || !path.trim()) {
+    normalizedPath = envCallbackPath;
+  } else {
+    const rawPath = path.startsWith('/') ? path : `/${path}`;
+    const [rawPathname, rawQuery = ''] = rawPath.split('?');
+    if (!isDevPreview && rawPathname === PREVIEW_CALLBACK_PATH) {
+      normalizedPath = rawQuery ? `${PRODUCTION_CALLBACK_PATH}?${rawQuery}` : PRODUCTION_CALLBACK_PATH;
+    } else if (isDevPreview && rawPathname === PRODUCTION_CALLBACK_PATH) {
+      normalizedPath = rawQuery ? `${PREVIEW_CALLBACK_PATH}?${rawQuery}` : PREVIEW_CALLBACK_PATH;
+    } else {
+      normalizedPath = rawPath;
+    }
+  }
+
+  if (parsedOrigin) {
+    return `${parsedOrigin.origin}${normalizedPath}`;
+  }
+  return normalizedPath;
+}
+
+export function resolveDirectPreviewUrl(currentOrigin?: string, targetPath: string = DEBUG_PREVIEW_AUTH_PATH): string {
+  const safePath = sanitizeRedirectPath(targetPath, DEBUG_PREVIEW_AUTH_PATH);
+  const candidateOrigin = (currentOrigin ?? (typeof window !== 'undefined' ? window.location.origin : '')).trim();
+  if (candidateOrigin) {
+    try {
+      const parsed = new URL(candidateOrigin);
+      const host = parsed.hostname.toLowerCase();
+      if (host === 'localhost' || host === '127.0.0.1' || isAiStudioPreviewHostname(host)) {
+        return `${parsed.origin}${safePath}`;
+      }
+    } catch {
+      // Fall through to canonical dev preview origin
+    }
+  }
+  return `${AISTUDIO_DEV_PREVIEW_ORIGIN}${safePath}`;
 }
 
 export function parseAuthCallbackParams(search: string = '', hash: string = ''): ParsedAuthCallback {

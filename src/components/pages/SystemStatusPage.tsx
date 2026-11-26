@@ -1,10 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { ActivitySquare, CheckCircle2, AlertTriangle, RefreshCw, Cloud, Cpu } from 'lucide-react';
+import { ActivitySquare, CheckCircle2, AlertTriangle, RefreshCw, Cloud, Cpu, ExternalLink } from 'lucide-react';
 import { SystemServiceStatus } from '../../types/angel';
 import { geminiModelService, type ModelHealthStatus } from '../../services/geminiModelService';
 import { getSupabaseConfigState } from '../../services/supabaseClient';
 import { cloudMigrationService, type CloudMigrationStatus } from '../../services/cloudMigrationService';
 import { toFriendlyError } from '../../services/errorHandlingService';
+import {
+  PRODUCTION_APP_ORIGIN,
+  isDevelopmentPreviewEnvironment,
+  resolveDirectPreviewUrl,
+} from '../../services/authValidation';
 
 function mapModelStatusToServiceStatus(model: ModelHealthStatus): SystemServiceStatus['status'] {
   if (model.state === 'generation_successful' || model.state === 'provider_reachable') return 'operational';
@@ -19,6 +24,11 @@ export const SystemStatusPage: React.FC = () => {
   const [isProbing, setIsProbing] = useState(false);
   const [lastDiagnosticAt, setLastDiagnosticAt] = useState<string>('Initial check');
   const supabaseConfig = getSupabaseConfigState();
+  const isDevPreview =
+    typeof window !== 'undefined' &&
+    isDevelopmentPreviewEnvironment(window.location.hostname, import.meta.env.DEV);
+  const directPreviewUrl =
+    typeof window !== 'undefined' ? resolveDirectPreviewUrl(window.location.origin, '/app') : PRODUCTION_APP_ORIGIN;
 
   useEffect(() => {
     const unsubModel = geminiModelService.subscribeStatus(setModelStatus);
@@ -33,7 +43,7 @@ export const SystemStatusPage: React.FC = () => {
   const runDiagnostic = async () => {
     setIsProbing(true);
     try {
-      await geminiModelService.checkStatus(true, true);
+      await geminiModelService.checkStatus(true, true, true);
       setLastDiagnosticAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     } finally {
       setIsProbing(false);
@@ -48,13 +58,13 @@ export const SystemStatusPage: React.FC = () => {
   const services: SystemServiceStatus[] = [
     {
       id: 's1',
-      name: `Gemini Conversation Backend (${modelStatus.model})`,
+      name: `Gemini Conversation Backend (${modelStatus.activeModel || modelStatus.model})`,
       status: mapModelStatusToServiceStatus(modelStatus),
       latencyMs: modelStatus.latencyMs,
       lastChecked: modelStatus.state === 'generation_successful'
         ? `Live generation verified (${lastDiagnosticAt})`
         : friendlyModelMessage,
-      detail: `Think mode: ${modelStatus.thinkModeSupported ? 'Supported' : 'Standard fallback'}`,
+      detail: `Primary: ${modelStatus.model} • Fallbacks: ${(modelStatus.fallbackModels || ['gemini-3.8-flash', 'gemini-3.1-flash-lite']).join(' → ')}`,
     },
     {
       id: 's2',
@@ -91,21 +101,54 @@ export const SystemStatusPage: React.FC = () => {
           </div>
         </div>
 
-        <button
-          onClick={runDiagnostic}
-          disabled={isProbing}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition-all cursor-pointer disabled:opacity-60"
-        >
-          <RefreshCw className={`w-4 h-4 ${isProbing ? 'animate-spin' : ''}`} />
-          <span>{isProbing ? 'Checking Health...' : 'Run Health Check'}</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          {isDevPreview && (
+            <>
+              <a
+                href={directPreviewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-slate-900/70 hover:bg-slate-800/80 text-indigo-200 hover:text-white text-xs font-semibold transition-all cursor-pointer"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open AI Studio Preview</span>
+              </a>
+              <a
+                href={PRODUCTION_APP_ORIGIN}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-slate-900/70 hover:bg-slate-800/80 text-emerald-300 hover:text-white text-xs font-semibold transition-all cursor-pointer"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open Production App</span>
+              </a>
+            </>
+          )}
+          <a
+            href="https://aistudio.google.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-slate-900/70 hover:bg-slate-800/80 text-cyan-300 hover:text-white text-xs font-semibold transition-all cursor-pointer"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            <span>Open Google AI Studio</span>
+          </a>
+          <button
+            onClick={runDiagnostic}
+            disabled={isProbing}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition-all cursor-pointer disabled:opacity-60"
+          >
+            <RefreshCw className={`w-4 h-4 ${isProbing ? 'animate-spin' : ''}`} />
+            <span>{isProbing ? 'Checking Health...' : 'Run Health Check'}</span>
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
         <div className="p-4 rounded-2xl glass-panel angel-blurred-surface bg-slate-950/38 flex items-center gap-3">
           <Cpu className="w-5 h-5 text-cyan-400 shrink-0" />
           <div>
-            <span className="text-slate-400 block">Configured Model</span>
+            <span className="text-slate-400 block">Configured Primary Model</span>
             <span className="font-bold text-white">{modelStatus.model}</span>
           </div>
         </div>
@@ -126,6 +169,33 @@ export const SystemStatusPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {Array.isArray(modelStatus.tierResults) && modelStatus.tierResults.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          {modelStatus.tierResults.map((tier) => (
+            <div
+              key={tier.model}
+              className="p-3.5 rounded-2xl glass-panel angel-blurred-surface bg-slate-950/38 flex items-center justify-between gap-2"
+            >
+              <div className="min-w-0">
+                <span className="text-[10px] uppercase tracking-wider text-slate-400 block">{tier.tier} tier</span>
+                <span className="font-mono font-semibold text-white truncate block">{tier.model}</span>
+              </div>
+              <span
+                className={`font-semibold text-[11px] shrink-0 ${
+                  tier.generationVerified
+                    ? 'text-emerald-400'
+                    : tier.modelsGetReachable
+                      ? 'text-amber-300'
+                      : 'text-rose-300'
+                }`}
+              >
+                {tier.generationVerified ? 'Verified' : tier.modelsGetReachable ? 'Reachable' : 'Unavailable'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="space-y-3">
         {services.map((svc) => (

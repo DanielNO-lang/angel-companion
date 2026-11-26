@@ -1,6 +1,27 @@
 import { ChatMessage } from '../types/angel';
 
-export const DEFAULT_GEMINI_MODEL = 'gemini-4-hydrogen';
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+export const SECONDARY_GEMINI_MODEL = 'gemini-3.1-flash-lite';
+export const EMERGENCY_GEMINI_MODEL = SECONDARY_GEMINI_MODEL;
+export const MODEL_FALLBACK_STRATEGY = [
+  DEFAULT_GEMINI_MODEL,
+  SECONDARY_GEMINI_MODEL,
+] as const;
+
+export function normalizeServerModelOverride(raw?: string): string {
+  const cleaned = (raw || '').trim().replace(/^models\//i, '').trim();
+  if (!cleaned) return DEFAULT_GEMINI_MODEL;
+  const normalized = /\s/.test(cleaned) ? cleaned.toLowerCase().replace(/\s+/g, '-') : cleaned;
+  const lower = normalized.toLowerCase();
+  if (lower.includes('hydrogen') || lower === SECONDARY_GEMINI_MODEL) {
+    return DEFAULT_GEMINI_MODEL;
+  }
+  return normalized === DEFAULT_GEMINI_MODEL ? DEFAULT_GEMINI_MODEL : DEFAULT_GEMINI_MODEL;
+}
+
+export function resolveStrictFallbackChain(_rawOverride?: string): string[] {
+  return [DEFAULT_GEMINI_MODEL, SECONDARY_GEMINI_MODEL];
+}
 
 export type ModelHealthState =
   | 'credentials_missing'
@@ -9,6 +30,17 @@ export type ModelHealthState =
   | 'generation_successful'
   | 'provider_unavailable';
 
+export interface ModelTierProbeResult {
+  model: string;
+  tier: 'primary' | 'secondary' | 'emergency';
+  modelsGetReachable: boolean;
+  generationVerified: boolean;
+  latencyMs: number | null;
+  statusCode?: number;
+  diagnosticCode?: string;
+  detail?: string;
+}
+
 export interface ModelHealthStatus {
   state: ModelHealthState;
   connected: boolean;
@@ -16,10 +48,20 @@ export interface ModelHealthStatus {
   providerReachable: boolean;
   generationVerified: boolean;
   model: string;
+  activeModel?: string;
+  fallbackActivated?: boolean;
+  fallbackModels?: string[];
   thinkModeSupported: boolean;
   checkedAt: string;
   latencyMs: number | null;
   message: string;
+  probeDiagnosticCode?: string;
+  requestId?: string;
+  usageCounts?: Record<string, number>;
+  tierResults?: ModelTierProbeResult[];
+  availableTextModels?: string[];
+  envAudit?: Record<string, unknown>;
+  diagnostic?: Record<string, unknown>;
 }
 
 export interface ModelChatResponse {
@@ -29,9 +71,41 @@ export interface ModelChatResponse {
   status?: string;
   statusCode?: number;
   modelUsed?: string;
+  actualModel?: string;
+  requestedModel?: string;
+  fallbackActivated?: boolean;
+  fallbackReason?: string;
+  retryCount?: number;
+  durationMs?: number;
+  attemptedModels?: string[];
   requestedMode?: string;
   appliedMode?: string;
   thinkingLevel?: string;
+  requestId?: string;
+  diagnostic?: Record<string, unknown>;
+}
+
+export interface ChatAttachmentPayload {
+  id?: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  storagePath?: string;
+  extractedText?: string;
+  inlineDataBase64?: string;
+}
+
+export interface GeminiChatDiagnosticOverrides {
+  fetchImpl?: typeof fetch;
+  createClient?: (apiKey: string) => {
+    models: {
+      generateContent: (params: Record<string, unknown>) => Promise<{ text?: string }>;
+    };
+  };
+  modelOverride?: string;
+  apiKeyOverride?: string;
+  sleep?: (ms: number) => Promise<void>;
+  forceDirectSdk?: boolean;
 }
 
 export function extractIntelligentTitle(input: string): string {
@@ -93,6 +167,9 @@ export class GeminiModelService {
     providerReachable: false,
     generationVerified: false,
     model: DEFAULT_GEMINI_MODEL,
+    activeModel: DEFAULT_GEMINI_MODEL,
+    fallbackActivated: false,
+    fallbackModels: [SECONDARY_GEMINI_MODEL],
     thinkModeSupported: true,
     checkedAt: new Date().toISOString(),
     latencyMs: null,
@@ -117,16 +194,10 @@ export class GeminiModelService {
     this.listeners.forEach((listener) => listener(next));
   }
 
-  public async checkStatus(forceRefresh = false, liveProbe = false): Promise<ModelHealthStatus> {
+  public async checkStatus(forceRefresh = false, liveProbe = false, includeTiers = false): Promise<ModelHealthStatus> {
     if (typeof window === 'undefined') {
       const hasKey = typeof process !== 'undefined' && Boolean(process.env.GEMINI_API_KEY?.trim());
-      const rawModel = typeof process !== 'undefined' ? process.env.GEMINI_MODEL?.trim() : '';
-      const cleanedModel = rawModel ? rawModel.replace(/^models\//i, '').trim() : '';
-      const model = cleanedModel
-        ? /\s/.test(cleanedModel)
-          ? cleanedModel.toLowerCase().replace(/\s+/g, '-')
-          : cleanedModel
-        : DEFAULT_GEMINI_MODEL;
+      const model = normalizeServerModelOverride(typeof process !== 'undefined' ? process.env.GEMINI_MODEL : '');
       const status: ModelHealthStatus = {
         state: hasKey ? 'credentials_configured' : 'credentials_missing',
         connected: hasKey,
@@ -134,6 +205,8 @@ export class GeminiModelService {
         providerReachable: false,
         generationVerified: false,
         model,
+        activeModel: model,
+        fallbackModels: [DEFAULT_GEMINI_MODEL, EMERGENCY_GEMINI_MODEL].filter((m) => m !== model),
         thinkModeSupported: true,
         checkedAt: new Date().toISOString(),
         latencyMs: null,
@@ -148,10 +221,11 @@ export class GeminiModelService {
     const startedAt = performance.now();
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
+      const timeout = setTimeout(() => controller.abort(), liveProbe ? 47000 : 5000);
       const params = new URLSearchParams();
       if (forceRefresh) params.set('refresh', '1');
       if (liveProbe) params.set('probe', 'generate');
+      if (includeTiers) params.set('tiers', '1');
       const query = params.toString() ? `?${params.toString()}` : '';
       const res = await fetch(`/api/model/status${query}`, { signal: controller.signal });
       clearTimeout(timeout);
@@ -168,10 +242,20 @@ export class GeminiModelService {
           providerReachable: Boolean(data.providerReachable),
           generationVerified: Boolean(data.generationVerified),
           model: data.model || DEFAULT_GEMINI_MODEL,
+          activeModel: data.activeModel || data.model || DEFAULT_GEMINI_MODEL,
+          ...(typeof data.fallbackActivated === 'boolean' ? { fallbackActivated: data.fallbackActivated } : {}),
+          ...(Array.isArray(data.fallbackModels) ? { fallbackModels: data.fallbackModels } : {}),
           thinkModeSupported: data.thinkModeSupported ?? true,
           checkedAt: data.checkedAt || new Date().toISOString(),
           latencyMs,
           message: data.message || 'Model status checked.',
+          ...(data.probeDiagnosticCode ? { probeDiagnosticCode: data.probeDiagnosticCode } : {}),
+          ...(data.requestId ? { requestId: data.requestId } : {}),
+          ...(data.usageCounts ? { usageCounts: data.usageCounts } : {}),
+          ...(Array.isArray(data.tierResults) ? { tierResults: data.tierResults } : {}),
+          ...(Array.isArray(data.availableTextModels) ? { availableTextModels: data.availableTextModels } : {}),
+          ...(data.envAudit ? { envAudit: data.envAudit } : {}),
+          ...(data.diagnostic ? { diagnostic: data.diagnostic } : {}),
         };
         this.publishStatus(normalized);
         return normalized;
@@ -191,6 +275,13 @@ export class GeminiModelService {
       checkedAt: new Date().toISOString(),
       latencyMs: Math.round(performance.now() - startedAt),
       message: 'Server model status endpoint unreachable.',
+      diagnostic: {
+        endpoint: '/api/model/status',
+        method: 'GET',
+        stage: 'client_fetch',
+        code: 'STATUS_ENDPOINT_UNREACHABLE',
+        durationMs: Math.round(performance.now() - startedAt),
+      },
     };
     this.publishStatus(unavailable);
     return unavailable;
@@ -201,23 +292,36 @@ export class GeminiModelService {
     newMessage: string,
     mode?: string,
     systemInstruction?: string,
-    accessToken?: string
+    accessToken?: string,
+    diagnosticOverrides?: GeminiChatDiagnosticOverrides,
+    attachments?: ChatAttachmentPayload[]
   ): Promise<ModelChatResponse> {
-    if (typeof window === 'undefined') {
-      if (typeof process !== 'undefined' && process.env.GEMINI_API_KEY?.trim()) {
+    const canUseDirectSdkInNodeOrMock =
+      (typeof window === 'undefined' && !diagnosticOverrides?.fetchImpl) ||
+      Boolean(diagnosticOverrides?.forceDirectSdk && typeof diagnosticOverrides?.createClient === 'function');
+
+    if (canUseDirectSdkInNodeOrMock) {
+      const configuredApiKey =
+        diagnosticOverrides?.apiKeyOverride?.trim() ||
+        (typeof window === 'undefined' && typeof process !== 'undefined' ? process.env.GEMINI_API_KEY?.trim() : '');
+
+      if (configuredApiKey) {
+        const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
         try {
-          const { GoogleGenAI, ThinkingLevel } = await import('@google/genai');
-          const rawModel = process.env.GEMINI_MODEL?.trim();
-          const cleanedModel = rawModel ? rawModel.replace(/^models\//i, '').trim() : '';
-          const modelUsed = cleanedModel
-            ? /\s/.test(cleanedModel)
-              ? cleanedModel.toLowerCase().replace(/\s+/g, '-')
-              : cleanedModel
-            : DEFAULT_GEMINI_MODEL;
-          const ai = new GoogleGenAI({
-            apiKey: process.env.GEMINI_API_KEY.trim(),
-            httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
-          });
+          const { ThinkingLevel } = await import('@google/genai');
+          const primaryModel = normalizeServerModelOverride(
+            diagnosticOverrides?.modelOverride ??
+              (typeof process !== 'undefined' ? process.env.GEMINI_MODEL : undefined)
+          );
+          const ai = diagnosticOverrides?.createClient
+            ? diagnosticOverrides.createClient(configuredApiKey)
+            : new (await import('@google/genai')).GoogleGenAI({
+                apiKey: configuredApiKey,
+                httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+              });
+          const sleepFn =
+            diagnosticOverrides?.sleep ||
+            ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
           const requestedMode = mode || 'Standard Intelligent';
           const isThink = requestedMode === 'Think';
@@ -242,26 +346,130 @@ export class GeminiModelService {
             { role: 'user', parts: [{ text: newMessage }] },
           ];
 
+          const candidateModels = resolveStrictFallbackChain(primaryModel);
+          let response: { text?: string } | null = null;
+          let activeModel = primaryModel;
           let appliedMode = requestedMode;
           let thinkingLevel = isThink ? 'HIGH' : 'DEFAULT';
-          let response;
-          try {
-            response = await ai.models.generateContent({ model: modelUsed, contents, config });
-          } catch (innerErr: any) {
-            if (isThink && String(innerErr?.message || '').toLowerCase().includes('thinking')) {
-              const fallbackConfig = { systemInstruction: resolvedSystemInstruction };
-              response = await ai.models.generateContent({ model: modelUsed, contents, config: fallbackConfig });
-              appliedMode = 'Standard Intelligent';
-              thinkingLevel = 'DEFAULT';
-            } else {
-              throw innerErr;
+          let lastErr: any = null;
+          let primaryFailureReason: string | undefined;
+          let retryCount = 0;
+          const attemptedModels: string[] = [];
+
+          for (let idx = 0; idx < candidateModels.length; idx++) {
+            const targetModel = candidateModels[idx];
+            activeModel = targetModel;
+            attemptedModels.push(targetModel);
+            const maxAttempts = 2;
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+              try {
+                try {
+                  response = await ai.models.generateContent({ model: targetModel, contents, config });
+                  break;
+                } catch (innerErr: any) {
+                  if (isThink && String(innerErr?.message || '').toLowerCase().includes('thinking')) {
+                    const fallbackConfig = { systemInstruction: resolvedSystemInstruction };
+                    response = await ai.models.generateContent({
+                      model: targetModel,
+                      contents,
+                      config: fallbackConfig,
+                    });
+                    appliedMode = 'Standard Intelligent';
+                    thinkingLevel = 'DEFAULT';
+                    break;
+                  }
+                  throw innerErr;
+                }
+              } catch (candidateErr: any) {
+                lastErr = candidateErr;
+                const statusNum =
+                  typeof candidateErr?.status === 'number'
+                    ? candidateErr.status
+                    : typeof candidateErr?.statusCode === 'number'
+                      ? candidateErr.statusCode
+                      : undefined;
+                const msg = String(candidateErr?.message || '');
+                const lower = msg.toLowerCase();
+                const isAuthOrConfigErr =
+                  lower.includes('api_key_invalid') || lower.includes('permission_denied');
+                const isTransient503OrTimeout =
+                  statusNum === 503 ||
+                  statusNum === 504 ||
+                  lower.includes('503') ||
+                  lower.includes('unavailable') ||
+                  lower.includes('high demand') ||
+                  lower.includes('overloaded') ||
+                  lower.includes('timed out');
+
+                if (idx === 0 && !primaryFailureReason) {
+                  primaryFailureReason = `Primary model ${targetModel} failed${
+                    statusNum ? ` (HTTP ${statusNum})` : ''
+                  }${msg ? `: ${msg.slice(0, 120)}` : ''}`;
+                }
+
+                if (isAuthOrConfigErr) {
+                  response = null;
+                  break;
+                }
+
+                if (isTransient503OrTimeout && attempt < maxAttempts) {
+                  retryCount++;
+                  await sleepFn(50);
+                  continue;
+                }
+                break;
+              }
+            }
+
+            if (response?.text) {
+              break;
+            }
+            const errMsgLower = String(lastErr?.message || '').toLowerCase();
+            if (errMsgLower.includes('api_key_invalid') || errMsgLower.includes('permission_denied')) {
+              break;
             }
           }
+
+          if (!response?.text) {
+            throw lastErr || new Error('Direct model fallback chain failed');
+          }
+
+          const durationMs = Math.round(
+            (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
+          );
+          const fallbackActivated = activeModel !== primaryModel;
+          const fallbackReason = fallbackActivated ? primaryFailureReason : undefined;
+
+          this.publishStatus({
+            ...this.lastStatus,
+            state: 'generation_successful',
+            connected: true,
+            credentialsConfigured: true,
+            providerReachable: true,
+            generationVerified: true,
+            model: primaryModel,
+            activeModel,
+            fallbackActivated,
+            fallbackModels: [SECONDARY_GEMINI_MODEL],
+            checkedAt: new Date().toISOString(),
+            latencyMs: durationMs,
+            message: fallbackActivated
+              ? `Emergency fallback active (${activeModel}) — primary ${primaryModel} returned temporary failure.`
+              : `Gemini (${activeModel}) responding normally.`,
+          });
 
           return {
             success: true,
             text: response.text,
-            modelUsed,
+            modelUsed: activeModel,
+            actualModel: activeModel,
+            requestedModel: primaryModel,
+            fallbackActivated,
+            ...(fallbackReason ? { fallbackReason } : {}),
+            retryCount,
+            durationMs,
+            attemptedModels,
             requestedMode,
             appliedMode,
             thinkingLevel,
@@ -291,8 +499,10 @@ export class GeminiModelService {
       };
     }
 
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 26000);
+    const timeout = setTimeout(() => controller.abort(), 63000);
+    const fetchFn = diagnosticOverrides?.fetchImpl || fetch;
 
     try {
       const messagesPayload = [
@@ -305,7 +515,7 @@ export class GeminiModelService {
         ...(newMessage.trim() ? [{ role: 'user', content: newMessage }] : []),
       ];
 
-      const res = await fetch('/api/chat', {
+      const res = await fetchFn('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -315,13 +525,23 @@ export class GeminiModelService {
           messages: messagesPayload,
           mode,
           systemInstruction,
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
         }),
         signal: controller.signal,
       });
 
-      const payload = await res.json().catch(() => ({}));
-      if (res.ok && (payload.reply || payload.text)) {
-        const reply = (payload.reply || payload.text || '').trim();
+      const durationMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt);
+      const headerRequestId = res.headers?.get?.('x-request-id') || undefined;
+      let parsedOk = true;
+      const payload = await res.json().catch(() => {
+        parsedOk = false;
+        return {};
+      });
+      const requestId = typeof payload.requestId === 'string' ? payload.requestId : headerRequestId;
+
+      if (res.ok && parsedOk && (payload.reply || payload.text)) {
+        const reply = String(payload.reply || payload.text || '').trim();
+        const activeModel = payload.actualModel || payload.modelUsed || this.lastStatus.model;
         this.publishStatus({
           ...this.lastStatus,
           state: 'generation_successful',
@@ -329,19 +549,58 @@ export class GeminiModelService {
           credentialsConfigured: true,
           providerReachable: true,
           generationVerified: true,
-          model: payload.modelUsed || this.lastStatus.model,
+          activeModel,
+          fallbackActivated: Boolean(payload.fallbackActivated),
+          fallbackModels: [SECONDARY_GEMINI_MODEL],
           checkedAt: new Date().toISOString(),
-          message: `Gemini (${payload.modelUsed || this.lastStatus.model}) responding normally.`,
+          latencyMs: typeof payload.durationMs === 'number' ? payload.durationMs : durationMs,
+          message: payload.fallbackActivated
+            ? `Fallback active (${activeModel}) — primary ${payload.requestedModel || this.lastStatus.model} temporarily unavailable.`
+            : `Gemini (${activeModel}) responding normally.`,
         });
         return {
           success: true,
           text: reply,
-          modelUsed: payload.modelUsed,
+          modelUsed: activeModel,
+          actualModel: activeModel,
+          requestedModel: payload.requestedModel || this.lastStatus.model,
+          fallbackActivated: Boolean(payload.fallbackActivated),
+          ...(payload.fallbackReason ? { fallbackReason: payload.fallbackReason } : {}),
+          ...(typeof payload.retryCount === 'number' ? { retryCount: payload.retryCount } : {}),
+          durationMs: typeof payload.durationMs === 'number' ? payload.durationMs : durationMs,
+          ...(Array.isArray(payload.attemptedModels) ? { attemptedModels: payload.attemptedModels } : {}),
           requestedMode: payload.requestedMode || mode,
           appliedMode: payload.appliedMode || mode,
           thinkingLevel: payload.thinkingLevel,
+          requestId,
         };
       }
+
+      const derivedCode =
+        res.ok && (!parsedOk || (!payload.reply && !payload.text))
+          ? 'INVALID_RESPONSE'
+          : payload.code || payload.status || (res.status === 401 ? 'UNAUTHENTICATED' : 'PROVIDER_ERROR');
+
+      const diagnostic: Record<string, unknown> = {
+        endpoint: '/api/chat',
+        method: 'POST',
+        statusCode: res.status,
+        durationMs,
+        ...(requestId ? { requestId } : {}),
+        errorCode: derivedCode,
+        stage:
+          payload.diagnostic?.stage ||
+          (res.ok ? 'response_extraction' : res.status === 401 ? 'auth_verification' : 'provider_generate'),
+        ...(typeof payload.diagnostic?.providerStatus === 'number'
+          ? { providerStatus: payload.diagnostic.providerStatus }
+          : {}),
+        ...(payload.diagnostic?.providerCode ? { providerCode: payload.diagnostic.providerCode } : {}),
+        ...(payload.diagnostic?.providerDetail
+          ? { providerDetail: payload.diagnostic.providerDetail }
+          : !parsedOk
+            ? { providerDetail: 'Non-JSON response received from /api/chat' }
+            : {}),
+      };
 
       return {
         success: false,
@@ -354,16 +613,28 @@ export class GeminiModelService {
               : res.status === 429
                 ? 'Too many requests. Please wait a moment before sending again.'
                 : 'Angel could not reach the conversation service. Please try again.',
-        status: payload.code || payload.status || (res.status === 401 ? 'unauthenticated' : 'provider_unavailable'),
+        status: derivedCode,
+        requestId,
+        diagnostic,
       };
     } catch (err: any) {
+      const durationMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt);
       const isAbort = err?.name === 'AbortError';
+      const code = isAbort ? 'TIMEOUT' : 'NETWORK_ERROR';
       return {
         success: false,
         error: isAbort
           ? 'The conversation request timed out. Please retry.'
           : err?.message || 'Unable to reach Angel conversation service.',
         status: isAbort ? 'timeout' : 'network_error',
+        diagnostic: {
+          endpoint: '/api/chat',
+          method: 'POST',
+          errorCode: code,
+          stage: 'client_fetch',
+          durationMs,
+          providerDetail: err?.message || code,
+        },
       };
     } finally {
       clearTimeout(timeout);
@@ -373,7 +644,7 @@ export class GeminiModelService {
   public async generateTitle(firstMessage: string, accessToken?: string): Promise<string> {
     if (typeof window !== 'undefined' && accessToken && firstMessage.trim()) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
+      const timeout = setTimeout(() => controller.abort(), 15000);
       try {
         const res = await fetch('/api/title', {
           method: 'POST',

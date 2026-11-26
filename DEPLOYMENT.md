@@ -36,7 +36,7 @@ The existing site configuration should retain:
 | `SUPABASE_URL` | Functions |
 | `SUPABASE_PUBLISHABLE_KEY` | Functions |
 | `GEMINI_API_KEY` | Functions only |
-| `GEMINI_MODEL` | Optional Functions setting |
+| `GEMINI_MODEL` | Optional Functions setting (defaults to `gemini-3.8-flash`; emergency fallback `gemini-3.1-flash-lite`) |
 
 For Google AI Studio / local preview, copy `.env.local.example` to `.env.local` (gitignored) and populate `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (or configure them in AI Studio project environment settings). In production deployments, `.github/workflows/production.yml` resolves `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (with fallback to `VITE_SUPABASE_ANON_KEY`) from GitHub variables/secrets or the Netlify site environment before executing `npm run build` so prebuilt `dist` assets always receive public Supabase configuration. The app accepts `VITE_SUPABASE_ANON_KEY` as a legacy alias, but `VITE_SUPABASE_PUBLISHABLE_KEY` is the preferred configured name. Never add a service-role key to the frontend.
 
@@ -45,7 +45,7 @@ For Google AI Studio / local preview, copy `.env.local.example` to `.env.local` 
 Google sign-in uses Supabase's OAuth authorization-code flow with PKCE.
 
 1. In Google Cloud Console, create an OAuth 2.0 Client ID with application type **Web application**.
-2. Add the production origin `https://angel-companion.netlify.app` to Authorized JavaScript origins. Add local development origins only if needed.
+2. Add the production origin `https://angel-companion.netlify.app` to Authorized JavaScript origins. Add AI Studio preview or local development origins only if needed.
 3. Add this exact Authorized redirect URI to the Google OAuth client:
 
    `https://qltiogotxbxwzwmnypwu.supabase.co/auth/v1/callback`
@@ -54,9 +54,11 @@ Google sign-in uses Supabase's OAuth authorization-code flow with PKCE.
 5. In Supabase **Authentication → URL Configuration**, set the production Site URL to `https://angel-companion.netlify.app` and add the allowed post-auth redirect URLs:
    - `https://angel-companion.netlify.app/auth/callback`
    - `https://angel-companion.netlify.app/**`
-   - `http://localhost:3000/auth/callback` for local development, if used
+   - AI Studio preview callback URLs (`https://ais-dev-67j3uvdue42nvzmwjvks5f-244498784849.europe-west2.run.app/auth/preview-callback` and `https://ais-pre-67j3uvdue42nvzmwjvks5f-244498784849.europe-west2.run.app/auth/preview-callback`) if testing Google sign-in from Google AI Studio preview
+   - `http://localhost:3000/auth/preview-callback` (and `http://localhost:3000/**`) for local development, if used
    - Any explicit Netlify preview origin you intend to test
 6. Save and test using a dedicated account.
+7. Before applying `supabase/migrations/20261125000100_fix_companion_upsert_indexes_and_rate_limits.sql` in production, run `supabase db push --include-all --remote --dry-run` and check for duplicate `(user_id, client_id)` rows in `companion_conversations`, `companion_messages`, `companion_memories`, and `companion_library_items` first.
 
 The Google Client Secret belongs in Supabase's Google provider settings, not in Netlify frontend variables, Vite, or GitHub source.
 

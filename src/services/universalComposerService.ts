@@ -130,14 +130,45 @@ export class UniversalComposerService {
     this.errorsMap.delete(key);
   }
 
+  private async submitUserTurnAndGenerate(
+    threadId: string,
+    fullContent: string,
+    mode: ComposerMode,
+    attachmentNames: string[],
+    attachments: AttachmentRecord[],
+    linkPreviews: LinkPreview[],
+    onUserTurnSaved?: (threadId: string) => void
+  ) {
+    if (conversationEngine.hasFailedTurnPendingRetry(threadId, fullContent)) {
+      onUserTurnSaved?.(threadId);
+      const retried = await conversationEngine.retryLastTurn(threadId);
+      if (retried) return retried;
+    }
+
+    await conversationEngine.addMessage(
+      threadId,
+      fullContent,
+      'user',
+      mode,
+      attachmentNames,
+      attachments,
+      linkPreviews
+    );
+
+    onUserTurnSaved?.(threadId);
+    return conversationEngine.generateAssistantResponse(threadId);
+  }
+
   public async submit(
     context: ComposerContext,
     text: string,
-    attachedFileOrFiles?: { name: string; size: number; content?: string } | AttachmentRecord[] | null
+    attachedFileOrFiles?: { name: string; size: number; content?: string } | AttachmentRecord[] | null,
+    options?: { onUserTurnSaved?: (threadId: string) => void }
   ): Promise<ComposerSubmissionResult> {
     const key = this.getContextKey(context);
     const trimmedText = text.trim();
 
+    // 1. Validate URLs & input BEFORE acquiring lock or committing staged attachments
     const { unsafeUrls } = linkPreviewService.detectUrls(trimmedText);
     if (unsafeUrls.length > 0) {
       const err = `Unsafe URL scheme detected (${unsafeUrls.join(', ')}). Submission rejected for security.`;
@@ -145,30 +176,10 @@ export class UniversalComposerService {
       return { success: false, error: err, summaryText: err };
     }
 
-    const attachmentsToCommit: AttachmentRecord[] = [];
-    if (Array.isArray(attachedFileOrFiles)) {
-      attachmentsToCommit.push(...attachedFileOrFiles);
-    } else if (attachedFileOrFiles && attachedFileOrFiles.name) {
-      const stagedRes = await universalAttachmentService.stageAttachment(context, {
-        name: attachedFileOrFiles.name,
-        size: attachedFileOrFiles.size,
-        content: attachedFileOrFiles.content || '',
-      });
-      if (!stagedRes.success) {
-        this.errorsMap.set(key, stagedRes.error || 'Failed to attach file');
-        return { success: false, error: stagedRes.error, summaryText: stagedRes.error || 'Attachment error' };
-      }
-    }
-
-    const staged = universalAttachmentService.getStagedAttachments(context);
-    if (staged.length > 0) {
-      const committed = await universalAttachmentService.commitAttachments(context);
-      attachmentsToCommit.push(...committed);
-    }
-
-    const uniqueAttachments = Array.from(
-      new Map(attachmentsToCommit.map((a) => [a.id, a])).values()
-    );
+    const existingStaged = universalAttachmentService.getStagedAttachments(context);
+    const hasIncomingInlineFile =
+      (Array.isArray(attachedFileOrFiles) && attachedFileOrFiles.length > 0) ||
+      Boolean(attachedFileOrFiles && !Array.isArray(attachedFileOrFiles) && attachedFileOrFiles.name);
 
     if (context.type === 'agent_task') {
       if (!context.agentId) {
@@ -181,14 +192,13 @@ export class UniversalComposerService {
         this.errorsMap.set(key, err);
         return { success: false, error: err, summaryText: err };
       }
-    } else {
-      if (!trimmedText && uniqueAttachments.length === 0) {
-        const err = 'Message content or attached file is required.';
-        this.errorsMap.set(key, err);
-        return { success: false, error: err, summaryText: err };
-      }
+    } else if (!trimmedText && existingStaged.length === 0 && !hasIncomingInlineFile) {
+      const err = 'Message content or attached file is required.';
+      this.errorsMap.set(key, err);
+      return { success: false, error: err, summaryText: err };
     }
 
+    // 2. Check submission lock BEFORE mutating/committing staged attachments
     if (this.submittingMap.get(key)) {
       const err = 'Submission already in progress for this context.';
       this.errorsMap.set(key, err);
@@ -198,45 +208,85 @@ export class UniversalComposerService {
     this.submittingMap.set(key, true);
     this.errorsMap.delete(key);
 
-    const mode = this.getMode(context);
-    let fullContent = trimmedText;
-    const attachmentNames = uniqueAttachments.map((a) => a.name);
-
-    if (uniqueAttachments.length > 0) {
-      const attSummary = uniqueAttachments
-        .map((a) => `[Attachment: ${a.name} (${universalAttachmentService.formatFileSize(a.size)})]`)
-        .join('\n');
-      fullContent = trimmedText ? `${trimmedText}\n${attSummary}` : attSummary;
-    }
-
-    const linkPreviews: LinkPreview[] = await linkPreviewService.getPreviewsForText(trimmedText);
-
     try {
+      const attachmentsToCommit: AttachmentRecord[] = [];
+      const alreadyAddedToWorkspaceIds = new Set<string>();
+
+      if (Array.isArray(attachedFileOrFiles)) {
+        attachmentsToCommit.push(...attachedFileOrFiles);
+      } else if (attachedFileOrFiles && attachedFileOrFiles.name) {
+        const stagedRes = await universalAttachmentService.stageAttachment(context, {
+          name: attachedFileOrFiles.name,
+          size: attachedFileOrFiles.size,
+          content: attachedFileOrFiles.content || '',
+        });
+        if (!stagedRes.success) {
+          const err = stagedRes.error || 'Failed to attach file';
+          this.errorsMap.set(key, err);
+          return { success: false, error: err, summaryText: err };
+        }
+      }
+
+      const staged = universalAttachmentService.getStagedAttachments(context);
+      if (staged.length > 0) {
+        const committed = await universalAttachmentService.commitAttachments(context);
+        if (context.type === 'workspace') {
+          committed.forEach((a) => alreadyAddedToWorkspaceIds.add(a.id));
+        }
+        attachmentsToCommit.push(...committed);
+      }
+
+      const uniqueAttachments = Array.from(
+        new Map(attachmentsToCommit.map((a) => [a.id, a])).values()
+      );
+
+      const mode = this.getMode(context);
+      let fullContent = trimmedText;
+      const attachmentNames = uniqueAttachments.map((a) => a.name);
+
+      if (uniqueAttachments.length > 0) {
+        const attSummary = uniqueAttachments
+          .map((a) => `[Attachment: ${a.name} (${universalAttachmentService.formatFileSize(a.size)})]`)
+          .join('\n');
+        fullContent = trimmedText ? `${trimmedText}\n${attSummary}` : attSummary;
+      }
+
+      const linkPreviews: LinkPreview[] = await linkPreviewService.getPreviewsForText(trimmedText);
       let result: ComposerSubmissionResult;
 
       switch (context.type) {
         case 'general': {
-          let threadId = context.conversationId;
-          if (!threadId) {
-            const activeThread = conversationEngine.getActiveThread('general');
-            threadId = activeThread.id;
-          }
-
-          await conversationEngine.addMessage(
+          const threadId = context.conversationId || conversationEngine.getActiveThread('general').id;
+          const aiMsg = await this.submitUserTurnAndGenerate(
             threadId,
             fullContent,
-            'user',
             mode,
             attachmentNames,
             uniqueAttachments,
-            linkPreviews
+            linkPreviews,
+            options?.onUserTurnSaved
           );
 
-          const aiMsg = await conversationEngine.generateAssistantResponse(threadId);
+          if (aiMsg.status === 'failed') {
+            const err = aiMsg.error || aiMsg.content || 'Angel could not generate a reply.';
+            this.errorsMap.set(key, err);
+            return {
+              success: false,
+              error: err,
+              messageId: aiMsg.id,
+              threadId,
+              responseKind: 'assistant_reply',
+              summaryText: err,
+              attachments: uniqueAttachments,
+              linkPreviews,
+            };
+          }
 
           result = {
             success: true,
             messageId: aiMsg.id,
+            threadId,
+            responseKind: 'assistant_reply',
             summaryText: `Submitted message to General Conversation (${threadId}).`,
             attachments: uniqueAttachments,
             linkPreviews,
@@ -246,28 +296,39 @@ export class UniversalComposerService {
 
         case 'studio': {
           const studioId = context.studioId || 'research-studio';
-          let threadId = context.conversationId;
+          const threadId =
+            context.conversationId || conversationEngine.getActiveThread('studio', studioId).id;
 
-          if (!threadId) {
-            const activeStudioThread = conversationEngine.getActiveThread('studio', studioId);
-            threadId = activeStudioThread.id;
-          }
-
-          await conversationEngine.addMessage(
+          const aiMsg = await this.submitUserTurnAndGenerate(
             threadId,
             fullContent,
-            'user',
             mode,
             attachmentNames,
             uniqueAttachments,
-            linkPreviews
+            linkPreviews,
+            options?.onUserTurnSaved
           );
 
-          const aiMsg = await conversationEngine.generateAssistantResponse(threadId);
+          if (aiMsg.status === 'failed') {
+            const err = aiMsg.error || aiMsg.content || 'Studio assistant could not generate a reply.';
+            this.errorsMap.set(key, err);
+            return {
+              success: false,
+              error: err,
+              messageId: aiMsg.id,
+              threadId,
+              responseKind: 'assistant_reply',
+              summaryText: err,
+              attachments: uniqueAttachments,
+              linkPreviews,
+            };
+          }
 
           result = {
             success: true,
             messageId: aiMsg.id,
+            threadId,
+            responseKind: 'assistant_reply',
             summaryText: `Submitted message to Studio Conversation (${studioId}).`,
             attachments: uniqueAttachments,
             linkPreviews,
@@ -278,6 +339,7 @@ export class UniversalComposerService {
         case 'workspace': {
           const projId = context.projectId || 'proj_default';
           for (const att of uniqueAttachments) {
+            if (alreadyAddedToWorkspaceIds.has(att.id)) continue;
             const content = att.extractedText || `Attached file: ${att.name}`;
             workspaceEngine.addFileToProject(projId, att.name, content, 'document');
           }
@@ -286,6 +348,7 @@ export class UniversalComposerService {
 
           result = {
             success: true,
+            responseKind: 'workspace_update',
             summaryText: `Associated instruction and ${uniqueAttachments.length} file(s) with workspace project '${projId}'.`,
             attachments: uniqueAttachments,
             linkPreviews,
@@ -302,6 +365,7 @@ export class UniversalComposerService {
 
           result = {
             success: true,
+            responseKind: 'adaptive_route',
             summaryText: `Passed context for adaptive preset '${presetId}' into Prompt Intelligence Engine (Detected: ${intent.detectedTask}).`,
             attachments: uniqueAttachments,
             linkPreviews,
@@ -331,6 +395,7 @@ export class UniversalComposerService {
             return {
               success: false,
               error: err,
+              responseKind: 'agent_execution',
               summaryText: `Agent task failed: ${err}`,
             };
           }
@@ -338,6 +403,7 @@ export class UniversalComposerService {
           result = {
             success: true,
             taskId: `task_${Date.now()}`,
+            responseKind: 'agent_execution',
             summaryText: `Agent '${agent.name}' successfully executed task: "${trimmedText}".`,
             attachments: uniqueAttachments,
             linkPreviews,
@@ -354,21 +420,36 @@ export class UniversalComposerService {
           );
           thread.isCustomTitle = true;
 
-          await conversationEngine.addMessage(
+          const aiMsg = await this.submitUserTurnAndGenerate(
             thread.id,
             fullContent,
-            'user',
             mode,
             attachmentNames,
             uniqueAttachments,
-            linkPreviews
+            linkPreviews,
+            options?.onUserTurnSaved
           );
 
-          const aiMsg = await conversationEngine.generateAssistantResponse(thread.id);
+          if (aiMsg.status === 'failed') {
+            const err = aiMsg.error || aiMsg.content || 'Learning assistant could not generate a reply.';
+            this.errorsMap.set(key, err);
+            return {
+              success: false,
+              error: err,
+              messageId: aiMsg.id,
+              threadId: thread.id,
+              responseKind: 'assistant_reply',
+              summaryText: err,
+              attachments: uniqueAttachments,
+              linkPreviews,
+            };
+          }
 
           result = {
             success: true,
             messageId: aiMsg.id,
+            threadId: thread.id,
+            responseKind: 'assistant_reply',
             summaryText: `Submitted learning query for subject '${learningSubject}'.`,
             attachments: uniqueAttachments,
             linkPreviews,
@@ -378,10 +459,36 @@ export class UniversalComposerService {
 
         default: {
           const activeThread = conversationEngine.getActiveThread('general');
-          const aiMsg = await conversationEngine.generateAssistantResponse(activeThread.id);
+          const aiMsg = await this.submitUserTurnAndGenerate(
+            activeThread.id,
+            fullContent,
+            mode,
+            attachmentNames,
+            uniqueAttachments,
+            linkPreviews,
+            options?.onUserTurnSaved
+          );
+
+          if (aiMsg.status === 'failed') {
+            const err = aiMsg.error || aiMsg.content || 'Angel could not generate a reply.';
+            this.errorsMap.set(key, err);
+            return {
+              success: false,
+              error: err,
+              messageId: aiMsg.id,
+              threadId: activeThread.id,
+              responseKind: 'assistant_reply',
+              summaryText: err,
+              attachments: uniqueAttachments,
+              linkPreviews,
+            };
+          }
+
           result = {
             success: true,
             messageId: aiMsg.id,
+            threadId: activeThread.id,
+            responseKind: 'assistant_reply',
             summaryText: 'Submitted fallback message to General Conversation.',
             attachments: uniqueAttachments,
             linkPreviews,
@@ -389,7 +496,9 @@ export class UniversalComposerService {
         }
       }
 
-      this.clearDraft(context);
+      if (result.success) {
+        this.clearDraft(context);
+      }
       return result;
     } catch (err: any) {
       const errMsg = err?.message || 'Failed to submit composer request.';

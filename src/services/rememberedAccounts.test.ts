@@ -261,5 +261,8 @@ test('OAuth opens directly in a new tab without duplicate buttons, fallback boxe
   assert.ok(authServiceSource.includes("link.rel = 'noopener noreferrer'"));
   assert.ok(authServiceSource.includes("broadcastCrossTabAuthEvent('authenticated')"));
   assert.ok(appSource.includes('subscribeToCrossTabAuthSync'));
-  assert.ok(appSource.includes("const targetRoute: AppRoute = parsedTarget === 'landing' ? 'app' : parsedTarget;"));
+  assert.ok(appSource.includes("const targetRoute: AppRoute ="));
+  assert.ok(appSource.includes("parsedTarget === 'landing' || (!isDevPreview && isPreviewOnlyTarget) ? 'app' : parsedTarget;"));
+  assert.ok(appSource.includes('auth-preview-callback'));
+  assert.ok(appSource.includes('debug-preview-auth'));
 });

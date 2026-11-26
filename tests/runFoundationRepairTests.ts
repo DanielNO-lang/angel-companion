@@ -328,8 +328,9 @@ test('Backend /api/model/status covers 5-state health machine & 60s caching vs f
   );
   assert.equal(unavailable.body.state, 'provider_unavailable');
   assert.equal(/503|service unavailable/i.test(String(unavailable.body.message)), false);
-  assert.equal(resolveConfiguredModel({ GEMINI_MODEL: 'Gemini 4 Hydrogen' }), 'gemini-4-hydrogen');
-  assert.equal(resolveConfiguredModel({ GEMINI_MODEL: 'models/gemini-4-hydrogen' }), 'gemini-4-hydrogen');
+  assert.equal(resolveConfiguredModel({ GEMINI_MODEL: 'Gemini 4 Hydrogen' }), 'gemini-3.8-flash');
+  assert.equal(resolveConfiguredModel({ GEMINI_MODEL: 'models/gemini-4-hydrogen' }), 'gemini-3.8-flash');
+  assert.equal(resolveConfiguredModel({ GEMINI_MODEL: 'models/gemini-3.8-flash' }), 'gemini-3.8-flash');
 
   // /api/title requires auth and generates title cleanly
   const titleUnauth = await handleTitleRequest(
@@ -819,6 +820,20 @@ test('Supabase repair migration covers all 3 tables, companionData surfaces miss
   assert.ok(sql.includes('companion_studios_state'));
   assert.ok(sql.includes('companion_agent_executions'));
   assert.ok(sql.toLowerCase().includes('notify pgrst'));
+
+  const indexMigrationPath = path.resolve(
+    process.cwd(),
+    'supabase/migrations/20261125000100_fix_companion_upsert_indexes_and_rate_limits.sql'
+  );
+  assert.ok(fs.existsSync(indexMigrationPath), 'Forward upsert & rate-limit migration must exist');
+  const indexSql = fs.readFileSync(indexMigrationPath, 'utf8');
+  assert.ok(indexSql.includes('companion_messages_conversation_user_idx'));
+  assert.ok(indexSql.includes('companion_memories_user_client_uidx'));
+  assert.ok(indexSql.includes('consume_companion_rate_limit'));
+  assert.ok(indexSql.includes('canonical_convs'));
+  assert.ok(indexSql.includes('coalesce(p_max_requests, 30)'));
+  assert.ok(indexSql.includes('coalesce(p_window_seconds, 60)'));
+  assert.ok(indexSql.includes('on conflict (id) do update'));
 
   // Missing table report updates cloudSyncHealth instead of silently hiding schema errors
   companionData.resetCloudSyncHealth();

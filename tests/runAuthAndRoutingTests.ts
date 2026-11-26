@@ -1,17 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  AISTUDIO_DEV_PREVIEW_ORIGIN,
+  AISTUDIO_SHARED_PREVIEW_ORIGIN,
+  DEBUG_PREVIEW_AUTH_PATH,
+  PREVIEW_CALLBACK_PATH,
+  PRODUCTION_APP_ORIGIN,
+  PRODUCTION_CALLBACK_PATH,
   canAccessWorkspace,
   canUnlinkIdentity,
   deriveUserInitials,
   evaluatePasswordStrength,
+  getOAuthCallbackPath,
   getPathForRoute,
   getRememberMePreference,
   getRememberedAuthEmail,
   saveRememberedAuthEmail,
   getStoredThemeMode,
+  isAiStudioPreviewHostname,
+  isDevelopmentPreviewEnvironment,
   parseAppRoute,
   parseAuthCallbackParams,
+  resolveDirectPreviewUrl,
+  resolveOAuthRedirectUrl,
   sanitizeRedirectPath,
   saveRememberMePreference,
   saveStoredThemeMode,
@@ -20,6 +31,10 @@ import {
   validateSignInInput,
   validateSignUpInput,
 } from '../src/services/authValidation';
+import {
+  isSafeReturnRoute,
+  isSensitiveOrCallbackUrl,
+} from '../src/services/recoveryNavigationService';
 import {
   EXTERNAL_APP_INTEGRATIONS,
   getAuthProviderStatuses,
@@ -106,9 +121,71 @@ test('Route parser maps public, auth, callback, and workspace routes accurately'
   assert.equal(parseAppRoute('/forgot-password'), 'forgot-password');
   assert.equal(parseAppRoute('/reset-password'), 'reset-password');
   assert.equal(parseAppRoute('/auth/callback'), 'auth-callback');
+  assert.equal(parseAppRoute('/auth/preview-callback'), 'auth-preview-callback');
+  assert.equal(parseAppRoute('/preview-auth'), 'preview-auth');
+  assert.equal(parseAppRoute('/debug/preview-auth'), 'debug-preview-auth');
   assert.equal(parseAppRoute('/app'), 'app');
   assert.equal(getPathForRoute('signin'), '/signin');
+  assert.equal(getPathForRoute('preview-auth'), '/preview-auth');
+  assert.equal(getPathForRoute('debug-preview-auth'), DEBUG_PREVIEW_AUTH_PATH);
+  assert.equal(getPathForRoute('auth-preview-callback'), PREVIEW_CALLBACK_PATH);
   assert.equal(getPathForRoute('app'), '/app');
+  assert.equal(isSafeReturnRoute('auth-callback'), false);
+  assert.equal(isSafeReturnRoute('auth-preview-callback'), false);
+  assert.equal(isSensitiveOrCallbackUrl('/auth/preview-callback?code=xyz'), true);
+});
+
+test('Preview environment detection and OAuth callback origin isolation keep dev/preview and prod separate', () => {
+  assert.equal(isAiStudioPreviewHostname(new URL(AISTUDIO_DEV_PREVIEW_ORIGIN).hostname), true);
+  assert.equal(isAiStudioPreviewHostname(new URL(AISTUDIO_SHARED_PREVIEW_ORIGIN).hostname), true);
+  assert.equal(isAiStudioPreviewHostname(new URL(PRODUCTION_APP_ORIGIN).hostname), false);
+
+  assert.equal(isDevelopmentPreviewEnvironment('angel-companion.netlify.app', false), false);
+  assert.equal(isDevelopmentPreviewEnvironment('angel-companion.netlify.app', true), false);
+  assert.equal(isDevelopmentPreviewEnvironment('localhost', true), true);
+  assert.equal(isDevelopmentPreviewEnvironment(new URL(AISTUDIO_DEV_PREVIEW_ORIGIN).hostname, false), true);
+  assert.equal(isDevelopmentPreviewEnvironment(new URL(AISTUDIO_SHARED_PREVIEW_ORIGIN).hostname, false), true);
+
+  assert.equal(getOAuthCallbackPath('angel-companion.netlify.app', false), PRODUCTION_CALLBACK_PATH);
+  assert.equal(getOAuthCallbackPath(new URL(AISTUDIO_DEV_PREVIEW_ORIGIN).hostname, false), PREVIEW_CALLBACK_PATH);
+  assert.equal(getOAuthCallbackPath('localhost', true), PREVIEW_CALLBACK_PATH);
+
+  // Production strictly resolves /auth/callback and locks out /auth/preview-callback
+  assert.equal(
+    resolveOAuthRedirectUrl(PRODUCTION_APP_ORIGIN, '/auth/callback', false),
+    'https://angel-companion.netlify.app/auth/callback'
+  );
+  assert.equal(
+    resolveOAuthRedirectUrl(PRODUCTION_APP_ORIGIN, '/auth/preview-callback', false),
+    'https://angel-companion.netlify.app/auth/callback'
+  );
+
+  // AI Studio Preview & local dev strictly resolve distinct /auth/preview-callback
+  assert.equal(
+    resolveOAuthRedirectUrl(AISTUDIO_DEV_PREVIEW_ORIGIN, '/auth/callback', false),
+    `${AISTUDIO_DEV_PREVIEW_ORIGIN}/auth/preview-callback`
+  );
+  assert.equal(
+    resolveOAuthRedirectUrl(AISTUDIO_SHARED_PREVIEW_ORIGIN, undefined, false),
+    `${AISTUDIO_SHARED_PREVIEW_ORIGIN}/auth/preview-callback`
+  );
+  assert.equal(
+    resolveOAuthRedirectUrl('http://localhost:3000', '/auth/callback', true),
+    'http://localhost:3000/auth/preview-callback'
+  );
+
+  assert.equal(
+    resolveDirectPreviewUrl(AISTUDIO_DEV_PREVIEW_ORIGIN, '/debug/preview-auth'),
+    `${AISTUDIO_DEV_PREVIEW_ORIGIN}/debug/preview-auth`
+  );
+  assert.equal(
+    resolveDirectPreviewUrl('http://localhost:3000', '/app'),
+    'http://localhost:3000/app'
+  );
+  assert.equal(
+    resolveDirectPreviewUrl(PRODUCTION_APP_ORIGIN, 'https://evil.example'),
+    `${AISTUDIO_DEV_PREVIEW_ORIGIN}/debug/preview-auth`
+  );
 });
 
 test('Google OAuth keeps the full-page redirect and asks Google to select an account', () => {
@@ -243,3 +320,77 @@ test('Remember Me defaults on and remembered email can be retained for the next 
   assert.equal(getRememberedAuthEmail(storage), 'angel.user@example.com');
   assert.equal(getRememberedAuthEmail(storage), 'angel.user@example.com');
 });
+
+test('AI Studio preview hostname detection distinguishes app container host from aistudio.google.com shell origin', () => {
+  assert.equal(isAiStudioPreviewHostname('ais-pre-67j3uvdue42nvzmwjvks5f-244498784849.europe-west2.run.app'), true);
+  assert.equal(isAiStudioPreviewHostname('ais-dev-67j3uvdue42nvzmwjvks5f-244498784849.europe-west2.run.app'), true);
+  assert.equal(isAiStudioPreviewHostname('aistudio.google.com'), false);
+  assert.equal(isAiStudioPreviewHostname('sub.aistudio.google.com'), false);
+  assert.equal(isAiStudioPreviewHostname(''), false);
+  assert.equal(isAiStudioPreviewHostname('example.com'), false);
+
+  // aistudio.google.com is correctly recognized as a dev/preview environment (so it uses preview callback path),
+  // but resolveOAuthRedirectUrl maps its origin to the real app run.app origin.
+  assert.equal(isDevelopmentPreviewEnvironment('aistudio.google.com', false), true);
+  assert.equal(
+    resolveOAuthRedirectUrl('https://aistudio.google.com', '/auth/callback', false),
+    `${AISTUDIO_SHARED_PREVIEW_ORIGIN}/auth/preview-callback`
+  );
+});
+
+test('OAuth callback route recognition and production vs preview separation', () => {
+  assert.equal(parseAppRoute('/auth/preview-callback'), 'auth-preview-callback');
+  assert.equal(parseAppRoute('/auth/callback'), 'auth-callback');
+  assert.equal(getOAuthCallbackPath('aistudio.google.com', false), PREVIEW_CALLBACK_PATH);
+  assert.equal(getOAuthCallbackPath('angel-companion.netlify.app', false), PRODUCTION_CALLBACK_PATH);
+});
+
+test('Successful OAuth callback session restoration via processAuthCallbackWithClient', async () => {
+  const mockClient = {
+    auth: {
+      exchangeCodeForSession: async () => ({
+        data: {
+          session: { access_token: 'mock_token', refresh_token: 'mock_refresh' } as any,
+          user: { id: 'usr_123', email: 'test@angel.ai' } as any,
+        },
+        error: null,
+      }),
+      verifyOtp: async () => ({ data: {}, error: null }),
+      setSession: async () => ({ error: null }),
+      signOut: async () => ({}),
+    },
+  };
+
+  const outcome = await authService.processAuthCallbackWithClient(
+    mockClient as any,
+    '?code=test_auth_code_999&next=/app',
+    '',
+    async () => ({
+      status: 'authenticated',
+      user: { id: 'usr_123', email: 'test@angel.ai', fullName: 'Test', initials: 'T', emailVerified: true, providers: ['google'] },
+      session: {} as any,
+      identities: [],
+      error: null,
+    })
+  );
+
+  assert.equal(outcome.outcome, 'authenticated');
+  assert.equal(outcome.parsed.code, 'test_auth_code_999');
+  assert.equal(outcome.parsed.nextPath, '/app');
+});
+
+test('Top-level preview OAuth handoff path preserves oauth_provider while blocking external URLs', () => {
+  assert.equal(
+    sanitizeRedirectPath('/preview-auth?oauth_provider=google&next=%2Fapp', '/app'),
+    '/preview-auth?oauth_provider=google&next=%2Fapp'
+  );
+  assert.equal(
+    resolveDirectPreviewUrl(AISTUDIO_DEV_PREVIEW_ORIGIN, '/preview-auth?oauth_provider=google'),
+    `${AISTUDIO_DEV_PREVIEW_ORIGIN}/preview-auth?oauth_provider=google`
+  );
+  assert.equal(
+    sanitizeRedirectPath('https://evil.example.com/preview-auth?oauth_provider=google', '/app'),
+    '/app'
+  );
+});
+

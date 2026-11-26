@@ -37,9 +37,15 @@ export interface KnowledgeItem {
 const STORAGE_KEYS_MEMORY = {
   memories: 'angel_memory_records_v1',
   knowledge: 'angel_knowledge_library_v1',
+  pendingSync: 'angel_memory_pending_sync_v1',
+  pendingDeletes: 'angel_memory_pending_deletes_v1',
 };
 
 const BUILT_IN_SAMPLE_IDS = new Set(['mem_1', 'mem_2', 'mem_3']);
+
+function buildMemorySemanticKey(m: MemoryRecord): string {
+  return `${m.category}::${m.scope}::${m.studioId || ''}::${m.content.trim().toLowerCase()}`;
+}
 
 export class MemoryEngine {
   public memories: MemoryRecord[] = [];
@@ -47,9 +53,27 @@ export class MemoryEngine {
   private accessToken: string | null = null;
   private activeUserId: string | null = null;
   private cloudHydrationToken: string | null = null;
+  private pendingCloudSync = false;
+  private pendingDeletes: string[] = [];
+  private cloudSyncRunning = false;
+  private cloudSyncQueued = false;
+  private onlineSyncBound = false;
 
   constructor() {
     this.loadCurrentScope();
+    this.bindOnlineReconnectListener();
+  }
+
+  private bindOnlineReconnectListener(): void {
+    if (this.onlineSyncBound || typeof window === 'undefined') return;
+    this.onlineSyncBound = true;
+    window.addEventListener('online', () => {
+      void this.reconcileOnReconnect();
+    });
+  }
+
+  private isBrowserOffline(): boolean {
+    return typeof navigator !== 'undefined' && navigator.onLine === false;
   }
 
   private scopedKey(base: string): string {
@@ -57,11 +81,28 @@ export class MemoryEngine {
   }
 
   private loadCurrentScope(): void {
+    const loadedDeletes = storageService.load<string[]>(this.scopedKey(STORAGE_KEYS_MEMORY.pendingDeletes), []);
+    this.pendingDeletes = Array.isArray(loadedDeletes) ? loadedDeletes : [];
+    const pendingDeleteSet = new Set(this.pendingDeletes);
+
+    this.pendingCloudSync = Boolean(
+      storageService.load<boolean>(this.scopedKey(STORAGE_KEYS_MEMORY.pendingSync), false)
+    ) || this.pendingDeletes.length > 0;
+
     const loadedMem = storageService.load<any>(this.scopedKey(STORAGE_KEYS_MEMORY.memories), []);
-    this.memories = Array.isArray(loadedMem) ? loadedMem : [];
+    this.memories = (Array.isArray(loadedMem) ? loadedMem : []).filter(
+      (m: MemoryRecord) => m && m.id && !pendingDeleteSet.has(m.id)
+    );
 
     const loadedKnow = storageService.load<any>(this.scopedKey(STORAGE_KEYS_MEMORY.knowledge), []);
     this.knowledgeLibrary = Array.isArray(loadedKnow) ? loadedKnow : [];
+  }
+
+  public getPendingSyncState(): { pendingCloudSync: boolean; pendingDeletes: string[] } {
+    return {
+      pendingCloudSync: this.pendingCloudSync,
+      pendingDeletes: [...this.pendingDeletes],
+    };
   }
 
   public setAuthContext(token: string | null, userId?: string | null): void {
@@ -80,25 +121,124 @@ export class MemoryEngine {
       return;
     }
 
-    if ((this.cloudHydrationToken !== token || identityChanged) && companionData.isCloudConfigured()) {
+    if ((this.cloudHydrationToken !== token || identityChanged) && companionData.isCloudConfigured() && !this.isBrowserOffline()) {
       this.cloudHydrationToken = token;
       void this.restoreCloud(token);
     }
   }
 
+  public async reconcileOnReconnect(): Promise<void> {
+    if (this.isBrowserOffline()) return;
+    if (!this.accessToken || !this.activeUserId || !companionData.isCloudConfigured()) return;
+    if (this.pendingCloudSync || this.pendingDeletes.length > 0) {
+      await this.syncCloud();
+    }
+    await this.restoreCloud(this.accessToken);
+  }
+
+  private async flushPendingDeletes(token: string): Promise<void> {
+    if (!this.pendingDeletes.length || !companionData.isCloudConfigured() || this.isBrowserOffline()) return;
+    const remaining: string[] = [];
+    for (const deletedId of this.pendingDeletes) {
+      try {
+        await companionData.deleteMemory(token, deletedId);
+      } catch {
+        remaining.push(deletedId);
+      }
+    }
+    if (remaining.length !== this.pendingDeletes.length) {
+      this.pendingDeletes = remaining;
+      storageService.save(this.scopedKey(STORAGE_KEYS_MEMORY.pendingDeletes), this.pendingDeletes);
+    }
+    if (this.pendingDeletes.length > 0) {
+      throw new Error('Pending memory deletions could not be synced yet.');
+    }
+  }
+
+  private async syncCloud(): Promise<void> {
+    if (!this.accessToken || !this.activeUserId || !companionData.isCloudConfigured()) return;
+    if (this.isBrowserOffline()) {
+      this.pendingCloudSync = true;
+      storageService.save(this.scopedKey(STORAGE_KEYS_MEMORY.pendingSync), true);
+      return;
+    }
+    if (this.cloudSyncRunning) {
+      this.cloudSyncQueued = true;
+      return;
+    }
+
+    this.cloudSyncRunning = true;
+    try {
+      do {
+        this.cloudSyncQueued = false;
+        const token = this.accessToken;
+        const ownerId = this.activeUserId;
+        if (!token || !ownerId) break;
+        await this.flushPendingDeletes(token);
+        if (this.memories.length > 0) {
+          await companionData.syncMemories(token, this.memories, ownerId);
+        }
+      } while (this.cloudSyncQueued && this.accessToken);
+      this.pendingCloudSync = false;
+      storageService.save(this.scopedKey(STORAGE_KEYS_MEMORY.pendingSync), false);
+    } catch (error) {
+      this.pendingCloudSync = true;
+      storageService.save(this.scopedKey(STORAGE_KEYS_MEMORY.pendingSync), true);
+      companionData.reportEngineSyncError('companion_memories', error, {
+        errorCode: 'MEMORY_PERSISTENCE_FAILED',
+        endpoint: '/rest/v1/companion_memories',
+        method: 'POST',
+      });
+    } finally {
+      this.cloudSyncRunning = false;
+    }
+  }
+
   private async restoreCloud(token: string): Promise<void> {
     const ownerId = this.activeUserId;
-    if (!ownerId || !companionData.isCloudConfigured()) return;
+    if (!ownerId || !companionData.isCloudConfigured() || this.isBrowserOffline()) return;
     try {
-      const cloudMemories = await companionData.loadMemories(token);
+      await this.flushPendingDeletes(token).catch(() => undefined);
+      const pendingDeleteSet = new Set(this.pendingDeletes);
+
+      const rawCloudMemories = await companionData.loadMemories(token);
       if (this.accessToken !== token || this.activeUserId !== ownerId) return;
 
+      const cloudMemories = rawCloudMemories.filter((m) => !pendingDeleteSet.has(m.id));
       const byId = new Map<string, MemoryRecord>();
-      cloudMemories.forEach((m) => byId.set(m.id, m));
+      const cloudIds = new Set<string>();
+      const semanticToId = new Map<string, string>();
+      let needsCloudPush = this.pendingCloudSync || this.pendingDeletes.length > 0;
+
+      cloudMemories.forEach((m) => {
+        byId.set(m.id, m);
+        cloudIds.add(m.id);
+        semanticToId.set(buildMemorySemanticKey(m), m.id);
+      });
+
       this.memories.forEach((local) => {
-        const existing = byId.get(local.id);
-        if (!existing || local.updatedAt > existing.updatedAt) {
+        if (pendingDeleteSet.has(local.id)) return;
+        const existingById = byId.get(local.id);
+        if (existingById) {
+          if ((local.updatedAt || '') > (existingById.updatedAt || '')) {
+            byId.set(local.id, local);
+            needsCloudPush = true;
+          }
+          return;
+        }
+        const semanticMatchId = semanticToId.get(buildMemorySemanticKey(local));
+        if (semanticMatchId) {
+          const existingSemantic = byId.get(semanticMatchId)!;
+          if ((local.updatedAt || '') > (existingSemantic.updatedAt || '')) {
+            byId.set(semanticMatchId, { ...local, id: semanticMatchId });
+            needsCloudPush = true;
+          }
+          return;
+        }
+        if (!cloudIds.has(local.id)) {
+          needsCloudPush = true;
           byId.set(local.id, local);
+          semanticToId.set(buildMemorySemanticKey(local), local.id);
         }
       });
 
@@ -106,23 +246,34 @@ export class MemoryEngine {
         (b.updatedAt || b.timestamp).localeCompare(a.updatedAt || a.timestamp)
       );
       this.persist(false);
+
+      if (needsCloudPush) {
+        await this.syncCloud();
+      }
     } catch (error) {
-      console.warn('[MemoryEngine] Cloud restore deferred:', error);
+      companionData.reportEngineSyncError('companion_memories', error, {
+        errorCode: 'MEMORY_PERSISTENCE_FAILED',
+        endpoint: '/rest/v1/companion_memories',
+        method: 'GET',
+      });
     }
   }
 
   private persist(syncToCloud = true): boolean {
+    if (syncToCloud && this.accessToken && this.activeUserId && companionData.isCloudConfigured() && this.isBrowserOffline()) {
+      this.pendingCloudSync = true;
+    }
     const savedMem = storageService.save(this.scopedKey(STORAGE_KEYS_MEMORY.memories), this.memories);
     const savedKnow = storageService.save(this.scopedKey(STORAGE_KEYS_MEMORY.knowledge), this.knowledgeLibrary);
+    storageService.save(this.scopedKey(STORAGE_KEYS_MEMORY.pendingSync), this.pendingCloudSync);
+    storageService.save(this.scopedKey(STORAGE_KEYS_MEMORY.pendingDeletes), this.pendingDeletes);
     if (!savedMem || !savedKnow) {
       console.error('[MemoryEngine] Storage persistence failed');
       return false;
     }
 
-    if (syncToCloud && this.accessToken && this.activeUserId && companionData.isCloudConfigured()) {
-      void companionData.syncMemories(this.accessToken, this.memories, this.activeUserId).catch((error) => {
-        console.warn('[MemoryEngine] Cloud sync deferred:', error);
-      });
+    if (syncToCloud && this.accessToken && this.activeUserId && companionData.isCloudConfigured() && !this.isBrowserOffline()) {
+      void this.syncCloud();
     }
     return true;
   }
@@ -187,13 +338,28 @@ export class MemoryEngine {
     const len = this.memories.length;
     this.memories = this.memories.filter((m) => m.id !== id);
     if (this.memories.length < len) {
-      if (!this.persist(false)) {
-        throw new Error(`Failed to persist deletion of memory '${id}'.`);
+      if (!this.pendingDeletes.includes(id)) {
+        this.pendingDeletes.push(id);
       }
-      if (this.accessToken && companionData.isCloudConfigured()) {
-        void companionData.deleteMemory(this.accessToken, id).catch((error) => {
-          console.warn('[MemoryEngine] Cloud delete deferred:', error);
-        });
+      if (this.accessToken && companionData.isCloudConfigured() && !this.isBrowserOffline()) {
+        const tokenSnapshot = this.accessToken;
+        this.persist(false);
+        void companionData
+          .deleteMemory(tokenSnapshot, id)
+          .then(() => {
+            this.pendingDeletes = this.pendingDeletes.filter((item) => item !== id);
+            storageService.save(this.scopedKey(STORAGE_KEYS_MEMORY.pendingDeletes), this.pendingDeletes);
+          })
+          .catch((error) => {
+            this.pendingCloudSync = true;
+            storageService.save(this.scopedKey(STORAGE_KEYS_MEMORY.pendingSync), true);
+            console.warn('[MemoryEngine] Cloud delete deferred:', error);
+          });
+      } else {
+        this.pendingCloudSync = Boolean(this.accessToken);
+        if (!this.persist(false)) {
+          throw new Error(`Failed to persist deletion of memory '${id}'.`);
+        }
       }
       return true;
     }

@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react';
 import { geminiModelService, type ModelHealthStatus } from '../../services/geminiModelService';
 import { getSupabaseConfigState } from '../../services/supabaseClient';
 import { cloudMigrationService, type CloudMigrationStatus } from '../../services/cloudMigrationService';
+import { companionData, type CloudSyncHealthState } from '../../services/companionData';
 
 interface SystemStatusPanelProps {
   onOpenDetails: () => void;
@@ -59,14 +60,17 @@ export const SystemStatusPanel: React.FC<SystemStatusPanelProps> = ({
 }) => {
   const [modelStatus, setModelStatus] = useState<ModelHealthStatus>(() => geminiModelService.getCachedStatus());
   const [migrationStatus, setMigrationStatus] = useState<CloudMigrationStatus>(() => cloudMigrationService.getStatus());
+  const [cloudHealth, setCloudHealth] = useState<CloudSyncHealthState>(() => companionData.getCloudSyncHealth());
   const supabaseConfig = getSupabaseConfigState();
 
   useEffect(() => {
     const unsubModel = geminiModelService.subscribeStatus(setModelStatus);
     const unsubMigration = cloudMigrationService.subscribe(setMigrationStatus);
+    const unsubHealth = companionData.subscribeCloudSyncHealth(setCloudHealth);
     return () => {
       unsubModel();
       unsubMigration();
+      unsubHealth();
     };
   }, []);
 
@@ -94,7 +98,14 @@ export const SystemStatusPanel: React.FC<SystemStatusPanelProps> = ({
           {modelStatus.model} • Latency: {modelStatus.latencyMs !== null ? `${modelStatus.latencyMs}ms` : '—'} • Checked: {checkedLabel}
         </p>
         <p className="text-[10px] text-slate-500 mt-0.5 truncate">
-          Auth/Cloud: {supabaseConfig.isConfigured ? 'Active' : 'Standby'}
+          Auth/Cloud:{' '}
+          {!supabaseConfig.isConfigured
+            ? 'Standby'
+            : cloudHealth.status === 'missing_tables'
+              ? 'Migration Pending'
+              : cloudHealth.status === 'degraded'
+                ? 'Sync Deferred'
+                : 'Active'}
           {migrationStatus.state !== 'idle' ? ` • Sync: ${migrationStatus.state}` : ''}
         </p>
       </div>

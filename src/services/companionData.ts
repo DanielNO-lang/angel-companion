@@ -71,7 +71,16 @@ function isMissingRelationError(status: number, body: any): boolean {
   );
 }
 
-async function restRequest(path: string, token: string, init: RequestInit = {}) {
+function isOnConflictConstraintError(status: number, body: any): boolean {
+  const code = String(body?.code || '').toUpperCase();
+  const msg = String(body?.message || body?.details || '').toLowerCase();
+  return (
+    code === '42P10' ||
+    (status === 400 && msg.includes('on conflict') && msg.includes('constraint'))
+  );
+}
+
+async function rawRestRequest(path: string, token: string, init: RequestInit = {}): Promise<{ ok: boolean; status: number; body: any }> {
   const { url, key } = readSupabaseConfig();
   if (!url || !key) {
     throw new Error('Cloud persistence is not configured.');
@@ -88,12 +97,30 @@ async function restRequest(path: string, token: string, init: RequestInit = {}) 
     },
   });
 
-  if (response.status === 204) return null;
+  if (response.status === 204) {
+    return { ok: true, status: 204, body: null };
+  }
   const body = await response.json().catch(() => null);
-  if (!response.ok) {
+  return { ok: response.ok, status: response.status, body };
+}
+
+async function restRequest(path: string, token: string, init: RequestInit = {}) {
+  const method = (init.method || 'GET').toUpperCase();
+  const endpointPath = `/rest/v1/${path.split('?')[0]}`;
+  const startedAt = Date.now();
+
+  const { ok, status, body } = await rawRestRequest(path, token, init);
+  if (!ok) {
+    const durationMs = Date.now() - startedAt;
     const tableName = extractTableNameFromPath(path);
-    const missingTable = isMissingRelationError(response.status, body);
-    const message = body?.message || body?.details || `Cloud sync request failed (${response.status}).`;
+    const missingTable = isMissingRelationError(status, body);
+    const message = body?.message || body?.details || `Cloud sync request failed (${status}).`;
+    const isConversationTable = tableName === 'companion_conversations' || tableName === 'companion_messages';
+    const errorCode = missingTable
+      ? 'MISSING_TABLE'
+      : isConversationTable
+        ? 'CONVERSATION_PERSISTENCE_FAILED'
+        : 'CLOUD_SYNC_FAILED';
 
     if (missingTable && tableName && !cloudSyncHealth.missingTables.includes(tableName)) {
       cloudSyncHealth.missingTables.push(tableName);
@@ -107,9 +134,14 @@ async function restRequest(path: string, token: string, init: RequestInit = {}) 
     logSanitizedDiagnostic({
       category: 'server_failure',
       context: 'feature',
-      statusCode: response.status,
+      statusCode: status,
       rawError: message,
       metadata: {
+        endpoint: endpointPath,
+        method,
+        durationMs,
+        errorCode,
+        stage: 'supabase_rest',
         table: tableName || 'unknown',
         missingTable,
         pgCode: typeof body?.code === 'string' ? body.code : 'none',
@@ -117,9 +149,96 @@ async function restRequest(path: string, token: string, init: RequestInit = {}) 
     });
     notifyCloudHealth();
 
-    throw new Error(message);
+    const err = new Error(message) as Error & { __companionReported?: boolean };
+    err.__companionReported = true;
+    throw err;
+  }
+
+  if (cloudSyncHealth.status !== 'healthy') {
+    cloudSyncHealth.status = 'healthy';
+    cloudSyncHealth.missingTables = [];
+    cloudSyncHealth.lastError = null;
+    cloudSyncHealth.lastErrorAt = null;
+    notifyCloudHealth();
   }
   return body;
+}
+
+/**
+ * Performs idempotent (user_id, client_id) upsert. If PostgreSQL rejects ON CONFLICT
+ * due to a partial unique index (42P10), falls back cleanly to SELECT + PATCH/INSERT.
+ */
+async function upsertByUserClientId<T extends { user_id: string; client_id: string }>(
+  table: string,
+  token: string,
+  userId: string,
+  rows: T[]
+): Promise<any[]> {
+  if (!rows.length) return [];
+
+  const attempt = await rawRestRequest(`${table}?on_conflict=user_id,client_id`, token, {
+    method: 'POST',
+    body: JSON.stringify(rows),
+  });
+
+  if (attempt.ok) {
+    if (cloudSyncHealth.status !== 'healthy') {
+      cloudSyncHealth.status = 'healthy';
+      cloudSyncHealth.missingTables = [];
+      cloudSyncHealth.lastError = null;
+      cloudSyncHealth.lastErrorAt = null;
+      notifyCloudHealth();
+    }
+    return Array.isArray(attempt.body) ? attempt.body : [];
+  }
+
+  if (!isOnConflictConstraintError(attempt.status, attempt.body)) {
+    // Let standard restRequest error reporting run once cleanly
+    return restRequest(`${table}?on_conflict=user_id,client_id`, token, {
+      method: 'POST',
+      body: JSON.stringify(rows),
+    });
+  }
+
+  // Fallback for partial unique indexes (e.g. WHERE client_id IS NOT NULL):
+  const existingRows = await restRequest(
+    `${table}?user_id=eq.${encodeURIComponent(userId)}&select=id,client_id`,
+    token,
+    { method: 'GET', headers: { prefer: 'return=representation' } }
+  );
+  const existingClientIds = new Set(
+    (Array.isArray(existingRows) ? existingRows : [])
+      .map((r: any) => r?.client_id)
+      .filter((cid: unknown): cid is string => typeof cid === 'string' && cid.length > 0)
+  );
+
+  const toUpdate = rows.filter((r) => existingClientIds.has(r.client_id));
+  const toInsert = rows.filter((r) => !existingClientIds.has(r.client_id));
+  const resultRows: any[] = [];
+
+  for (const row of toUpdate) {
+    const updated = await restRequest(
+      `${table}?user_id=eq.${encodeURIComponent(userId)}&client_id=eq.${encodeURIComponent(row.client_id)}`,
+      token,
+      {
+        method: 'PATCH',
+        headers: { prefer: 'return=representation' },
+        body: JSON.stringify(row),
+      }
+    );
+    if (Array.isArray(updated)) resultRows.push(...updated);
+  }
+
+  if (toInsert.length > 0) {
+    const inserted = await restRequest(table, token, {
+      method: 'POST',
+      headers: { prefer: 'return=representation' },
+      body: JSON.stringify(toInsert),
+    });
+    if (Array.isArray(inserted)) resultRows.push(...inserted);
+  }
+
+  return resultRows;
 }
 
 async function resolveVerifiedUserId(token: string, expectedUserId?: string | null): Promise<string> {
@@ -175,7 +294,14 @@ export const companionData = {
     notifyCloudHealth();
   },
 
-  reportEngineSyncError(table: string, error: unknown): void {
+  reportEngineSyncError(
+    table: string,
+    error: unknown,
+    details?: { statusCode?: number; errorCode?: string; endpoint?: string; method?: string }
+  ): void {
+    if ((error as { __companionReported?: boolean } | null)?.__companionReported) {
+      return;
+    }
     const rawMsg = error instanceof Error ? error.message : String(error || 'Cloud sync failure');
     const lower = rawMsg.toLowerCase();
     const missing =
@@ -195,8 +321,16 @@ export const companionData = {
     logSanitizedDiagnostic({
       category: 'server_failure',
       context: 'feature',
+      statusCode: details?.statusCode,
       rawError: rawMsg,
-      metadata: { table, missingTable: missing },
+      metadata: {
+        table,
+        missingTable: missing,
+        errorCode: details?.errorCode || (missing ? 'MISSING_TABLE' : 'CLOUD_SYNC_FAILED'),
+        ...(details?.endpoint ? { endpoint: details.endpoint } : {}),
+        ...(details?.method ? { method: details.method } : {}),
+        stage: 'supabase_sync',
+      },
     });
     notifyCloudHealth();
   },
@@ -212,6 +346,11 @@ export const companionData = {
     isArchived: boolean;
     isCustomTitle?: boolean;
     messages: ChatMessage[];
+    metadata?: {
+      tags?: string[];
+      summary?: string;
+      handoffFromId?: string;
+    };
   }>> {
     const rows = await restRequest(
       'companion_conversations?select=*,companion_messages(*)&order=updated_at.desc&limit=100',
@@ -223,37 +362,56 @@ export const companionData = {
       const cloudMessages = Array.isArray(row.companion_messages)
         ? [...row.companion_messages]
         : [];
-      cloudMessages.sort(
-        (a: any, b: any) =>
-          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      );
+      cloudMessages.sort((a: any, b: any) => {
+        const diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        if (!Number.isNaN(diff) && diff !== 0) return diff;
+        const seqA = typeof a.metadata?.sequence === 'number' ? a.metadata.sequence : 0;
+        const seqB = typeof b.metadata?.sequence === 'number' ? b.metadata.sequence : 0;
+        if (seqA !== seqB) return seqA - seqB;
+        return String(a.client_id || a.id).localeCompare(String(b.client_id || b.id));
+      });
 
-      const messages: ChatMessage[] = cloudMessages.map((message: any) => ({
+      const messages: ChatMessage[] = cloudMessages.map((message: any, idx: number) => ({
         id: message.client_id || message.id,
-        sender: message.role === 'assistant' ? 'angel' : message.role,
+        sender: message.role === 'assistant' ? 'angel' : message.role === 'system' ? 'system' : 'user',
         content: message.content,
         timestamp: message.metadata?.localTimestamp || message.created_at,
+        createdAt: message.metadata?.createdAt || message.created_at,
+        sequence: typeof message.metadata?.sequence === 'number' ? message.metadata.sequence : idx,
         mode: message.metadata?.mode || undefined,
         attachments: message.metadata?.attachments || undefined,
+        attachmentDetails: Array.isArray(message.metadata?.attachmentDetails)
+          ? message.metadata.attachmentDetails
+          : undefined,
+        linkPreviews: Array.isArray(message.metadata?.linkPreviews)
+          ? message.metadata.linkPreviews
+          : undefined,
         status: message.metadata?.status || 'completed',
         error: message.metadata?.error || undefined,
         modelUsed: message.metadata?.modelUsed || undefined,
+        requestedModel: message.metadata?.requestedModel || undefined,
+        fallbackActivated:
+          typeof message.metadata?.fallbackActivated === 'boolean'
+            ? message.metadata.fallbackActivated
+            : undefined,
         requestedMode: message.metadata?.requestedMode || undefined,
         appliedMode: message.metadata?.appliedMode || undefined,
         thinkingLevel: message.metadata?.thinkingLevel || undefined,
       }));
 
-      const firstMeta = cloudMessages[0]?.metadata || {};
+      const metaHolder = [...cloudMessages].reverse().find((m: any) => m?.metadata) || cloudMessages[0];
+      const threadMeta = metaHolder?.metadata || {};
       return {
         id: row.client_id || row.id,
         title: row.title,
-        scope: firstMeta.scope === 'studio' ? 'studio' : 'general',
-        studioId: firstMeta.studioId ? (firstMeta.studioId as StudioId) : undefined,
+        scope: threadMeta.scope === 'studio' ? 'studio' : 'general',
+        studioId: threadMeta.studioId ? (threadMeta.studioId as StudioId) : undefined,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         isArchived: row.status === 'archived',
-        isCustomTitle: Boolean(firstMeta.isCustomTitle),
+        isCustomTitle: Boolean(threadMeta.isCustomTitle),
         messages,
+        ...(threadMeta.threadMetadata ? { metadata: threadMeta.threadMetadata } : {}),
       };
     });
   },
@@ -270,6 +428,11 @@ export const companionData = {
       scope: string;
       studioId?: string;
       messages: ChatMessage[];
+      metadata?: {
+        tags?: string[];
+        summary?: string;
+        handoffFromId?: string;
+      };
     }>,
     knownUserId?: string | null
   ): Promise<void> {
@@ -277,57 +440,69 @@ export const companionData = {
     const userId = await resolveVerifiedUserId(token, knownUserId);
 
     for (const thread of threads) {
-      const rows = await restRequest(
-        'companion_conversations?on_conflict=user_id,client_id',
-        token,
+      const rows = await upsertByUserClientId('companion_conversations', token, userId, [
         {
-          method: 'POST',
-          body: JSON.stringify([
-            {
-              user_id: userId,
-              client_id: thread.id,
-              title: thread.title,
-              status: thread.isArchived ? 'archived' : 'active',
-              created_at: thread.createdAt,
-              updated_at: thread.updatedAt,
-            },
-          ]),
-        }
-      );
+          user_id: userId,
+          client_id: thread.id,
+          title: thread.title,
+          status: thread.isArchived ? 'archived' : 'active',
+          created_at: thread.createdAt,
+          updated_at: thread.updatedAt,
+        },
+      ]);
 
       const cloudThread = Array.isArray(rows) ? rows[0] : null;
       if (!cloudThread?.id || !thread.messages.length) continue;
 
-      const messageRows = thread.messages.map((message, index) => ({
-        user_id: userId,
-        conversation_id: cloudThread.id,
-        client_id: message.id,
-        role: message.sender === 'angel' ? 'assistant' : message.sender,
-        content: message.content,
-        metadata: {
-          localTimestamp: message.timestamp,
-          mode: message.mode || null,
-          attachments: message.attachments || [],
-          scope: thread.scope,
-          studioId: thread.studioId || null,
-          isCustomTitle: Boolean(thread.isCustomTitle),
-          status: message.status || 'completed',
-          error: message.error || null,
-          modelUsed: message.modelUsed || null,
-          requestedMode: message.requestedMode || null,
-          appliedMode: message.appliedMode || null,
-          thinkingLevel: message.thinkingLevel || null,
-        },
-        created_at: new Date(
-          new Date(thread.createdAt).getTime() + index
-        ).toISOString(),
-      }));
+      const baseTimeMs = Number.isFinite(Date.parse(thread.createdAt))
+        ? Date.parse(thread.createdAt)
+        : Date.now();
+      let lastTsMs = baseTimeMs - 1;
 
-      await restRequest(
-        'companion_messages?on_conflict=user_id,client_id',
-        token,
-        { method: 'POST', body: JSON.stringify(messageRows) }
-      );
+      const messageRows = thread.messages.map((message, index) => {
+        const parsedMsgMs = message.createdAt ? Date.parse(message.createdAt) : NaN;
+        const monotonicMs = Number.isFinite(parsedMsgMs)
+          ? Math.max(parsedMsgMs, lastTsMs + 1)
+          : Math.max(baseTimeMs + index, lastTsMs + 1);
+        lastTsMs = monotonicMs;
+        const createdIso = new Date(monotonicMs).toISOString();
+        const dbRole: 'user' | 'assistant' | 'system' =
+          message.sender === 'angel' ? 'assistant' : message.sender === 'system' ? 'system' : 'user';
+
+        return {
+          user_id: userId,
+          conversation_id: cloudThread.id,
+          client_id: message.id,
+          role: dbRole,
+          content: message.content,
+          metadata: {
+            localTimestamp: message.timestamp,
+            createdAt: message.createdAt || createdIso,
+            sequence: index,
+            mode: message.mode || null,
+            attachments: message.attachments || [],
+            ...(message.attachmentDetails?.length ? { attachmentDetails: message.attachmentDetails } : {}),
+            ...(message.linkPreviews?.length ? { linkPreviews: message.linkPreviews } : {}),
+            scope: thread.scope,
+            studioId: thread.studioId || null,
+            isCustomTitle: Boolean(thread.isCustomTitle),
+            ...(thread.metadata ? { threadMetadata: thread.metadata } : {}),
+            status: message.status || 'completed',
+            error: message.error || null,
+            modelUsed: message.modelUsed || null,
+            requestedModel: message.requestedModel || null,
+            ...(typeof message.fallbackActivated === 'boolean'
+              ? { fallbackActivated: message.fallbackActivated }
+              : {}),
+            requestedMode: message.requestedMode || null,
+            appliedMode: message.appliedMode || null,
+            thinkingLevel: message.thinkingLevel || null,
+          },
+          created_at: createdIso,
+        };
+      });
+
+      await upsertByUserClientId('companion_messages', token, userId, messageRows);
     }
   },
 
@@ -427,10 +602,7 @@ export const companionData = {
       updated_at: m.updatedAt || m.timestamp || new Date().toISOString(),
     }));
 
-    await restRequest('companion_memories?on_conflict=user_id,client_id', token, {
-      method: 'POST',
-      body: JSON.stringify(rows),
-    });
+    await upsertByUserClientId('companion_memories', token, userId, rows);
   },
 
   async deleteMemory(token: string, clientId: string): Promise<void> {
@@ -448,12 +620,13 @@ export const companionData = {
     itemId: string,
     fileName: string,
     content: string | Blob | ArrayBuffer,
-    mimeType = 'text/plain'
+    mimeType = 'text/plain',
+    conversationScope = 'general'
   ): Promise<string> {
     const { url, key } = readSupabaseConfig();
     if (!url || !key) throw new Error('Cloud storage is not configured.');
 
-    const storagePath = `${userId}/${sanitizeStorageSegment(itemId)}_${sanitizeStorageSegment(fileName)}`;
+    const storagePath = `${sanitizeStorageSegment(userId)}/${sanitizeStorageSegment(conversationScope || 'general')}/${sanitizeStorageSegment(itemId)}/${sanitizeStorageSegment(fileName)}`;
     const body = content instanceof Blob ? content : new Blob([content], { type: mimeType });
 
     const res = await fetch(`${url}/storage/v1/object/${PRIVATE_STORAGE_BUCKET}/${storagePath}`, {
@@ -474,10 +647,22 @@ export const companionData = {
     return storagePath;
   },
 
-  async getPrivateSignedUrl(token: string, storagePath: string, expiresInSeconds = 300): Promise<string> {
+  async getPrivateSignedUrl(
+    token: string,
+    storagePath: string,
+    expiresInSeconds = 120,
+    expectedUserId?: string | null
+  ): Promise<string> {
     const { url, key } = readSupabaseConfig();
     if (!url || !key) throw new Error('Cloud storage is not configured.');
+    if (!storagePath || storagePath.includes('..') || storagePath.startsWith('/')) {
+      throw new Error('Invalid private storage path.');
+    }
+    if (expectedUserId && !storagePath.startsWith(`${expectedUserId}/`)) {
+      throw new Error('Unauthorized private storage path access blocked.');
+    }
 
+    const boundedExpiry = Math.max(30, Math.min(300, Math.floor(expiresInSeconds)));
     const res = await fetch(`${url}/storage/v1/object/sign/${PRIVATE_STORAGE_BUCKET}/${storagePath}`, {
       method: 'POST',
       headers: {
@@ -485,7 +670,7 @@ export const companionData = {
         authorization: `Bearer ${token}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ expiresIn: expiresInSeconds }),
+      body: JSON.stringify({ expiresIn: boundedExpiry }),
     });
 
     const data = (await res.json().catch(() => null)) as { signedURL?: string } | null;
@@ -495,11 +680,28 @@ export const companionData = {
     return data.signedURL.startsWith('http') ? data.signedURL : `${url}/storage/v1${data.signedURL}`;
   },
 
-  async deletePrivateFile(token: string, storagePath: string): Promise<void> {
-    const { url, key } = readSupabaseConfig();
-    if (!url || !key || !storagePath) return;
+  async downloadPrivateFileBytes(
+    token: string,
+    storagePath: string,
+    expectedUserId?: string | null
+  ): Promise<ArrayBuffer | null> {
+    const signedUrl = await this.getPrivateSignedUrl(token, storagePath, 60, expectedUserId);
+    const res = await fetch(signedUrl);
+    if (!res.ok) {
+      throw new Error(`Could not retrieve private file (${res.status}).`);
+    }
+    return res.arrayBuffer();
+  },
 
-    await fetch(`${url}/storage/v1/object/${PRIVATE_STORAGE_BUCKET}`, {
+  async deletePrivateFile(token: string, storagePath: string, expectedUserId?: string | null): Promise<boolean> {
+    const { url, key } = readSupabaseConfig();
+    if (!url || !key || !storagePath) return false;
+    if (storagePath.includes('..') || storagePath.startsWith('/')) return false;
+    if (expectedUserId && !storagePath.startsWith(`${expectedUserId}/`)) {
+      throw new Error('Unauthorized private storage delete blocked.');
+    }
+
+    const res = await fetch(`${url}/storage/v1/object/${PRIVATE_STORAGE_BUCKET}`, {
       method: 'DELETE',
       headers: {
         apikey: key,
@@ -508,6 +710,7 @@ export const companionData = {
       },
       body: JSON.stringify({ prefixes: [storagePath] }),
     });
+    return res.ok;
   },
 
   // --- LIBRARY ITEMS ---
@@ -591,10 +794,7 @@ export const companionData = {
       });
     }
 
-    await restRequest('companion_library_items?on_conflict=user_id,client_id', token, {
-      method: 'POST',
-      body: JSON.stringify(rows),
-    });
+    await upsertByUserClientId('companion_library_items', token, userId, rows);
   },
 
   async deleteLibraryItem(token: string, clientId: string, storagePath?: string): Promise<void> {

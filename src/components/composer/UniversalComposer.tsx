@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Sliders, Eye, Mic, Send, Camera, Monitor, Paperclip, Loader2, AlertCircle, FileText } from 'lucide-react';
+import { Plus, Sliders, Eye, Mic, Send, Camera, Monitor, Paperclip, Loader2, AlertCircle, RotateCw, X } from 'lucide-react';
 import { CompanionOrbState } from '../../types/angel';
 import { ComposerContext, ComposerMode, ComposerSubmissionResult } from '../../types/composer';
 import { AttachmentRecord } from '../../types/attachment';
@@ -11,6 +11,7 @@ import { mediaStreamService } from '../../services/mediaStreamService';
 export interface UniversalComposerProps {
   context: ComposerContext;
   variant?: 'full' | 'simple' | 'compact';
+  onSubmissionStarted?: (threadId?: string) => void;
   onSubmitted?: (result: ComposerSubmissionResult) => void;
   onOrbStateChange?: (state: CompanionOrbState) => void;
   onStartVoiceSession?: () => void;
@@ -29,6 +30,7 @@ const MODES: ComposerMode[] = [
 export const UniversalComposer: React.FC<UniversalComposerProps> = ({
   context,
   variant = 'full',
+  onSubmissionStarted,
   onSubmitted,
   onOrbStateChange,
   onStartVoiceSession,
@@ -45,13 +47,31 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
     universalAttachmentService.getStagedAttachments(context)
   );
   const [isDragging, setIsDragging] = useState(false);
-  const [feedback, setFeedback] = useState<{ message: string; type: 'info' | 'error' } | null>(null);
+  const [feedback, setFeedback] = useState<{ message: string; type: 'info' | 'error'; canRetry?: boolean } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textRef = useRef(text);
+  const infoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  textRef.current = text;
+
+  // Cleanup active dictation timer and SpeechRecognition on unmount
+  useEffect(() => {
+    return () => {
+      if (infoTimeoutRef.current) clearTimeout(infoTimeoutRef.current);
+      if (voiceEngine.getIsListening()) {
+        voiceEngine.stopListening();
+      }
+    };
+  }, []);
 
   // Sync draft and staged attachments when context changes
   useEffect(() => {
+    if (voiceEngine.getIsListening()) {
+      voiceEngine.stopListening();
+      setIsDictating(false);
+    }
     setText(universalComposerService.getDraft(context));
     setActiveMode(universalComposerService.getMode(context));
     setStagedAttachments(universalAttachmentService.getStagedAttachments(context));
@@ -73,8 +93,17 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [showVisualMenu, showModesMenu]);
 
+  const showTransientInfo = (message: string, durationMs = 3500) => {
+    if (infoTimeoutRef.current) clearTimeout(infoTimeoutRef.current);
+    setFeedback({ message, type: 'info' });
+    infoTimeoutRef.current = setTimeout(() => {
+      setFeedback((prev) => (prev?.type === 'info' ? null : prev));
+    }, durationMs);
+  };
+
   const handleTextChange = (val: string) => {
     setText(val);
+    textRef.current = val;
     universalComposerService.setDraft(context, val);
   };
 
@@ -92,20 +121,11 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
       const reader = new FileReader();
       const isText =
         file.type.startsWith('text/') ||
-        file.name.endsWith('.txt') ||
-        file.name.endsWith('.md') ||
-        file.name.endsWith('.csv') ||
-        file.name.endsWith('.tsv') ||
-        file.name.endsWith('.json') ||
-        file.name.endsWith('.ts') ||
-        file.name.endsWith('.tsx') ||
-        file.name.endsWith('.js') ||
-        file.name.endsWith('.jsx') ||
-        file.name.endsWith('.sql');
+        /\.(txt|md|markdown|csv|tsv|json|ts|tsx|js|jsx|sql|py|html|css|yaml|yml|rtf)$/i.test(file.name);
 
       reader.onload = async () => {
         const content = reader.result;
-        if (!content) return;
+        if (content === null || content === undefined) return;
 
         const res = await universalAttachmentService.stageAttachment(context, {
           name: file.name,
@@ -115,11 +135,11 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
 
         if (res.success) {
           setStagedAttachments(universalAttachmentService.getStagedAttachments(context));
-          setFeedback({ message: `Attached: ${file.name}`, type: 'info' });
+          showTransientInfo(`Attached: ${file.name}`);
         } else {
-          setFeedback({ message: res.error || 'Failed to attach file', type: 'error' });
+          if (infoTimeoutRef.current) clearTimeout(infoTimeoutRef.current);
+          setFeedback({ message: res.error || 'Failed to attach file', type: 'error', canRetry: false });
         }
-        setTimeout(() => setFeedback(null), 3500);
       };
 
       if (isText) {
@@ -157,30 +177,50 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
   };
 
   const handleSubmit = async () => {
-    if ((!text.trim() && stagedAttachments.length === 0) || isSubmitting) return;
+    const latestText = textRef.current;
+    if ((!latestText.trim() && stagedAttachments.length === 0) || isSubmitting) return;
+
+    // Stop active SpeechRecognition BEFORE dispatching submit so final transcript is locked in cleanly
+    if (isDictating || voiceEngine.getIsListening()) {
+      voiceEngine.stopListening();
+      setIsDictating(false);
+    }
 
     setIsSubmitting(true);
     setFeedback(null);
     if (onOrbStateChange) onOrbStateChange('thinking');
 
     try {
-      const result = await universalComposerService.submit(context, text);
+      const result = await universalComposerService.submit(context, latestText, undefined, {
+        onUserTurnSaved: (threadId) => {
+          setText('');
+          textRef.current = '';
+          setStagedAttachments([]);
+          if (onSubmissionStarted) onSubmissionStarted(threadId);
+        },
+      });
 
       if (result.success) {
         setText('');
+        textRef.current = '';
         setStagedAttachments([]);
-        if (isDictating) {
-          voiceEngine.stopListening();
-          setIsDictating(false);
-        }
         if (onOrbStateChange) onOrbStateChange('speaking');
         if (onSubmitted) onSubmitted(result);
       } else {
-        setFeedback({ message: result.error || 'Submission failed.', type: 'error' });
+        setStagedAttachments(universalAttachmentService.getStagedAttachments(context));
+        setFeedback({
+          message: result.error || 'Submission failed.',
+          type: 'error',
+          canRetry: Boolean(latestText.trim() || universalAttachmentService.getStagedAttachments(context).length > 0),
+        });
         if (onOrbStateChange) onOrbStateChange('idle');
       }
     } catch (err: any) {
-      setFeedback({ message: err?.message || 'Unexpected error submitting message.', type: 'error' });
+      setFeedback({
+        message: err?.message || 'Unexpected error submitting message.',
+        type: 'error',
+        canRetry: true,
+      });
       if (onOrbStateChange) onOrbStateChange('idle');
     } finally {
       setIsSubmitting(false);
@@ -190,39 +230,43 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit();
+      void handleSubmit();
     }
   };
 
   const toggleDictation = () => {
-    if (isDictating) {
+    if (isDictating || voiceEngine.getIsListening()) {
       voiceEngine.stopListening();
       setIsDictating(false);
       if (onOrbStateChange) onOrbStateChange('idle');
-    } else {
-      const started = voiceEngine.startListening({
+      return;
+    }
+
+    if (infoTimeoutRef.current) clearTimeout(infoTimeoutRef.current);
+    setFeedback(null);
+
+    const started = voiceEngine.startListening(
+      {
         onTranscript: (transcript) => {
           handleTextChange(transcript);
           if (onOrbStateChange) onOrbStateChange('listening');
         },
         onError: (err) => {
-          setFeedback({ message: `Mic: ${err}`, type: 'error' });
+          setFeedback({ message: `Mic: ${err}`, type: 'error', canRetry: false });
           setIsDictating(false);
           if (onOrbStateChange) onOrbStateChange('idle');
-          setTimeout(() => setFeedback(null), 3000);
         },
         onEnd: () => {
           setIsDictating(false);
           if (onOrbStateChange) onOrbStateChange('idle');
         },
-      }, text);
+      },
+      textRef.current
+    );
 
-      if (started) {
-        setIsDictating(true);
-        if (onOrbStateChange) onOrbStateChange('listening');
-        setFeedback({ message: 'Continuous dictation active... Speak naturally', type: 'info' });
-        setTimeout(() => setFeedback(null), 2500);
-      }
+    if (started) {
+      setIsDictating(true);
+      if (onOrbStateChange) onOrbStateChange('listening');
     }
   };
 
@@ -230,22 +274,20 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
     setShowVisualMenu(false);
     const res = await mediaStreamService.startCamera();
     if (res.success) {
-      setFeedback({ message: 'Live camera feed active.', type: 'info' });
+      showTransientInfo('Live camera feed active.');
     } else {
-      setFeedback({ message: res.error || 'Camera permission required.', type: 'error' });
+      setFeedback({ message: res.error || 'Camera permission required.', type: 'error', canRetry: false });
     }
-    setTimeout(() => setFeedback(null), 3500);
   };
 
   const handleScreenShareRequest = async () => {
     setShowVisualMenu(false);
     const res = await mediaStreamService.startScreenShare();
     if (res.success) {
-      setFeedback({ message: 'Live screen sharing active.', type: 'info' });
+      showTransientInfo('Live screen sharing active.');
     } else {
-      setFeedback({ message: res.error || 'Screen share permission required.', type: 'error' });
+      setFeedback({ message: res.error || 'Screen share permission required.', type: 'error', canRetry: false });
     }
-    setTimeout(() => setFeedback(null), 3500);
   };
 
   const defaultPlaceholder =
@@ -274,23 +316,66 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
         type="file"
         ref={fileInputRef}
         onChange={(e) => {
-          if (e.target.files) handleFileSelection(e.target.files);
+          if (e.target.files) {
+            void handleFileSelection(e.target.files);
+          }
+          e.target.value = '';
         }}
         multiple
         className="hidden"
       />
 
-      {/* Feedback Banner */}
+      {/* Persistent Listening Indicator */}
+      {isDictating && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mb-2 flex items-center justify-center"
+        >
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-cyan-950/90 border border-cyan-400/50 text-cyan-200 text-xs font-medium shadow-lg backdrop-blur-md">
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+            <span>Listening with Speech Recognition... Speak naturally, then tap Send or Stop</span>
+          </div>
+        </div>
+      )}
+
+      {/* Feedback Banner (Persistent on error with Retry & Dismiss) */}
       {feedback && (
         <div
-          className={`absolute left-1/2 -top-12 -translate-x-1/2 z-40 px-4 py-1.5 rounded-full text-xs font-semibold shadow-lg backdrop-blur-md animate-in fade-in zoom-in-95 flex items-center gap-1.5 ${
+          role={feedback.type === 'error' ? 'alert' : 'status'}
+          className={`mb-2 mx-auto max-w-2xl px-3.5 py-1.5 rounded-2xl text-xs font-medium shadow-lg backdrop-blur-md animate-in fade-in flex items-center justify-between gap-2 ${
             feedback.type === 'error'
-              ? 'bg-rose-950/90 border border-rose-500/50 text-rose-200'
+              ? 'bg-rose-950/90 border border-rose-500/50 text-rose-100'
               : 'bg-slate-950/90 border border-cyan-400/50 text-cyan-200'
           }`}
         >
-          {feedback.type === 'error' && <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
-          <span>{feedback.message}</span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            {feedback.type === 'error' && <AlertCircle className="w-3.5 h-3.5 text-rose-300 shrink-0" />}
+            <span className="truncate sm:whitespace-normal">{feedback.message}</span>
+          </div>
+          {feedback.type === 'error' && (
+            <div className="flex items-center gap-1 shrink-0">
+              {feedback.canRetry && (
+                <button
+                  type="button"
+                  onClick={() => void handleSubmit()}
+                  disabled={isSubmitting}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-600/80 hover:bg-rose-500 text-white text-[11px] font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  <RotateCw className="w-3 h-3" />
+                  <span>Retry</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setFeedback(null)}
+                aria-label="Dismiss error"
+                className="p-0.5 rounded-lg text-rose-300 hover:text-white hover:bg-white/10 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -298,6 +383,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
       {showVisualMenu && (
         <div className="absolute right-12 -top-24 z-30 w-44 p-1.5 rounded-2xl border border-cyan-500/30 bg-[#090d24]/95 text-slate-100 shadow-[0_10px_35px_rgba(0,0,0,0.85),0_0_20px_rgba(56,189,248,0.3)] animate-in zoom-in-95 duration-150 backdrop-blur-2xl space-y-1">
           <button
+            type="button"
             onClick={handleCameraRequest}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-cyan-500/20 transition-all text-left cursor-pointer"
           >
@@ -305,6 +391,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
             <span>Camera</span>
           </button>
           <button
+            type="button"
             onClick={handleScreenShareRequest}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-cyan-500/20 transition-all text-left cursor-pointer"
           >
@@ -322,6 +409,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
           </div>
           {MODES.map((m) => (
             <button
+              type="button"
               key={m}
               onClick={() => handleModeSelect(m)}
               className={`w-full text-left px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer flex items-center justify-between ${
@@ -351,8 +439,10 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
                 ({universalAttachmentService.formatFileSize(att.size)})
               </span>
               <button
-                onClick={() => handleRemoveAttachment(att.id)}
+                type="button"
+                onClick={() => void handleRemoveAttachment(att.id)}
                 className="text-cyan-400 hover:text-white font-bold ml-1 cursor-pointer"
+                aria-label={`Remove attachment ${att.name}`}
                 title="Remove attachment"
               >
                 ×
@@ -371,24 +461,42 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
             onChange={(e) => handleTextChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={inputPlaceholder}
+            aria-label={inputPlaceholder}
             rows={2}
             className="w-full bg-transparent px-2.5 py-1.5 text-xs text-white placeholder-slate-400 focus:outline-none resize-none"
           />
           <div className="flex items-center justify-between pt-1 border-t border-slate-800">
             <div className="flex items-center gap-1.5">
               <button
+                type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="p-1.5 rounded-lg bg-slate-800 text-cyan-400 hover:text-white hover:bg-cyan-600/40 transition-all cursor-pointer"
+                aria-label="Attach Files"
                 title="Attach Files"
               >
                 <Plus className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={toggleDictation}
+                aria-pressed={isDictating}
+                aria-label={isDictating ? 'Stop voice dictation' : 'Dictate with voice'}
+                className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                  isDictating
+                    ? 'bg-cyan-500/30 text-cyan-300 animate-pulse border border-cyan-400/50'
+                    : 'bg-slate-800 text-cyan-400 hover:text-white hover:bg-cyan-600/40'
+                }`}
+                title={isDictating ? 'Stop voice dictation' : 'Dictate with voice'}
+              >
+                <Mic className="w-3.5 h-3.5" />
               </button>
               <span className="text-[10px] text-cyan-300 font-mono px-2 py-0.5 rounded bg-slate-800/80">
                 {activeMode}
               </span>
             </div>
             <button
-              onClick={handleSubmit}
+              type="button"
+              onClick={() => void handleSubmit()}
               disabled={(!text.trim() && stagedAttachments.length === 0) || isSubmitting}
               className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-md"
             >
@@ -402,11 +510,13 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
           </div>
         </div>
       ) : variant === 'simple' ? (
-        /* Simple Variant (Clean single line bar) */
+        /* Simple Variant (Clean single line bar - SimpleComposerBar) */
         <div className="flex items-center gap-1.5 sm:gap-2 p-1.5 sm:p-2 rounded-full bg-[#070b1e]/40 backdrop-blur-2xl shadow-[0_8px_30px_rgba(0,0,0,0.4)] focus-within:shadow-[0_0_25px_rgba(59,130,246,0.3)] transition-all">
           <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
             className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#10183b]/80 flex items-center justify-center text-cyan-400 hover:text-white hover:bg-cyan-600 transition-all shadow-[0_0_15px_rgba(56,189,248,0.4)] shrink-0 double-glow-pulse-rounded cursor-pointer"
+            aria-label="Attach Files"
             title="Attach Files"
           >
             <Plus className="w-4 h-4" />
@@ -417,26 +527,32 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
             onChange={(e) => handleTextChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={inputPlaceholder}
+            aria-label={inputPlaceholder}
             rows={1}
             className="flex-1 min-w-0 bg-transparent px-3 text-xs sm:text-sm text-slate-100 placeholder-slate-400 focus:outline-none tracking-wide resize-none h-6 sm:h-7 py-0.5 leading-normal overflow-y-auto"
           />
 
           <button
+            type="button"
             onClick={toggleDictation}
+            aria-pressed={isDictating}
+            aria-label={isDictating ? 'Stop voice dictation' : 'Dictate with voice'}
             className={`p-2 rounded-full transition-all shrink-0 double-glow-pulse-rounded cursor-pointer shadow-[0_0_12px_rgba(56,189,248,0.4)] ${
               isDictating
                 ? 'bg-cyan-500/30 text-cyan-300 animate-pulse border border-cyan-400/50'
                 : 'text-cyan-300 hover:text-white hover:bg-white/10'
             }`}
-            title="Dictate with voice"
+            title={isDictating ? 'Stop voice dictation' : 'Dictate with voice'}
           >
             <Mic className="w-4 h-4" />
           </button>
 
           <button
-            onClick={handleSubmit}
+            type="button"
+            onClick={() => void handleSubmit()}
             disabled={(!text.trim() && stagedAttachments.length === 0) || isSubmitting}
             className="p-2 sm:p-2.5 rounded-full bg-transparent hover:bg-white/10 disabled:opacity-30 text-cyan-300 hover:text-white transition-all drop-shadow-[0_0_12px_rgba(56,189,248,0.8)] shrink-0 double-glow-pulse-rounded flex items-center justify-center cursor-pointer shadow-[0_0_12px_rgba(56,189,248,0.4)]"
+            aria-label="Send Message"
             title="Send Message"
           >
             {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -446,8 +562,10 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
         /* Full Variant (Full-width cosmic bar with controls) */
         <div className="w-full rounded-full bg-[#070b1e]/40 p-1.5 sm:p-2.5 backdrop-blur-2xl shadow-[0_10px_35px_rgba(0,0,0,0.4)] flex items-center gap-1.5 sm:gap-3 transition-all focus-within:shadow-[0_0_25px_rgba(59,130,246,0.3)]">
           <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
             className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#10183b]/80 flex items-center justify-center text-cyan-400 hover:text-white hover:bg-cyan-600 transition-all shadow-[0_0_15px_rgba(56,189,248,0.4)] shrink-0 double-glow-pulse-rounded cursor-pointer"
+            aria-label="Attach Files"
             title="Attach Files"
           >
             <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -458,50 +576,60 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
             onChange={(e) => handleTextChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={inputPlaceholder}
+            aria-label={inputPlaceholder}
             rows={1}
             className="flex-1 min-w-0 bg-transparent text-xs sm:text-base text-slate-100 placeholder-slate-400 focus:outline-none px-1.5 sm:px-2 tracking-wide resize-none h-6 sm:h-8 py-0.5 leading-normal overflow-y-auto"
           />
 
           <div className="flex items-center gap-1 sm:gap-2 shrink-0 pr-0.5 sm:pr-1">
             <button
+              type="button"
               onClick={() => {
                 setShowModesMenu(!showModesMenu);
                 setShowVisualMenu(false);
               }}
               className="p-2 sm:p-2.5 rounded-full text-cyan-300 hover:text-white hover:bg-white/10 transition-all shadow-[0_0_12px_rgba(56,189,248,0.4)] double-glow-pulse-rounded cursor-pointer"
+              aria-label={`Angel Controls (${activeMode})`}
               title={`Angel Controls (${activeMode})`}
             >
               <Sliders className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
 
             <button
+              type="button"
               onClick={() => {
                 setShowVisualMenu(!showVisualMenu);
                 setShowModesMenu(false);
               }}
               className="p-2 sm:p-2.5 rounded-full text-cyan-300 hover:text-white hover:bg-white/10 transition-all shadow-[0_0_12px_rgba(56,189,248,0.4)] double-glow-pulse-rounded cursor-pointer"
+              aria-label="Visual Context (Camera & Screen)"
               title="Visual Context (Camera & Screen)"
             >
               <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
 
             <button
+              type="button"
               onClick={toggleDictation}
+              aria-pressed={isDictating}
+              aria-label={isDictating ? 'Stop voice dictation' : 'Dictation (Mic)'}
               className={`p-2 sm:p-2.5 rounded-full transition-all shadow-[0_0_12px_rgba(56,189,248,0.4)] double-glow-pulse-rounded cursor-pointer ${
                 isDictating
                   ? 'bg-cyan-500/30 text-cyan-300 animate-pulse border border-cyan-400/50'
                   : 'text-cyan-300 hover:text-white hover:bg-white/10'
               }`}
-              title="Dictation (Mic)"
+              title={isDictating ? 'Stop voice dictation' : 'Dictation (Mic)'}
             >
               <Mic className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
 
             {text.trim() || stagedAttachments.length > 0 ? (
               <button
-                onClick={handleSubmit}
+                type="button"
+                onClick={() => void handleSubmit()}
                 disabled={isSubmitting}
                 className="p-2.5 sm:p-3 rounded-full bg-transparent hover:bg-white/10 text-cyan-300 hover:text-white transition-all drop-shadow-[0_0_12px_rgba(56,189,248,0.8)] shadow-[0_0_12px_rgba(56,189,248,0.4)] double-glow-pulse-rounded flex items-center justify-center cursor-pointer"
+                aria-label="Send Message"
                 title="Send Message"
               >
                 {isSubmitting ? (
@@ -512,11 +640,13 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
               </button>
             ) : (
               <button
+                type="button"
                 onClick={() => {
                   if (onStartVoiceSession) onStartVoiceSession();
                   else toggleDictation();
                 }}
                 className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-transparent flex items-center justify-center text-cyan-300 hover:text-white hover:bg-white/10 transition-all drop-shadow-[0_0_12px_rgba(56,189,248,0.6)] shadow-[0_0_12px_rgba(56,189,248,0.4)] group double-glow-pulse-rounded cursor-pointer"
+                aria-label="Start Voice Session"
                 title="Start Voice Session"
               >
                 <div className="flex items-center gap-[2.5px] h-4">

@@ -23,10 +23,13 @@ import { SignInPage } from './components/auth/SignInPage';
 import { SignUpPage } from './components/auth/SignUpPage';
 import { EmailVerificationPage } from './components/auth/EmailVerificationPage';
 import { PasswordRecoveryPage } from './components/auth/PasswordRecoveryPage';
+import { DebugPreviewAuthPage } from './components/auth/DebugPreviewAuthPage';
 
 // Auth, Error Handling & Recovery Navigation Services
-import { authService, type AuthStateSnapshot } from './services/authService';
+import { authService, isEmbeddedPreviewFrame, type AuthStateSnapshot } from './services/authService';
+import { getVisibleAuthProviders, type AuthProviderId } from './services/authProviderRegistry';
 import {
+  containsTechnicalLeak,
   FRIENDLY_ERROR_MESSAGES,
   logSanitizedDiagnostic,
   toFriendlyError,
@@ -41,6 +44,7 @@ import {
 import {
   canAccessWorkspace,
   getPathForRoute,
+  isDevelopmentPreviewEnvironment,
   parseAppRoute,
   parseAuthCallbackParams,
   sanitizeRedirectPath,
@@ -122,6 +126,10 @@ export default function App() {
   const [isEnteringApp, setIsEnteringApp] = React.useState(false);
   const entryTransitionTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const signingOutRef = React.useRef(false);
+  const currentRouteRef = React.useRef<AppRoute>(currentRoute);
+  React.useEffect(() => {
+    currentRouteRef.current = currentRoute;
+  }, [currentRoute]);
   const [authErrorState, setAuthErrorState] = React.useState<AuthErrorRecoveryState | null>(null);
 
   const triggerAppEntryTransition = React.useCallback(() => {
@@ -138,7 +146,13 @@ export default function App() {
   const navigateRoute = React.useCallback(
     (route: AppRoute, options?: { email?: string; notice?: string | null; replace?: boolean }) => {
       if (options?.email !== undefined) setPendingVerifyEmail(options.email);
-      setAuthNotice(options?.notice ? toFriendlyError(options.notice, 'auth', { logDiagnostic: false }).userMessage : null);
+      setAuthNotice(
+        options?.notice
+          ? containsTechnicalLeak(options.notice)
+            ? toFriendlyError(options.notice, 'auth', { logDiagnostic: false }).userMessage
+            : options.notice
+          : null
+      );
       setAuthErrorState(null);
       if (route !== 'verify-email') {
         setVerifyError(null);
@@ -284,10 +298,16 @@ export default function App() {
   React.useEffect(() => {
     const onPopState = () => {
       const nextRoute = parseAppRoute(window.location.pathname);
-      if (nextRoute === 'auth-callback') {
-        const safeReturn = popSafeReturnRoute('auth-callback', getAuthFlowOrigin());
+      const isDevPreview = isDevelopmentPreviewEnvironment(window.location.hostname, import.meta.env.DEV);
+      if (nextRoute === 'auth-callback' || nextRoute === 'auth-preview-callback') {
+        const safeReturn = popSafeReturnRoute(nextRoute, getAuthFlowOrigin());
         scrubCallbackUrlFromHistory(safeReturn);
         setCurrentRoute(safeReturn);
+        return;
+      }
+      if (!isDevPreview && (nextRoute === 'debug-preview-auth' || nextRoute === 'preview-auth')) {
+        scrubCallbackUrlFromHistory('signin');
+        setCurrentRoute('signin');
         return;
       }
       pushSafeRoute(nextRoute);
@@ -305,84 +325,145 @@ export default function App() {
     });
 
     const bootstrapApp = async () => {
+      let keepLoadingForOAuthRedirect = false;
       try {
+        const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+        const isDevPreview = isDevelopmentPreviewEnvironment(hostname, import.meta.env.DEV);
         const search = typeof window !== 'undefined' ? window.location.search : '';
         const hash = typeof window !== 'undefined' ? window.location.hash : '';
         const initialRoute = typeof window !== 'undefined' ? parseAppRoute(window.location.pathname) : 'landing';
         const parsedCallback = parseAuthCallbackParams(search, hash);
 
-        if (initialRoute !== 'auth-callback') {
-          pushSafeRoute(initialRoute);
-        }
-
-        if (parsedCallback.hasCallbackParams || initialRoute === 'auth-callback') {
-          if (active) setCallbackProcessing(true);
-          const cbResult = await authService.processAuthCallback(search, hash);
-          if (!active) return;
-
-          if (cbResult.outcome === 'authenticated') {
-            const safeNext = sanitizeRedirectPath(cbResult.parsed.nextPath, '/app');
-            const parsedTarget = parseAppRoute(safeNext);
-            const targetRoute: AppRoute = parsedTarget === 'landing' ? 'app' : parsedTarget;
-            const finalPath = targetRoute === 'app' ? '/app' : safeNext;
-            if (targetRoute === 'app') {
-              triggerAppEntryTransition();
-            }
-            pushSafeRoute(targetRoute);
-            setCurrentRoute(targetRoute);
-            window.history.replaceState({}, '', finalPath);
-          } else if (cbResult.outcome === 'recovery') {
-            setCurrentRoute('reset-password');
-            window.history.replaceState({}, '', '/reset-password');
-          } else if (cbResult.outcome === 'verified') {
-            setVerifySuccess(true);
-            setCurrentRoute('verify-email');
-            window.history.replaceState({}, '', '/verify-email');
-          } else {
-            const originRoute = getAuthFlowOrigin();
-            const isRecoveryCallback = cbResult.parsed.type === 'recovery' || initialRoute === 'reset-password';
-            const isSignupVerifyCallback =
-              cbResult.parsed.type === 'signup' ||
-              (cbResult.parsed.isExpiredOrInvalid && !cbResult.parsed.error && !cbResult.parsed.code);
-
-            if (isRecoveryCallback) {
-              const classified = toFriendlyError(cbResult.message, 'auth');
-              setRecoveryError(classified.userMessage);
-              setCurrentRoute('reset-password');
-              scrubCallbackUrlFromHistory('reset-password');
-            } else if (isSignupVerifyCallback) {
-              const classified = toFriendlyError(cbResult.message, 'auth');
-              setVerifyError(classified.userMessage);
-              setCurrentRoute('verify-email');
-              scrubCallbackUrlFromHistory('verify-email');
-            } else {
-              const rawContextHint = `${search} ${hash} ${cbResult.message}`;
-              const isLikelyGoogleOrOAuth =
-                Boolean(cbResult.parsed.error || cbResult.parsed.code || /google|oauth|provider|access_denied/i.test(rawContextHint));
-              const context = isLikelyGoogleOrOAuth ? 'google_oauth' : 'auth';
-              const classified = toFriendlyError(
-                cbResult.parsed.errorDescription || cbResult.parsed.error || cbResult.message,
-                context,
-                { metadata: { originRoute, initialRoute } }
-              );
-              scrubCallbackUrlFromHistory(originRoute);
-              setAuthErrorState({
-                title: classified.title,
-                message: classified.userMessage,
-                originRoute,
-                provider: isLikelyGoogleOrOAuth ? 'google' : undefined,
-                retryable: classified.retryable,
-              });
-              setCurrentRoute(originRoute);
-            }
+        if (!isDevPreview && initialRoute === 'auth-preview-callback') {
+          scrubCallbackUrlFromHistory('signin');
+          if (active) {
+            setAuthNotice('Preview callback routes are disabled on production. Please sign in normally.');
+            setCurrentRoute('signin');
+          }
+          await authService.restoreVerifiedSession();
+        } else if (!isDevPreview && (initialRoute === 'debug-preview-auth' || initialRoute === 'preview-auth')) {
+          const restored = await authService.restoreVerifiedSession();
+          if (active) {
+            const fallbackRoute: AppRoute = restored.status === 'authenticated' ? 'app' : 'signin';
+            pushSafeRoute(fallbackRoute);
+            setCurrentRoute(fallbackRoute);
+            scrubCallbackUrlFromHistory(fallbackRoute);
           }
         } else {
-          const restored = await authService.restoreVerifiedSession();
-          if (active && restored.status === 'authenticated') {
-            if (initialRoute === 'signin' || initialRoute === 'signup') {
-              pushSafeRoute('app');
-              setCurrentRoute('app');
-              window.history.replaceState({}, '', '/app');
+          if (initialRoute !== 'auth-callback' && initialRoute !== 'auth-preview-callback') {
+            pushSafeRoute(initialRoute);
+          }
+
+          const isPreviewCallback = isDevPreview && initialRoute === 'auth-preview-callback';
+          if (parsedCallback.hasCallbackParams || initialRoute === 'auth-callback' || isPreviewCallback) {
+            if (active) setCallbackProcessing(true);
+            const cbResult = await authService.processAuthCallback(search, hash);
+            if (!active) return;
+
+            if (cbResult.outcome === 'authenticated') {
+              const safeNext = sanitizeRedirectPath(cbResult.parsed.nextPath, '/app');
+              const parsedTarget = parseAppRoute(safeNext);
+              const isPreviewOnlyTarget = parsedTarget === 'debug-preview-auth' || parsedTarget === 'preview-auth';
+              const targetRoute: AppRoute =
+                parsedTarget === 'landing' || (!isDevPreview && isPreviewOnlyTarget) ? 'app' : parsedTarget;
+              const finalPath = targetRoute === 'app' ? '/app' : getPathForRoute(targetRoute);
+              if (targetRoute === 'app') {
+                triggerAppEntryTransition();
+              }
+              pushSafeRoute(targetRoute);
+              setCurrentRoute(targetRoute);
+              window.history.replaceState({}, '', finalPath);
+            } else if (cbResult.outcome === 'recovery') {
+              setCurrentRoute('reset-password');
+              window.history.replaceState({}, '', '/reset-password');
+            } else if (cbResult.outcome === 'verified') {
+              setVerifySuccess(true);
+              setCurrentRoute('verify-email');
+              window.history.replaceState({}, '', '/verify-email');
+            } else {
+              const originRoute = getAuthFlowOrigin();
+              const isRecoveryCallback = cbResult.parsed.type === 'recovery' || initialRoute === 'reset-password';
+              const isSignupVerifyCallback =
+                cbResult.parsed.type === 'signup' ||
+                (cbResult.parsed.isExpiredOrInvalid && !cbResult.parsed.error && !cbResult.parsed.code);
+
+              if (isRecoveryCallback) {
+                const classified = toFriendlyError(cbResult.message, 'auth');
+                setRecoveryError(classified.userMessage);
+                setCurrentRoute('reset-password');
+                scrubCallbackUrlFromHistory('reset-password');
+              } else if (isSignupVerifyCallback) {
+                const classified = toFriendlyError(cbResult.message, 'auth');
+                setVerifyError(classified.userMessage);
+                setCurrentRoute('verify-email');
+                scrubCallbackUrlFromHistory('verify-email');
+              } else {
+                const rawContextHint = `${search} ${hash} ${cbResult.message}`;
+                const isLikelyGoogleOrOAuth =
+                  Boolean(cbResult.parsed.error || cbResult.parsed.code || /google|oauth|provider|access_denied/i.test(rawContextHint));
+                const context = isLikelyGoogleOrOAuth ? 'google_oauth' : 'auth';
+                const classified = toFriendlyError(
+                  cbResult.parsed.errorDescription || cbResult.parsed.error || cbResult.message,
+                  context,
+                  { metadata: { originRoute, initialRoute } }
+                );
+                const errorReturnRoute: AppRoute =
+                  isDevPreview && cbResult.parsed.nextPath === '/debug/preview-auth' ? 'debug-preview-auth' : originRoute;
+                scrubCallbackUrlFromHistory(errorReturnRoute);
+                setAuthErrorState({
+                  title: classified.title,
+                  message: classified.userMessage,
+                  originRoute,
+                  provider: isLikelyGoogleOrOAuth ? 'google' : undefined,
+                  retryable: classified.retryable,
+                });
+                setCurrentRoute(originRoute);
+              }
+            }
+          } else {
+            const restored = await authService.restoreVerifiedSession();
+            if (active && restored.status === 'authenticated') {
+              if (initialRoute === 'signin' || initialRoute === 'signup' || initialRoute === 'preview-auth') {
+                pushSafeRoute('app');
+                setCurrentRoute('app');
+                window.history.replaceState({}, '', '/app');
+              }
+            } else if (
+              active &&
+              isDevPreview &&
+              initialRoute === 'preview-auth' &&
+              !isEmbeddedPreviewFrame() &&
+              typeof window !== 'undefined'
+            ) {
+              const previewParams = new URLSearchParams(search);
+              const requestedProvider = previewParams.get('oauth_provider')?.trim().toLowerCase() as
+                | AuthProviderId
+                | undefined;
+              const matchedProvider = requestedProvider
+                ? getVisibleAuthProviders(undefined, true).find((p) => p.id === requestedProvider)
+                : undefined;
+              if (matchedProvider) {
+                const safeNext = sanitizeRedirectPath(previewParams.get('next'), '/app');
+                const loginHint = previewParams.get('login_hint') || undefined;
+                window.history.replaceState({}, '', '/preview-auth');
+                setCallbackProcessing(true);
+                const oauthRes = await authService.signInWithOAuthProvider(
+                  matchedProvider.id,
+                  matchedProvider.scopes,
+                  {
+                    loginHint,
+                    nextPath: safeNext,
+                    fromTopLevelHandoff: true,
+                  }
+                );
+                if (active && oauthRes.ok) {
+                  keepLoadingForOAuthRedirect = true;
+                } else if (active && !oauthRes.ok) {
+                  const ctx = matchedProvider.id === 'google' ? 'google_oauth' : 'oauth';
+                  setAuthNotice(toFriendlyError(oauthRes.message, ctx).userMessage);
+                  setCurrentRoute('signin');
+                }
+              }
             }
           }
         }
@@ -399,14 +480,18 @@ export default function App() {
       } catch (err) {
         if (active) {
           const originRoute = getAuthFlowOrigin();
+          const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+          const isDevPreview = isDevelopmentPreviewEnvironment(hostname, import.meta.env.DEV);
           const currentPath = typeof window !== 'undefined' ? parseAppRoute(window.location.pathname) : 'landing';
-          const classified = toFriendlyError(err, currentPath === 'auth-callback' ? 'google_oauth' : 'auth');
+          const isActiveCallback =
+            currentPath === 'auth-callback' || (isDevPreview && currentPath === 'auth-preview-callback');
+          const classified = toFriendlyError(err, isActiveCallback ? 'google_oauth' : 'auth');
           logSanitizedDiagnostic({
             category: classified.category,
             context: 'auth',
             rawError: err,
           });
-          if (currentPath === 'auth-callback') {
+          if (isActiveCallback) {
             scrubCallbackUrlFromHistory(originRoute);
             setAuthErrorState({
               title: classified.title,
@@ -422,7 +507,9 @@ export default function App() {
         }
       } finally {
         if (active) {
-          setCallbackProcessing(false);
+          if (!keepLoadingForOAuthRedirect) {
+            setCallbackProcessing(false);
+          }
           setIsAppReady(true);
         }
       }
@@ -435,6 +522,9 @@ export default function App() {
         if (!active) return;
         void authService.restoreVerifiedSession().then((snap) => {
           if (active && snap.status === 'authenticated') {
+            if (currentRouteRef.current === 'debug-preview-auth') {
+              return;
+            }
             triggerAppEntryTransition();
             pushSafeRoute('app');
             setCurrentRoute('app');
@@ -489,19 +579,27 @@ export default function App() {
 
   // Strict Route Guard enforcing verified Supabase session before allowing workspace rendering
   const isAuthenticated = canAccessWorkspace(authSnapshot.status);
+  const isDevPreviewEnv =
+    typeof window !== 'undefined' &&
+    isDevelopmentPreviewEnvironment(window.location.hostname, import.meta.env.DEV);
 
   React.useEffect(() => {
     if (!isAppReady || callbackProcessing || authSnapshot.status === 'loading' || authErrorState || signingOutRef.current) return;
+
+    if (!isDevPreviewEnv && (currentRoute === 'debug-preview-auth' || currentRoute === 'preview-auth' || currentRoute === 'auth-preview-callback')) {
+      navigateRoute(isAuthenticated ? 'app' : 'signin', { replace: true });
+      return;
+    }
 
     if (!isAuthenticated && currentRoute === 'app') {
       navigateRoute('signin', {
         replace: true,
         notice: FRIENDLY_ERROR_MESSAGES.SESSION,
       });
-    } else if (isAuthenticated && (currentRoute === 'signin' || currentRoute === 'signup')) {
+    } else if (isAuthenticated && (currentRoute === 'signin' || currentRoute === 'signup' || currentRoute === 'preview-auth')) {
       navigateRoute('app', { replace: true });
     }
-  }, [isAppReady, callbackProcessing, authSnapshot.status, authErrorState, isAuthenticated, currentRoute, navigateRoute]);
+  }, [isAppReady, callbackProcessing, authSnapshot.status, authErrorState, isAuthenticated, isDevPreviewEnv, currentRoute, navigateRoute]);
 
   const handleToggleTheme = React.useCallback(() => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
@@ -584,6 +682,9 @@ export default function App() {
             {/* 2. Full-Width Single-Line Composer Bar */}
             <SimpleComposerBar
               context={{ type: 'general' }}
+              onSubmissionStarted={() => {
+                setActiveTab('new-conversation');
+              }}
               onSendMessage={() => {
                 setActiveTab('new-conversation');
               }}
@@ -770,7 +871,15 @@ export default function App() {
       ) : !showWorkspace ? (
         /* PUBLIC ENTRY & DEDICATED AUTHENTICATION ROUTES */
         <>
-          {currentRoute === 'signin' ? (
+          {isDevPreviewEnv && currentRoute === 'debug-preview-auth' ? (
+            <DebugPreviewAuthPage
+              theme={theme}
+              onToggleTheme={handleToggleTheme}
+              onNavigate={(r, opts) => navigateRoute(r, opts)}
+              authSnapshot={authSnapshot}
+              onSignOut={handleSignOut}
+            />
+          ) : currentRoute === 'signin' || (isDevPreviewEnv && currentRoute === 'preview-auth') ? (
             <SignInPage
               theme={theme}
               onToggleTheme={handleToggleTheme}
@@ -890,7 +999,7 @@ export default function App() {
             {!isIncognitoMode && (
               <Header
                 activeTab={activeTab}
-                activeThreadTitle={conversationEngine.getActiveThread('general').title}
+                activeThreadTitle={conversationEngine.peekActiveThread('general')?.title || 'General Conversation'}
                 onResetConversation={() => {
                   handleNavClick('new-conversation');
                 }}

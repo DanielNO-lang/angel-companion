@@ -16,8 +16,35 @@ function assert(condition: boolean, testNum: number, name: string, detail?: stri
 }
 
 async function runPhase5UniversalComposerTests() {
-  console.log('=== STARTING PHASE 5A UNIVERSAL COMPOSER & INTERACTION ENGINE (20 TESTS) ===');
+  console.log('=== STARTING PHASE 5A UNIVERSAL COMPOSER & INTERACTION ENGINE (21 TESTS) ===');
 
+  const originalFetch = globalThis.fetch;
+  const originalWindow = (globalThis as any).window;
+  (globalThis as any).window = { location: { origin: 'http://localhost:3000' } };
+  conversationEngine.setAccessToken('test_access_token_5a', 'test_user_5a');
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.includes('/api/chat')) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      return new Response(
+        JSON.stringify({
+          success: true,
+          reply: 'Verified Gemini 3.8 Flash test reply.',
+          modelUsed: 'gemini-3.8-flash',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+    if (url.includes('/api/title')) {
+      return new Response(
+        JSON.stringify({ success: true, title: 'Generated Title' }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+    return originalFetch ? originalFetch(input, init) : new Response('{}', { status: 404 });
+  }) as typeof fetch;
+
+  try {
   // 1. Shared composer initialisation
   const genContext: ComposerContext = { type: 'general', conversationId: 'conv_gen_init' };
   const genKey = universalComposerService.getContextKey(genContext);
@@ -322,7 +349,29 @@ async function runPhase5UniversalComposerTests() {
     'Preservation of existing composer interactions'
   );
 
-  console.log('=== ALL 20 PHASE 5A UNIVERSAL COMPOSER TESTS PASSED SUCCESSFULLY! ✅ ===');
+  // 21. Failed / unauthenticated submission fails honestly and preserves draft
+  conversationEngine.setAccessToken(null);
+  const failDraftCtx: ComposerContext = { type: 'general', conversationId: 'conv_unauth_draft_preserve' };
+  universalComposerService.setDraft(failDraftCtx, 'Important unsent prompt that must survive failure');
+  const failRes = await universalComposerService.submit(
+    failDraftCtx,
+    'Important unsent prompt that must survive failure'
+  );
+  assert(
+    failRes.success === false &&
+    Boolean(failRes.error) &&
+    universalComposerService.getDraft(failDraftCtx) === 'Important unsent prompt that must survive failure',
+    21,
+    'Failed submission returns false and preserves draft'
+  );
+
+  console.log('=== ALL 21 PHASE 5A UNIVERSAL COMPOSER TESTS PASSED SUCCESSFULLY! ===');
+  } finally {
+    globalThis.fetch = originalFetch;
+    conversationEngine.setAccessToken(null);
+    if (originalWindow === undefined) delete (globalThis as any).window;
+    else (globalThis as any).window = originalWindow;
+  }
 }
 
 runPhase5UniversalComposerTests().catch((err) => {

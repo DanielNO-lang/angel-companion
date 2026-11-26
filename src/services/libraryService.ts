@@ -164,6 +164,8 @@ export class LibraryService {
     }
   }
 
+  private pendingCloudSync = false;
+
   private async restoreCloud(token: string): Promise<void> {
     const ownerId = this.activeUserId;
     if (!ownerId || !companionData.isCloudConfigured()) return;
@@ -181,10 +183,36 @@ export class LibraryService {
       });
 
       this.items = Array.from(byId.values()).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      this.pendingCloudSync = false;
       this.persist(false);
     } catch (error) {
-      console.warn('[LibraryService] Cloud restore deferred:', error);
+      this.pendingCloudSync = true;
+      companionData.reportEngineSyncError('companion_library_items', error, {
+        errorCode: 'CLOUD_SYNC_FAILED',
+        endpoint: '/rest/v1/companion_library_items',
+        method: 'GET',
+      });
     }
+  }
+
+  public async reconcileOnReconnect(): Promise<void> {
+    if (!this.accessToken || !this.activeUserId || !companionData.isCloudConfigured()) return;
+    if (this.pendingCloudSync) {
+      const userItems = this.items.filter((i) => !STARTER_LIBRARY_IDS.has(i.id));
+      if (userItems.length > 0) {
+        try {
+          await companionData.syncLibraryItems(this.accessToken, userItems, this.activeUserId);
+          this.pendingCloudSync = false;
+        } catch (error) {
+          companionData.reportEngineSyncError('companion_library_items', error, {
+            errorCode: 'CLOUD_SYNC_FAILED',
+            endpoint: '/rest/v1/companion_library_items',
+            method: 'POST',
+          });
+        }
+      }
+    }
+    await this.restoreCloud(this.accessToken);
   }
 
   private persist(syncToCloud = true): boolean {
@@ -192,9 +220,19 @@ export class LibraryService {
     if (saved && syncToCloud && this.accessToken && this.activeUserId && companionData.isCloudConfigured()) {
       const userItems = this.items.filter((i) => !STARTER_LIBRARY_IDS.has(i.id));
       if (userItems.length > 0) {
-        void companionData.syncLibraryItems(this.accessToken, userItems, this.activeUserId).catch((error) => {
-          console.warn('[LibraryService] Cloud sync deferred:', error);
-        });
+        void companionData.syncLibraryItems(this.accessToken, userItems, this.activeUserId).then(
+          () => {
+            this.pendingCloudSync = false;
+          },
+          (error) => {
+            this.pendingCloudSync = true;
+            companionData.reportEngineSyncError('companion_library_items', error, {
+              errorCode: 'CLOUD_SYNC_FAILED',
+              endpoint: '/rest/v1/companion_library_items',
+              method: 'POST',
+            });
+          }
+        );
       }
     }
     return saved;

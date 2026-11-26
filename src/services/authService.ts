@@ -10,7 +10,12 @@ import { getSupabaseClient, getSupabaseConfigState } from './supabaseClient';
 import type { AuthProviderId } from './authProviderRegistry';
 import {
   deriveUserInitials,
+  getOAuthCallbackPath,
+  isDevelopmentPreviewEnvironment,
   parseAuthCallbackParams,
+  resolveDirectPreviewUrl,
+  resolveOAuthRedirectUrl,
+  sanitizeRedirectPath,
   saveRememberMePreference,
   saveRememberedAuthEmail,
   clearRememberedAuthEmail,
@@ -103,6 +108,34 @@ export function broadcastCrossTabAuthEvent(type: 'authenticated' | 'signed_out')
   }
 }
 
+export function isEmbeddedPreviewFrame(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return Boolean(window.top && window.top !== window.self);
+  } catch {
+    return true;
+  }
+}
+
+export function openTopLevelPreviewTab(url: string): boolean {
+  if (typeof window === 'undefined' || typeof document === 'undefined' || !document.body) {
+    return false;
+  }
+  try {
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function attemptOAuthNavigation(url: string): {
   navigated: boolean;
   openedNewTab: boolean;
@@ -111,25 +144,18 @@ export function attemptOAuthNavigation(url: string): {
   if (typeof window === 'undefined') {
     return { navigated: false, openedNewTab: false, inIframe: false };
   }
-  const inIframe = Boolean(window.top && window.top !== window.self);
+  const inIframe = isEmbeddedPreviewFrame();
 
-  if (typeof document !== 'undefined' && document.body) {
-    try {
-      const link = document.createElement('a');
-      link.href = url;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      return { navigated: true, openedNewTab: true, inIframe };
-    } catch {
-      // Fall through to top-window or current-window redirect
-    }
+  if (inIframe && openTopLevelPreviewTab(url)) {
+    return { navigated: true, openedNewTab: true, inIframe: true };
   }
 
-  if (inIframe && window.top) {
+  if (!inIframe) {
+    window.location.assign(url);
+    return { navigated: true, openedNewTab: false, inIframe: false };
+  }
+
+  if (window.top) {
     try {
       window.top.location.href = url;
       return { navigated: true, openedNewTab: false, inIframe: true };
@@ -253,9 +279,23 @@ function mapIdentities(user: User | null, explicitList?: UserIdentity[]): AuthId
   }));
 }
 
-function getCallbackUrl(path: string = '/auth/callback'): string {
-  if (typeof window === 'undefined') return path;
-  return `${window.location.origin}${path}`;
+export function getOAuthCallbackUrl(queryString?: string): string {
+  const isViteDev = typeof import.meta !== 'undefined' && Boolean((import.meta as { env?: { DEV?: boolean } }).env?.DEV);
+  if (typeof window === 'undefined') {
+    const base = getOAuthCallbackPath(undefined, isViteDev);
+    return queryString ? `${base}?${queryString.replace(/^\?/, '')}` : base;
+  }
+  const basePath = getOAuthCallbackPath(window.location.hostname, isViteDev);
+  const pathWithQuery = queryString ? `${basePath}?${queryString.replace(/^\?/, '')}` : basePath;
+  return resolveOAuthRedirectUrl(window.location.origin, pathWithQuery, isViteDev);
+}
+
+function getCallbackUrl(path?: string): string {
+  const isViteDev = typeof import.meta !== 'undefined' && Boolean((import.meta as { env?: { DEV?: boolean } }).env?.DEV);
+  if (typeof window === 'undefined') {
+    return path || getOAuthCallbackPath(undefined, isViteDev);
+  }
+  return resolveOAuthRedirectUrl(window.location.origin, path, isViteDev);
 }
 
 export interface BuiltOAuthSignInOptions {
@@ -271,7 +311,7 @@ export interface BuiltOAuthSignInOptions {
  */
 export function buildOAuthSignInOptions(
   provider: AuthProviderId,
-  redirectTo: string = getCallbackUrl('/auth/callback'),
+  redirectTo: string = getOAuthCallbackUrl(),
   scopes?: string,
   loginHint?: string
 ): BuiltOAuthSignInOptions {
@@ -932,7 +972,12 @@ class AuthService {
   public async signInWithOAuthProvider(
     provider: AuthProviderId,
     scopes?: string,
-    options?: { loginHint?: string }
+    options?: {
+      loginHint?: string;
+      nextPath?: string;
+      forcePreviewCallback?: boolean;
+      fromTopLevelHandoff?: boolean;
+    }
   ): Promise<AuthActionResult> {
     const config = getSupabaseConfigState();
     const supabase = getSupabaseClient();
@@ -944,9 +989,53 @@ class AuthService {
     this.ensureAuthListener();
     const providerName = provider === 'azure' ? 'Microsoft' : provider.charAt(0).toUpperCase() + provider.slice(1);
     try {
+      const isViteDev = typeof import.meta !== 'undefined' && Boolean((import.meta as { env?: { DEV?: boolean } }).env?.DEV);
+      const isDevPreview =
+        typeof window !== 'undefined' &&
+        isDevelopmentPreviewEnvironment(window.location.hostname, isViteDev);
+      const safeNext =
+        options?.nextPath && isDevPreview
+          ? sanitizeRedirectPath(options.nextPath, '/app')
+          : undefined;
+
+      // Inside an embedded preview iframe (e.g. AI Studio), Chrome partitions iframe localStorage separately
+      // from top-level tabs. Open /preview-auth in a top-level tab BEFORE initiating Supabase PKCE so the
+      // code_verifier is written in the same unpartitioned storage that /auth/preview-callback will read.
+      if (
+        typeof window !== 'undefined' &&
+        isDevPreview &&
+        isEmbeddedPreviewFrame() &&
+        !options?.fromTopLevelHandoff
+      ) {
+        const handoffParams = new URLSearchParams();
+        handoffParams.set('oauth_provider', provider);
+        if (safeNext && safeNext !== '/app') {
+          handoffParams.set('next', safeNext);
+        }
+        if (options?.loginHint?.trim()) {
+          handoffParams.set('login_hint', options.loginHint.trim());
+        }
+        const handoffUrl = resolveDirectPreviewUrl(
+          window.location.origin,
+          `/preview-auth?${handoffParams.toString()}`
+        );
+        if (openTopLevelPreviewTab(handoffUrl)) {
+          return {
+            ok: true,
+            diagnosticCategory: 'ok',
+            code: 'OAUTH_REDIRECT',
+            redirectUrl: handoffUrl,
+            message: `Opened ${providerName} sign-in in a new preview tab.`,
+          };
+        }
+      }
+
+      const query = safeNext && safeNext !== '/app' ? `next=${encodeURIComponent(safeNext)}` : undefined;
+      const callbackUrl = getOAuthCallbackUrl(query);
+
       const oauthOptions = buildOAuthSignInOptions(
         provider,
-        getCallbackUrl('/auth/callback'),
+        callbackUrl,
         scopes,
         options?.loginHint
       );
@@ -1262,7 +1351,7 @@ class AuthService {
     const credentials: SignInWithOAuthCredentials = {
       provider: provider as Provider,
       options: {
-        redirectTo: getCallbackUrl('/auth/callback?next=/app'),
+        redirectTo: getCallbackUrl(),
       },
     };
 
@@ -1327,6 +1416,46 @@ class AuthService {
       ok: true,
       message: `${identity.provider} sign-in identity disconnected.`,
     };
+  }
+
+  public async getFreshAccessToken(): Promise<string | null> {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      return this.snapshot.session?.access_token ?? null;
+    }
+
+    try {
+      const { data: refreshed, error: refreshError } = await withTimeout(
+        supabase.auth.refreshSession(),
+        10000,
+        'Timed out refreshing authentication session.'
+      );
+      if (!refreshError && refreshed.session?.access_token) {
+        if (refreshed.session.user) {
+          const mapped = mapSupabaseUser(refreshed.session.user);
+          this.snapshot = {
+            status: 'authenticated',
+            user: mapped,
+            session: refreshed.session,
+            identities: this.snapshot.identities.length > 0
+              ? this.snapshot.identities
+              : mapIdentities(refreshed.session.user),
+            error: null,
+          };
+          this.emit();
+        }
+        return refreshed.session.access_token;
+      }
+    } catch {
+      // Fall back to checking current stored session below
+    }
+
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data.session?.access_token ?? null;
+    } catch {
+      return null;
+    }
   }
 
   public async signOut(): Promise<void> {

@@ -21,6 +21,9 @@ const SAFE_ROUTE_PATHS: Record<AppRoute, string> = {
   'forgot-password': '/forgot-password',
   'reset-password': '/reset-password',
   'auth-callback': '/signin',
+  'auth-preview-callback': '/signin',
+  'preview-auth': '/preview-auth',
+  'debug-preview-auth': '/debug/preview-auth',
   app: '/app',
 };
 
@@ -39,6 +42,7 @@ export function isSensitiveOrCallbackUrl(rawUrl: string): boolean {
   const lower = rawUrl.toLowerCase();
   return (
     lower.includes('/auth/callback') ||
+    lower.includes('/auth/preview-callback') ||
     lower.includes('?code=') ||
     lower.includes('&code=') ||
     lower.includes('?error=') ||
@@ -50,7 +54,7 @@ export function isSensitiveOrCallbackUrl(rawUrl: string): boolean {
 }
 
 export function isSafeReturnRoute(route: AppRoute): boolean {
-  return route !== 'auth-callback';
+  return route !== 'auth-callback' && route !== 'auth-preview-callback';
 }
 
 export function pushSafeRoute(route: AppRoute): void {

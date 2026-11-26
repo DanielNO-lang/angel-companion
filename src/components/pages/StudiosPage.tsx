@@ -18,17 +18,33 @@ export const StudiosPage: React.FC = () => {
   const [canvasBuffer, setCanvasBuffer] = useState(studioState.canvasBuffer);
 
   // Studio Contextual Chat State
-  const [studioThread, setStudioThread] = useState<ConversationThread>(
-    conversationEngine.getActiveThread('studio', activeStudioId)
-  );
-  const [chatInput, setChatInput] = useState('');
+  const [studioThread, setStudioThread] = useState<ConversationThread>(() => {
+    const existing = conversationEngine.peekActiveThread('studio', activeStudioId);
+    if (existing) return existing;
+    const now = new Date().toISOString();
+    return {
+      id: `pending_studio_${activeStudioId}`,
+      title: `${activeStudio.name} Session`,
+      scope: 'studio',
+      studioId: activeStudioId,
+      createdAt: now,
+      updatedAt: now,
+      isArchived: false,
+      messages: [],
+    };
+  });
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const refreshStudioChat = () => {
-    setStudioThread(conversationEngine.getActiveThread('studio', activeStudioId));
+    const current = conversationEngine.getActiveThread('studio', activeStudioId);
+    setStudioThread({ ...current });
+    setIsGenerating(conversationEngine.isGenerating(current.id));
   };
 
   useEffect(() => {
     refreshStudioChat();
+    const unsub = conversationEngine.subscribe(refreshStudioChat);
+    return () => unsub();
   }, [activeStudioId]);
 
   const handleSelectStudio = (id: StudioId) => {
@@ -42,20 +58,6 @@ export const StudiosPage: React.FC = () => {
   const handleSelectTool = (toolName: string) => {
     setActiveTool(toolName);
     studiosEngine.updateStudioTool(activeStudioId, toolName);
-  };
-
-  const handleSendStudioMessage = async () => {
-    if (!chatInput.trim()) return;
-    const text = chatInput;
-    setChatInput('');
-
-    await conversationEngine.addMessage(studioThread.id, text, 'user');
-    refreshStudioChat();
-
-    setTimeout(async () => {
-      await conversationEngine.generateAssistantResponse(studioThread.id);
-      refreshStudioChat();
-    }, 800);
   };
 
   const handleNewStudioThread = () => {
@@ -266,6 +268,26 @@ export const StudiosPage: React.FC = () => {
                   </div>
                 </div>
               ))}
+              {isGenerating && (
+                <div
+                  data-thinking-indicator="true"
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-start gap-2 animate-in fade-in duration-200"
+                >
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] bg-slate-900 border border-indigo-500/40 text-cyan-300">
+                    <Bot className="w-3 h-3 animate-pulse" />
+                  </div>
+                  <div className="p-3 rounded-2xl rounded-tl-none text-xs bg-slate-900 border border-indigo-500/30 text-cyan-200 flex items-center gap-1.5">
+                    <span>Angel is thinking</span>
+                    <span className="inline-flex items-center gap-0.5" aria-hidden="true">
+                      <span className="w-1 h-1 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-1 h-1 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1 h-1 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -278,6 +300,7 @@ export const StudiosPage: React.FC = () => {
                 conversationId: studioThread.id,
               }}
               variant="simple"
+              onSubmissionStarted={() => refreshStudioChat()}
               onSubmitted={() => refreshStudioChat()}
             />
           </div>

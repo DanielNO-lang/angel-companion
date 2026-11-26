@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bot, User, Volume2, Copy, Check, RotateCw, ArrowDown, AlertCircle, WifiOff } from 'lucide-react';
+import { Bot, User, Volume2, Copy, Check, RotateCw, ArrowDown, AlertCircle, WifiOff, RefreshCw } from 'lucide-react';
 import { CompanionOrbState, StudioId } from '../../types/angel';
 import { conversationEngine, ConversationThread } from '../../services/conversationEngine';
 import { voiceEngine } from '../../services/voiceEngine';
+import { companionData, type CloudSyncHealthState } from '../../services/companionData';
+import { cloudSyncCoordinator } from '../../services/cloudSyncCoordinator';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { ComposerBar } from '../home/ComposerBar';
 import { MessageAttachmentsAndLinks } from '../chat/MessageAttachmentsAndLinks';
@@ -174,12 +176,27 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
   onOrbStateChange,
 }) => {
   const isOnline = useOnlineStatus();
-  const [activeThread, setActiveThread] = useState<ConversationThread>(() =>
-    conversationEngine.getActiveThread('general')
-  );
+  const [activeThread, setActiveThread] = useState<ConversationThread>(() => {
+    const existing = conversationEngine.peekActiveThread('general');
+    if (existing) return existing;
+    const now = new Date().toISOString();
+    return {
+      id: 'pending_general',
+      title: 'General Conversation',
+      scope: 'general',
+      createdAt: now,
+      updatedAt: now,
+      isArchived: false,
+      messages: [],
+    };
+  });
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(() => conversationEngine.isGenerating(activeThread.id));
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const [cloudHealth, setCloudHealth] = useState<CloudSyncHealthState>(() => companionData.getCloudSyncHealth());
+  const [pendingCloudSync, setPendingCloudSync] = useState(() => conversationEngine.getOfflineCacheStatus().pendingCloudSync);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -203,18 +220,25 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
     const syncThread = () => {
       const current = conversationEngine.getActiveThread('general');
       setActiveThread({ ...current });
+      setIsGenerating(conversationEngine.isGenerating(current.id));
+      setPendingCloudSync(conversationEngine.getOfflineCacheStatus().pendingCloudSync);
     };
     syncThread();
-    return conversationEngine.subscribe(syncThread);
+    const unsubConv = conversationEngine.subscribe(syncThread);
+    const unsubHealth = companionData.subscribeCloudSyncHealth(setCloudHealth);
+    return () => {
+      unsubConv();
+      unsubHealth();
+    };
   }, []);
 
   useEffect(() => {
     const lastMsg = activeThread.messages[activeThread.messages.length - 1];
     // Always auto-scroll if user just spoke or if user was already near bottom
-    if (isNearBottomRef.current || lastMsg?.sender === 'user') {
+    if (isNearBottomRef.current || lastMsg?.sender === 'user' || isGenerating) {
       scrollToBottom();
     }
-  }, [activeThread.messages]);
+  }, [activeThread.messages, isGenerating]);
 
   const handleRetry = async () => {
     if (!isOnline) {
@@ -269,6 +293,36 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
         </div>
       )}
 
+      {/* Truthful Cloud Sync Degraded / Pending Banner */}
+      {isOnline && (cloudHealth.status !== 'healthy' || pendingCloudSync) && (
+        <div
+          data-cloud-sync-strip="true"
+          className="mx-2 sm:mx-4 mt-2 px-3.5 py-2 rounded-2xl bg-amber-500/15 border border-amber-400/30 text-amber-100 text-xs flex items-center justify-between gap-2 shrink-0 backdrop-blur-md"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertCircle className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+            <span className="truncate sm:whitespace-normal">
+              {cloudHealth.lastError || 'Local changes are preserved safely and waiting to sync with Supabase cloud.'}
+            </span>
+          </div>
+          <button
+            type="button"
+            disabled={isSyncingCloud}
+            onClick={() => {
+              setIsSyncingCloud(true);
+              void cloudSyncCoordinator.reconcilePendingSync().finally(() => {
+                setIsSyncingCloud(false);
+                setPendingCloudSync(conversationEngine.getOfflineCacheStatus().pendingCloudSync);
+              });
+            }}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/25 hover:bg-amber-500/40 text-amber-100 font-semibold shrink-0 cursor-pointer disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3 h-3 ${isSyncingCloud ? 'animate-spin' : ''}`} />
+            <span>{isSyncingCloud ? 'Syncing...' : 'Retry Sync'}</span>
+          </button>
+        </div>
+      )}
+
       {/* Message History Stream - Scrollable Middle Body */}
       <div
         ref={scrollContainerRef}
@@ -319,8 +373,11 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
                         </span>
                       )}
                       {isAngel && msg.status !== 'failed' && msg.modelUsed && (
-                        <span className="px-1.5 py-0.5 rounded bg-slate-900/70 border border-slate-700/60 text-slate-300 font-mono">
-                          {msg.modelUsed}
+                        <span
+                          className="px-1.5 py-0.5 rounded bg-slate-900/70 border border-slate-700/60 text-slate-300 font-mono"
+                          title={msg.fallbackActivated && msg.requestedModel ? `Fallback from ${msg.requestedModel}` : undefined}
+                        >
+                          {msg.modelUsed}{msg.fallbackActivated ? ' • fallback' : ''}
                         </span>
                       )}
                     </div>
@@ -378,6 +435,30 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
             </div>
           );
         })}
+        {isGenerating && (
+          <div
+            data-thinking-indicator="true"
+            role="status"
+            aria-live="polite"
+            className="flex items-start gap-3 animate-in fade-in duration-200"
+          >
+            <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-slate-900/80 text-cyan-300 shadow-[0_0_12px_rgba(56,189,248,0.4)]">
+              <Bot className="w-4 h-4 animate-pulse" />
+            </div>
+            <div className="flex flex-col max-w-[88%] sm:max-w-[80%]">
+              <div className="p-3.5 sm:p-4 rounded-3xl rounded-tl-none text-xs sm:text-sm bg-[#090e26]/40 backdrop-blur-xl text-slate-200 shadow-md border border-cyan-500/20">
+                <div className="flex items-center gap-2 text-cyan-200">
+                  <span className="font-semibold">Angel is thinking</span>
+                  <span className="inline-flex items-center gap-1" aria-hidden="true">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 

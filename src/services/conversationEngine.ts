@@ -4,12 +4,14 @@ import { memoryEngine } from './memoryEngine';
 import { companionData } from './companionData';
 import { extractIntelligentTitle, geminiModelService } from './geminiModelService';
 import { toFriendlyError } from './errorHandlingService';
+import { universalAttachmentService } from './universalAttachmentService';
 import {
   loadRecentConversationsFromCache,
   mergeConversationSnapshots,
   pruneThreadsForLocalCache,
   readSnapshotFromCacheStorage,
   saveRecentConversationsToCache,
+  sortMessagesChronologically,
   writeSnapshotToCacheStorage,
   type OfflineCacheStatus,
 } from './conversationCache';
@@ -56,8 +58,10 @@ export class ConversationEngine {
   private inFlightThreads = new Set<string>();
   private changeListeners = new Set<() => void>();
   private pendingCloudSync = false;
+  private pendingDeletes: string[] = [];
   private lastCachedAt: string | null = null;
   private onlineSyncBound = false;
+  private tokenRefresher: (() => Promise<string | null>) | null = null;
 
   constructor() {
     this.loadCurrentScope();
@@ -103,23 +107,33 @@ export class ConversationEngine {
 
   private loadCurrentScope(): void {
     const scopeKey = this.cacheScopeKey();
+    const loadedPendingDeletes = storageService.load<string[]>(
+      this.scopedKey('angel_conv_pending_deletes_v1'),
+      []
+    );
+    this.pendingDeletes = Array.isArray(loadedPendingDeletes) ? loadedPendingDeletes : [];
+    const pendingDeleteSet = new Set(this.pendingDeletes);
+
     const loaded = storageService.load<ConversationThread[]>(
       this.scopedKey(STORAGE_KEYS.conversations),
       DEFAULT_CONVERSATIONS
     );
-    const primaryThreads = pruneThreadsForLocalCache(Array.isArray(loaded) ? loaded : []);
+    const primaryThreads = pruneThreadsForLocalCache(Array.isArray(loaded) ? loaded : []).filter(
+      (thread) => !pendingDeleteSet.has(thread.id)
+    );
     const cachedSnapshot = loadRecentConversationsFromCache(scopeKey);
 
     if (cachedSnapshot) {
-      this.pendingCloudSync = cachedSnapshot.pendingCloudSync;
+      this.pendingCloudSync = cachedSnapshot.pendingCloudSync || this.pendingDeletes.length > 0;
       this.lastCachedAt = cachedSnapshot.cachedAt;
     } else {
-      this.pendingCloudSync = false;
+      this.pendingCloudSync = this.pendingDeletes.length > 0;
       this.lastCachedAt = null;
     }
 
-    this.threads = cachedSnapshot?.threads.length
-      ? mergeConversationSnapshots(primaryThreads, cachedSnapshot.threads)
+    const filteredCached = (cachedSnapshot?.threads || []).filter((thread) => !pendingDeleteSet.has(thread.id));
+    this.threads = filteredCached.length
+      ? mergeConversationSnapshots(primaryThreads, filteredCached)
       : primaryThreads;
 
     this.activeGeneralId = storageService.load<string>(
@@ -148,7 +162,11 @@ export class ConversationEngine {
     if (!swSnapshot || swSnapshot.threads.length === 0) return;
     if (this.cacheScopeKey() !== scopeKey) return;
 
-    const merged = mergeConversationSnapshots(this.threads, swSnapshot.threads);
+    const pendingDeleteSet = new Set(this.pendingDeletes);
+    const safeSwThreads = swSnapshot.threads.filter((thread) => !pendingDeleteSet.has(thread.id));
+    if (safeSwThreads.length === 0) return;
+
+    const merged = mergeConversationSnapshots(this.threads, safeSwThreads);
     const changed =
       merged.length !== this.threads.length ||
       merged.some((thread, idx) => {
@@ -171,24 +189,31 @@ export class ConversationEngine {
     }
   }
 
-  private persist(): void {
+  private saveLocalState(): void {
     const scopeKey = this.cacheScopeKey();
-    const shouldDeferCloud =
-      Boolean(this.accessToken && companionData.isCloudConfigured()) && this.isBrowserOffline();
-    if (shouldDeferCloud) {
-      this.pendingCloudSync = true;
-    }
-
     storageService.save(this.scopedKey(STORAGE_KEYS.conversations), this.threads);
     storageService.save(this.scopedKey(STORAGE_KEYS.activeConversationId), this.activeGeneralId);
     storageService.save(this.scopedKey('angel_active_studio_convs_v1'), this.activeStudioIds);
+    storageService.save(this.scopedKey('angel_conv_pending_deletes_v1'), this.pendingDeletes);
 
     const snapshot = saveRecentConversationsToCache(scopeKey, this.threads, this.pendingCloudSync);
     this.lastCachedAt = snapshot.cachedAt;
     void writeSnapshotToCacheStorage(snapshot);
-
     this.notifyChange();
-    if (this.accessToken && companionData.isCloudConfigured() && !this.isBrowserOffline()) {
+  }
+
+  private persist(syncToCloud = true): void {
+    if (
+      syncToCloud &&
+      Boolean(this.accessToken && companionData.isCloudConfigured()) &&
+      this.isBrowserOffline()
+    ) {
+      this.pendingCloudSync = true;
+    }
+
+    this.saveLocalState();
+
+    if (syncToCloud && this.accessToken && companionData.isCloudConfigured() && !this.isBrowserOffline()) {
       void this.syncCloud();
     }
   }
@@ -249,14 +274,40 @@ export class ConversationEngine {
     }
   }
 
+  public setTokenRefresher(refresher: (() => Promise<string | null>) | null): void {
+    this.tokenRefresher = refresher;
+  }
+
   public isGenerating(threadId: string): boolean {
     return this.inFlightThreads.has(threadId);
+  }
+
+  private async flushPendingDeletes(token: string): Promise<void> {
+    if (!this.pendingDeletes.length || !companionData.isCloudConfigured() || this.isBrowserOffline()) {
+      return;
+    }
+    const remaining: string[] = [];
+    for (const deletedId of this.pendingDeletes) {
+      try {
+        await companionData.deleteThread(token, deletedId);
+      } catch {
+        remaining.push(deletedId);
+      }
+    }
+    if (remaining.length !== this.pendingDeletes.length) {
+      this.pendingDeletes = remaining;
+      storageService.save(this.scopedKey('angel_conv_pending_deletes_v1'), this.pendingDeletes);
+    }
+    if (this.pendingDeletes.length > 0) {
+      throw new Error('Pending thread deletions could not be synced yet.');
+    }
   }
 
   private async syncCloud(): Promise<void> {
     if (!this.accessToken || !this.activeUserId || !companionData.isCloudConfigured()) return;
     if (this.isBrowserOffline()) {
       this.pendingCloudSync = true;
+      this.saveLocalState();
       return;
     }
     if (this.cloudSyncRunning) {
@@ -271,15 +322,21 @@ export class ConversationEngine {
         const token = this.accessToken;
         const ownerId = this.activeUserId;
         if (!token || !ownerId) break;
-        await companionData.syncThreads(token, this.threads, ownerId);
+        await this.flushPendingDeletes(token);
+        if (this.threads.length > 0) {
+          await companionData.syncThreads(token, this.threads, ownerId);
+        }
       } while (this.cloudSyncQueued && this.accessToken);
       this.pendingCloudSync = false;
-      const snapshot = saveRecentConversationsToCache(this.cacheScopeKey(), this.threads, false);
-      this.lastCachedAt = snapshot.cachedAt;
-      void writeSnapshotToCacheStorage(snapshot);
+      this.saveLocalState();
     } catch (error) {
       this.pendingCloudSync = true;
-      console.warn('[ConversationEngine] Cloud sync deferred:', error);
+      this.saveLocalState();
+      companionData.reportEngineSyncError('companion_conversations', error, {
+        errorCode: 'CONVERSATION_PERSISTENCE_FAILED',
+        endpoint: '/rest/v1/companion_conversations',
+        method: 'POST',
+      });
     } finally {
       this.cloudSyncRunning = false;
     }
@@ -289,29 +346,83 @@ export class ConversationEngine {
     const ownerId = this.activeUserId;
     if (!ownerId || !companionData.isCloudConfigured() || this.isBrowserOffline()) return;
     try {
-      const cloudThreads = await companionData.loadThreads(token);
+      await this.flushPendingDeletes(token).catch(() => undefined);
+      const pendingDeleteSet = new Set(this.pendingDeletes);
+
+      const rawCloudThreads = await companionData.loadThreads(token);
       if (this.accessToken !== token || this.activeUserId !== ownerId) return;
 
+      const cloudThreads = rawCloudThreads.filter((thread) => !pendingDeleteSet.has(thread.id));
       const localById = new Map(this.threads.map((thread) => [thread.id, thread]));
+      let needsCloudPush = this.pendingCloudSync || this.pendingDeletes.length > 0;
+
       const restored = cloudThreads.map((cloud) => {
         const local = localById.get(cloud.id);
         if (!local) return cloud;
+
         const messageMap = new Map<string, ChatMessage>();
-        [...cloud.messages, ...local.messages].forEach((message) => messageMap.set(message.id, message));
+        cloud.messages.forEach((msg) => messageMap.set(msg.id, msg));
+        local.messages.forEach((msg) => {
+          const existing = messageMap.get(msg.id);
+          if (!existing) {
+            needsCloudPush = true;
+            messageMap.set(msg.id, msg);
+          } else {
+            const preferLocal =
+              msg.status === 'completed' && existing.status !== 'completed';
+            messageMap.set(msg.id, {
+              ...existing,
+              ...(preferLocal ? msg : existing),
+              createdAt: existing.createdAt || msg.createdAt,
+              sequence:
+                typeof existing.sequence === 'number' ? existing.sequence : msg.sequence,
+            });
+          }
+        });
+
+        const localIsNewer = (local.updatedAt || '') > (cloud.updatedAt || '');
+        if (localIsNewer) {
+          needsCloudPush = true;
+        }
+
+        const primaryMetaSource = localIsNewer ? local : cloud;
+        const preserveStudioScope = cloud.messages.length === 0 && local.scope === 'studio';
+
         return {
           ...cloud,
-          ...local,
-          messages: Array.from(messageMap.values()),
-          updatedAt: local.updatedAt > cloud.updatedAt ? local.updatedAt : cloud.updatedAt,
+          title: primaryMetaSource.title,
+          isArchived: primaryMetaSource.isArchived,
+          isCustomTitle:
+            primaryMetaSource.isCustomTitle ||
+            (cloud.messages.length === 0 ? local.isCustomTitle : false),
+          scope: preserveStudioScope ? local.scope : cloud.scope,
+          studioId: preserveStudioScope ? local.studioId : cloud.studioId,
+          metadata: primaryMetaSource.metadata || local.metadata || cloud.metadata,
+          messages: sortMessagesChronologically(Array.from(messageMap.values())),
+          updatedAt: localIsNewer ? local.updatedAt : cloud.updatedAt,
         };
       });
 
       const cloudIds = new Set(cloudThreads.map((thread) => thread.id));
-      const localOnly = this.threads.filter((thread) => !cloudIds.has(thread.id));
+      const localOnly = this.threads.filter(
+        (thread) => !cloudIds.has(thread.id) && !pendingDeleteSet.has(thread.id)
+      );
+      if (localOnly.some((t) => t.messages.length > 0 || t.isCustomTitle || t.scope === 'studio')) {
+        needsCloudPush = true;
+      }
+
       this.threads = [...restored, ...localOnly].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-      this.persist();
+      this.saveLocalState();
+
+      if (needsCloudPush) {
+        await this.syncCloud();
+      }
     } catch (error) {
-      console.warn('[ConversationEngine] Cloud restore deferred:', error);
+      companionData.reportEngineSyncError('companion_conversations', error, {
+        errorCode: 'CONVERSATION_PERSISTENCE_FAILED',
+        endpoint: '/rest/v1/companion_conversations',
+        method: 'GET',
+      });
     }
   }
 
@@ -325,6 +436,26 @@ export class ConversationEngine {
       if (studioId) return t.studioId === studioId;
       return true;
     });
+  }
+
+  peekActiveThread(scope: ConversationScope = 'general', studioId?: StudioId): ConversationThread | null {
+    if (scope === 'general') {
+      return (
+        this.threads.find((t) => t.id === this.activeGeneralId && t.scope === 'general' && !t.isArchived) ||
+        this.getThreads('general')[0] ||
+        null
+      );
+    }
+
+    const targetStudio = studioId || 'research-studio';
+    const activeStudioThreadId = this.activeStudioIds[targetStudio];
+    return (
+      this.threads.find(
+        (t) => t.id === activeStudioThreadId && t.scope === 'studio' && t.studioId === targetStudio && !t.isArchived
+      ) ||
+      this.getThreads('studio', targetStudio)[0] ||
+      null
+    );
   }
 
   getActiveThread(scope: ConversationScope = 'general', studioId?: StudioId): ConversationThread {
@@ -415,6 +546,8 @@ export class ConversationEngine {
       sender: 'system',
       content: `Context transferred from General Conversation ("${sourceThread.title}"). Ready to execute in ${this.formatStudioName(targetStudioId)}.`,
       timestamp: 'Just now',
+      createdAt: new Date().toISOString(),
+      sequence: studioThread.messages.length,
       status: 'completed',
     });
 
@@ -438,12 +571,27 @@ export class ConversationEngine {
     const initialLen = this.threads.length;
     this.threads = this.threads.filter((t) => t.id !== id);
     if (this.threads.length < initialLen) {
-      if (this.accessToken && companionData.isCloudConfigured()) {
-        void companionData.deleteThread(this.accessToken, id).catch((error) => {
-          console.warn('[ConversationEngine] Cloud thread delete deferred:', error);
-        });
+      if (!this.pendingDeletes.includes(id)) {
+        this.pendingDeletes.push(id);
       }
-      this.persist();
+      if (this.accessToken && companionData.isCloudConfigured() && !this.isBrowserOffline()) {
+        const tokenSnapshot = this.accessToken;
+        void companionData
+          .deleteThread(tokenSnapshot, id)
+          .then(() => {
+            this.pendingDeletes = this.pendingDeletes.filter((item) => item !== id);
+            storageService.save(this.scopedKey('angel_conv_pending_deletes_v1'), this.pendingDeletes);
+          })
+          .catch((error) => {
+            this.pendingCloudSync = true;
+            this.saveLocalState();
+            console.warn('[ConversationEngine] Cloud thread delete deferred:', error);
+          });
+        this.saveLocalState();
+      } else {
+        this.pendingCloudSync = Boolean(this.accessToken);
+        this.saveLocalState();
+      }
       return true;
     }
     return false;
@@ -482,11 +630,14 @@ export class ConversationEngine {
   ): Promise<ChatMessage> {
     const thread = this.threads.find((t) => t.id === threadId) || this.getActiveThread('general');
 
+    const now = new Date();
     const userMessage: ChatMessage = {
       id: createUniqueId('msg'),
       sender,
       content,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAt: now.toISOString(),
+      sequence: thread.messages.length,
       mode,
       attachments,
       attachmentDetails,
@@ -495,7 +646,7 @@ export class ConversationEngine {
     };
 
     thread.messages.push(userMessage);
-    thread.updatedAt = new Date().toISOString();
+    thread.updatedAt = now.toISOString();
 
     const isFirstUserTurn =
       sender === 'user' &&
@@ -518,6 +669,30 @@ export class ConversationEngine {
 
     this.persist();
     return userMessage;
+  }
+
+  public hasFailedTurnPendingRetry(threadId: string, content: string): boolean {
+    const thread = this.threads.find((t) => t.id === threadId);
+    if (!thread || thread.messages.length === 0) return false;
+    const normalized = content.trim();
+    if (!normalized) return false;
+
+    const last = thread.messages[thread.messages.length - 1];
+    if (last.sender === 'user' && last.content.trim() === normalized) {
+      return true;
+    }
+    if (thread.messages.length >= 2) {
+      const prev = thread.messages[thread.messages.length - 2];
+      if (
+        prev.sender === 'user' &&
+        prev.content.trim() === normalized &&
+        last.sender === 'angel' &&
+        last.status === 'failed'
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   async retryLastTurn(threadId: string): Promise<ChatMessage | null> {
@@ -550,6 +725,7 @@ export class ConversationEngine {
     }
 
     this.inFlightThreads.add(thread.id);
+    this.notifyChange();
     const lastUserMsg = [...thread.messages].reverse().find((message) => message.sender === 'user');
     const promptText = lastUserMsg?.content || 'Hello';
 
@@ -557,6 +733,8 @@ export class ConversationEngine {
     let status: 'completed' | 'failed' = 'completed';
     let errorMessage: string | undefined;
     let modelUsed: string | undefined;
+    let requestedModel: string | undefined;
+    let fallbackActivated: boolean | undefined;
     let requestedMode: string | undefined = lastUserMsg?.mode;
     let appliedMode: string | undefined;
     let thinkingLevel: string | undefined;
@@ -572,7 +750,7 @@ export class ConversationEngine {
         thread.studioId
       );
 
-      // Include valid prior turns only (exclude failed/unsent placeholders) and avoid duplicating promptText
+      // Include valid prior turns only (exclude failed/unsent placeholders) and bound total char count cleanly
       const validHistory = thread.messages
         .filter(
           (message) =>
@@ -582,15 +760,39 @@ export class ConversationEngine {
         )
         .slice(-30);
 
-      const priorHistory =
+      const rawPriorHistory =
         validHistory.length > 0 && validHistory[validHistory.length - 1].sender === 'user'
           ? validHistory.slice(0, -1)
           : validHistory;
 
+      const MAX_HISTORY_CHARS = 48000;
+      let charBudget = Math.max(0, MAX_HISTORY_CHARS - promptText.length);
+      const priorHistoryReversed: ChatMessage[] = [];
+      for (let i = rawPriorHistory.length - 1; i >= 0; i--) {
+        const turn = rawPriorHistory[i];
+        if (turn.content.length <= charBudget) {
+          priorHistoryReversed.push(turn);
+          charBudget -= turn.content.length;
+        } else {
+          break;
+        }
+      }
+      const priorHistory = priorHistoryReversed.reverse();
+
+      const activeModeLabel = lastUserMsg?.mode || 'Standard Intelligent';
       const systemInstruction = [
-        'You are Angel, a thoughtful, natural, capable Universal Personal AI Companion.',
-        'Respond directly, accurately and conversationally. Respect the full conversation history.',
+        'You are Angel, a thoughtful, natural, highly capable Universal Personal AI Companion.',
+        'Communicate clearly, concisely, and naturally without robotic boilerplate or generic filler.',
+        'Maintain full continuity across every turn in this conversation and resolve references accurately without leaking unrelated threads.',
+        'Never fabricate external actions, live telemetry, citations, or connected workspace integrations unless confirmed.',
         `Current Angel environment: ${thread.scope === 'studio' ? this.formatStudioName(thread.studioId) : 'General Conversation'}.`,
+        activeModeLabel === 'Think'
+          ? 'Think Mode is active: reason step-by-step internally and present clear, well-structured, analytical conclusions.'
+          : activeModeLabel === 'Deep Research'
+            ? 'Deep Research mode is active: synthesize comprehensive, balanced depth and note uncertainties explicitly.'
+            : activeModeLabel === 'Code Analysis'
+              ? 'Code Analysis mode is active: prioritize correctness, edge cases, strong typing, and minimal clean code.'
+              : '',
         thread.scope === 'studio'
           ? 'Stay aware of the specialised studio context while remaining able to explain your reasoning.'
           : 'Do not force the user into a project, workspace, or studio unless they ask.',
@@ -599,20 +801,56 @@ export class ConversationEngine {
         .filter(Boolean)
         .join('\n\n');
 
-      const result = await geminiModelService.generateChatResponse(
+      const attachmentPayloads = await universalAttachmentService.buildChatPayloads(
+        lastUserMsg?.attachmentDetails
+      );
+
+      let result = await geminiModelService.generateChatResponse(
         priorHistory,
         promptText,
         lastUserMsg?.mode,
         systemInstruction,
-        this.accessToken
+        this.accessToken,
+        undefined,
+        attachmentPayloads
       );
 
+      if (!result.success && result.statusCode === 401 && this.tokenRefresher) {
+        const refreshedToken = await this.tokenRefresher().catch(() => null);
+        if (refreshedToken && refreshedToken.trim()) {
+          this.accessToken = refreshedToken.trim();
+          result = await geminiModelService.generateChatResponse(
+            priorHistory,
+            promptText,
+            lastUserMsg?.mode,
+            systemInstruction,
+            this.accessToken,
+            undefined,
+            attachmentPayloads
+          );
+        }
+      }
+
       if (!result.success || !result.text?.trim()) {
-        throw new Error(result.error || 'Angel could not reach the conversation service. Please try again.');
+        const aiErr = new Error(
+          result.error || 'Angel could not reach the conversation service. Please try again.'
+        ) as Error & { statusCode?: number; diagnostic?: Record<string, unknown> };
+        aiErr.statusCode = result.statusCode;
+        aiErr.diagnostic = {
+          ...(result.diagnostic || {}),
+          ...(result.requestId ? { requestId: result.requestId } : {}),
+          ...(result.status ? { providerStatusLabel: result.status } : {}),
+          threadId: thread.id,
+          scope: thread.scope,
+          model: result.modelUsed || geminiModelService.getCachedStatus().model,
+        };
+        throw aiErr;
       }
 
       responseText = result.text.trim();
       modelUsed = result.modelUsed;
+      requestedModel = result.requestedModel;
+      fallbackActivated = result.fallbackActivated;
       requestedMode = result.requestedMode || lastUserMsg?.mode;
       appliedMode = result.appliedMode;
       thinkingLevel = result.thinkingLevel;
@@ -632,33 +870,46 @@ export class ConversationEngine {
       }
     } catch (error) {
       status = 'failed';
+      const errWithMeta = error as Error & {
+        statusCode?: number;
+        diagnostic?: Record<string, unknown>;
+      };
       const rawMsg = error instanceof Error ? error.message : String(error || '');
       if (rawMsg.includes('Sign in to start a private conversation with Angel.')) {
         errorMessage = rawMsg;
       } else {
-        errorMessage = toFriendlyError(error, 'ai').userMessage;
+        errorMessage = toFriendlyError(error, 'ai', {
+          statusCode: errWithMeta.statusCode,
+          metadata: errWithMeta.diagnostic,
+        }).userMessage;
       }
       responseText = errorMessage;
     } finally {
       this.inFlightThreads.delete(thread.id);
+      this.notifyChange();
     }
 
+    const assistantNow = new Date();
     const assistantMessage: ChatMessage = {
       id: createUniqueId('msg_ai'),
       sender: 'angel',
       content: responseText,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: assistantNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAt: assistantNow.toISOString(),
+      sequence: thread.messages.length,
       mode: lastUserMsg?.mode,
       status,
       error: errorMessage,
       modelUsed,
+      requestedModel,
+      fallbackActivated,
       requestedMode,
       appliedMode,
       thinkingLevel,
     };
 
     thread.messages.push(assistantMessage);
-    thread.updatedAt = new Date().toISOString();
+    thread.updatedAt = assistantNow.toISOString();
     this.persist();
     return assistantMessage;
   }

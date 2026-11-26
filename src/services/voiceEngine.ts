@@ -1,5 +1,6 @@
 /**
- * Voice Engine - Real Web Speech Recognition & Web Speech Synthesis with hardened error and cleanup handling
+ * Voice Engine - Web Speech Recognition (STT) & Web Speech Synthesis (TTS)
+ * Hardened lifecycle, dynamic SpeechRecognition resolution, and clean unmount cleanup.
  */
 
 export interface SpeechRecognitionListener {
@@ -19,7 +20,7 @@ export class VoiceEngine {
   private sessionSeq = 0;
 
   private constructor() {
-    this.initSpeechRecognition();
+    this.recognition = this.createRecognitionInstance();
   }
 
   public static getInstance(): VoiceEngine {
@@ -39,21 +40,21 @@ export class VoiceEngine {
     return Boolean(window.speechSynthesis && typeof SpeechSynthesisUtterance !== 'undefined');
   }
 
-  private initSpeechRecognition() {
-    if (typeof window !== 'undefined') {
-      const SpeechRecognition =
-        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        try {
-          this.recognition = new SpeechRecognition();
-          this.recognition.continuous = true;
-          this.recognition.interimResults = true;
-          this.recognition.lang = 'en-US';
-        } catch (e) {
-          console.warn('[VoiceEngine] Could not initialize SpeechRecognition:', e);
-          this.recognition = null;
-        }
-      }
+  private createRecognitionInstance(): any {
+    if (typeof window === 'undefined') return null;
+    const SpeechRecognitionCtor =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) return null;
+
+    try {
+      const instance = new SpeechRecognitionCtor();
+      instance.continuous = true;
+      instance.interimResults = true;
+      instance.lang = (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
+      return instance;
+    } catch (e) {
+      console.warn('[VoiceEngine] Could not initialize SpeechRecognition:', e);
+      return null;
     }
   }
 
@@ -66,6 +67,8 @@ export class VoiceEngine {
         return 'No working microphone device was detected.';
       case 'network':
         return 'Voice dictation requires a network connection to your browser speech service.';
+      case 'language-not-supported':
+        return 'Speech recognition language is not supported on this device.';
       case 'aborted':
         return 'Voice dictation was stopped.';
       default:
@@ -79,14 +82,15 @@ export class VoiceEngine {
     }
 
     if (!this.isRecognitionSupported()) {
-      listener.onError('Speech recognition is not supported in this browser. Please type your message or use a Chromium-based browser.');
+      listener.onError(
+        'Speech recognition is not supported in this browser. Please type your message or use a Chromium-based browser.'
+      );
       return false;
     }
 
-    if (!this.recognition) {
-      this.initSpeechRecognition();
-    }
-
+    // Re-create a fresh SpeechRecognition instance per session so dynamic browser/test
+    // implementations and post-abort restarts never hit InvalidStateError.
+    this.recognition = this.createRecognitionInstance();
     if (!this.recognition) {
       listener.onError('Speech recognition could not be initialized on this device.');
       return false;
@@ -94,7 +98,8 @@ export class VoiceEngine {
 
     this.sessionSeq += 1;
     const currentSeq = this.sessionSeq;
-    this.baseTranscript = initialText ? initialText.trim() + ' ' : '';
+    const normalizedInitial = initialText.trim();
+    this.baseTranscript = normalizedInitial ? `${normalizedInitial} ` : '';
     this.activeListener = listener;
     this.shouldKeepListening = true;
 
@@ -104,10 +109,14 @@ export class VoiceEngine {
         let finalChunk = '';
         let interimChunk = '';
 
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const trans = event.results[i][0]?.transcript || '';
-          if (event.results[i].isFinal) {
-            finalChunk += trans + ' ';
+        const startIdx = typeof event?.resultIndex === 'number' ? event.resultIndex : 0;
+        const results = event?.results || [];
+
+        for (let i = startIdx; i < results.length; ++i) {
+          const item = results[i];
+          const trans = item?.[0]?.transcript || '';
+          if (item?.isFinal) {
+            finalChunk += `${trans} `;
           } else {
             interimChunk += trans;
           }
@@ -117,8 +126,8 @@ export class VoiceEngine {
           this.baseTranscript += finalChunk;
         }
 
-        const fullText = (this.baseTranscript + interimChunk).replace(/\s+/g, ' ').trim();
-        if (fullText && this.activeListener) {
+        const fullText = `${this.baseTranscript}${interimChunk}`.replace(/\s+/g, ' ').trim();
+        if (this.activeListener && (fullText || finalChunk || interimChunk)) {
           this.activeListener.onTranscript(fullText, Boolean(finalChunk));
         }
       };
@@ -126,7 +135,13 @@ export class VoiceEngine {
       this.recognition.onerror = (event: any) => {
         if (this.sessionSeq !== currentSeq) return;
         const errCode = event?.error;
-        if (errCode === 'not-allowed' || errCode === 'service-not-allowed' || errCode === 'audio-capture') {
+        if (
+          errCode === 'not-allowed' ||
+          errCode === 'service-not-allowed' ||
+          errCode === 'audio-capture' ||
+          errCode === 'network' ||
+          errCode === 'language-not-supported'
+        ) {
           this.shouldKeepListening = false;
           this.isListening = false;
         }
@@ -137,12 +152,12 @@ export class VoiceEngine {
 
       this.recognition.onend = () => {
         if (this.sessionSeq !== currentSeq) return;
-        if (this.shouldKeepListening) {
+        if (this.shouldKeepListening && this.recognition) {
           try {
             this.recognition.start();
             return;
           } catch {
-            // Fall through to clean end
+            // Fall through to clean stop if browser prevents immediate restart
           }
         }
         this.isListening = false;
@@ -177,7 +192,7 @@ export class VoiceEngine {
         this.recognition.onresult = null;
         this.recognition.onerror = null;
         this.recognition.onend = null;
-        if (this.isListening) {
+        if (this.isListening && typeof this.recognition.stop === 'function') {
           this.recognition.stop();
         }
       } catch {

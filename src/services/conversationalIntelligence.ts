@@ -16,6 +16,8 @@ export class ConversationalIntelligence {
     error?: string;
     status?: string;
     modelUsed?: string;
+    requestedModel?: string;
+    fallbackActivated?: boolean;
     appliedMode?: string;
     thinkingLevel?: string;
   }> {
@@ -35,6 +37,8 @@ export class ConversationalIntelligence {
         success: true,
         response: modelRes.text.trim(),
         modelUsed: modelRes.modelUsed,
+        requestedModel: modelRes.requestedModel,
+        fallbackActivated: modelRes.fallbackActivated,
         appliedMode: modelRes.appliedMode,
         thinkingLevel: modelRes.thinkingLevel,
       };
@@ -62,6 +66,12 @@ export class ConversationalIntelligence {
 
     if (context.mode === 'Think') {
       parts.push('Think Mode is active: Provide a deeply reasoned, structured, and thorough analytical breakdown.');
+    } else if (context.mode === 'Deep Research') {
+      parts.push('Deep Research mode is active: Synthesize comprehensive, well-structured, nuanced analysis with explicit caveats for anything uncertain.');
+    } else if (context.mode === 'Code Analysis') {
+      parts.push('Code Analysis mode is active: Focus on exact engineering correctness, edge cases, types, and clean, minimal idiomatic code.');
+    } else if (context.mode === 'Creative Brainstorm') {
+      parts.push('Creative Brainstorm mode is active: Explore original angles and concrete options clearly without fluff.');
     }
 
     return parts.join(' ');

@@ -105,9 +105,50 @@ export function buildConversationCacheSnapshot(
   };
 }
 
+function parseIsoTimestampMs(value?: string): number | null {
+  if (!value || typeof value !== 'string') return null;
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+export function sortMessagesChronologically(messages: ChatMessage[]): ChatMessage[] {
+  if (!Array.isArray(messages) || messages.length <= 1) return Array.isArray(messages) ? [...messages] : [];
+  return messages
+    .map((msg, idx) => ({ msg, idx }))
+    .sort((a, b) => {
+      const aTime = parseIsoTimestampMs(a.msg.createdAt) ?? parseIsoTimestampMs(a.msg.timestamp);
+      const bTime = parseIsoTimestampMs(b.msg.createdAt) ?? parseIsoTimestampMs(b.msg.timestamp);
+      if (aTime !== null && bTime !== null && aTime !== bTime) {
+        return aTime - bTime;
+      }
+      const aSeq = typeof a.msg.sequence === 'number' ? a.msg.sequence : null;
+      const bSeq = typeof b.msg.sequence === 'number' ? b.msg.sequence : null;
+      if (aSeq !== null && bSeq !== null && aSeq !== bSeq) {
+        return aSeq - bSeq;
+      }
+      return a.idx - b.idx;
+    })
+    .map((entry) => entry.msg);
+}
+
+function mergeMessageEntry(existing: ChatMessage | undefined, incoming: ChatMessage): ChatMessage {
+  if (!existing) return incoming;
+  const preferIncomingStatus =
+    incoming.status === 'completed' ||
+    (existing.status !== 'completed' && incoming.status !== 'unsent');
+  return {
+    ...existing,
+    ...incoming,
+    createdAt: existing.createdAt || incoming.createdAt,
+    sequence: typeof existing.sequence === 'number' ? existing.sequence : incoming.sequence,
+    status: preferIncomingStatus ? incoming.status : existing.status,
+  };
+}
+
 /**
  * Merges primary and cached thread lists without dropping offline-authored messages
- * or newer metadata updates.
+ * or newer metadata updates, while keeping messages in chronological order.
  */
 export function mergeConversationSnapshots(
   primaryThreads: CachedConversationThread[],
@@ -116,29 +157,35 @@ export function mergeConversationSnapshots(
   const merged = new Map<string, CachedConversationThread>();
 
   for (const cached of pruneThreadsForLocalCache(cachedThreads)) {
-    merged.set(cached.id, cached);
+    merged.set(cached.id, {
+      ...cached,
+      messages: sortMessagesChronologically(cached.messages),
+    });
   }
 
   for (const current of pruneThreadsForLocalCache(primaryThreads)) {
     const existing = merged.get(current.id);
     if (!existing) {
-      merged.set(current.id, current);
+      merged.set(current.id, {
+        ...current,
+        messages: sortMessagesChronologically(current.messages),
+      });
       continue;
     }
 
     const messageMap = new Map<string, ChatMessage>();
     for (const msg of existing.messages) {
-      messageMap.set(msg.id, msg);
+      messageMap.set(msg.id, mergeMessageEntry(messageMap.get(msg.id), msg));
     }
     for (const msg of current.messages) {
-      messageMap.set(msg.id, msg);
+      messageMap.set(msg.id, mergeMessageEntry(messageMap.get(msg.id), msg));
     }
 
     const useCurrentMeta = (current.updatedAt || '') >= (existing.updatedAt || '');
     merged.set(current.id, {
       ...(useCurrentMeta ? existing : current),
       ...(useCurrentMeta ? current : existing),
-      messages: Array.from(messageMap.values()),
+      messages: sortMessagesChronologically(Array.from(messageMap.values())),
       updatedAt: useCurrentMeta ? current.updatedAt : existing.updatedAt,
     });
   }

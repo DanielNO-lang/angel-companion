@@ -1,11 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronUp, ExternalLink, Loader2 } from 'lucide-react';
 import { getVisibleAuthProviders, type AuthProviderStatus } from '../../services/authProviderRegistry';
 import { getSupabaseConfigState, probeSupabaseAuthSettings } from '../../services/supabaseClient';
-import { authService } from '../../services/authService';
+import {
+  authService,
+  getOAuthCallbackUrl,
+  isEmbeddedPreviewFrame,
+  openTopLevelPreviewTab,
+} from '../../services/authService';
 import { toFriendlyError, logSanitizedDiagnostic } from '../../services/errorHandlingService';
 import { setAuthFlowOrigin } from '../../services/recoveryNavigationService';
-import type { ThemeMode } from '../../services/authValidation';
+import {
+  DEBUG_PREVIEW_AUTH_PATH,
+  isDevelopmentPreviewEnvironment,
+  resolveDirectPreviewUrl,
+  type ThemeMode,
+} from '../../services/authValidation';
 import { ProviderLogo } from './ProviderLogo';
 
 interface ProviderAuthSectionProps {
@@ -25,6 +35,7 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
   const [liveExternalProviders, setLiveExternalProviders] = useState<Record<string, boolean> | null>(null);
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
   const [showSetupInfo, setShowSetupInfo] = useState(false);
+  const [previewTabOpenedMessage, setPreviewTabOpenedMessage] = useState<string | null>(null);
   const loadingResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const supabaseConfigured = getSupabaseConfigState().isConfigured;
@@ -80,6 +91,9 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
         onError(classified.userMessage);
         return;
       }
+      if (isEmbeddedPreviewFrame()) {
+        setPreviewTabOpenedMessage(result.message || 'Opened sign-in in a new preview tab.');
+      }
       // New tab opened cleanly; reset button busy state shortly so the tab never stays locked if the user switches back
       loadingResetTimerRef.current = setTimeout(() => {
         setLoadingProvider(null);
@@ -100,6 +114,20 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
   };
 
   const anyUnconfigured = providers.some((p) => !p.isReady);
+  const isDevPreview =
+    typeof window !== 'undefined' &&
+    isDevelopmentPreviewEnvironment(window.location.hostname, import.meta.env.DEV);
+  const inEmbeddedFrame = isEmbeddedPreviewFrame();
+  const isPreviewRoute =
+    typeof window !== 'undefined' &&
+    (window.location.pathname.replace(/\/+$/, '') === '/preview-auth' ||
+      window.location.pathname.replace(/\/+$/, '') === DEBUG_PREVIEW_AUTH_PATH);
+  const showPreviewAuthHelper = isDevPreview && (inEmbeddedFrame || isPreviewRoute);
+  const currentCallbackUrl = getOAuthCallbackUrl();
+  const directPreviewSignInUrl =
+    typeof window !== 'undefined'
+      ? resolveDirectPreviewUrl(window.location.origin, DEBUG_PREVIEW_AUTH_PATH)
+      : DEBUG_PREVIEW_AUTH_PATH;
 
   return (
     <div className="space-y-3">
@@ -191,6 +219,48 @@ export const ProviderAuthSection: React.FC<ProviderAuthSectionProps> = ({
               Some sign-in methods require additional provider setup before they can be used. You can use Google or
               continue with your email address below.
             </div>
+          )}
+        </div>
+      )}
+
+      {showPreviewAuthHelper && (
+        <div
+          className={`p-3 rounded-2xl text-[11px] leading-relaxed backdrop-blur-md angel-blurred-surface ${
+            isLight ? 'bg-sky-50/90 text-slate-700' : 'bg-cyan-950/35 text-slate-200'
+          }`}
+        >
+          <p className="font-semibold mb-1">
+            {inEmbeddedFrame
+              ? 'Google sign-in opens in a standalone preview tab.'
+              : 'Preview authentication testing active'}
+          </p>
+          <p className={isLight ? 'text-slate-600' : 'text-slate-300'}>
+            {inEmbeddedFrame
+              ? 'Embedded preview frames cannot host Google login or share browser storage with top-level tabs. Clicking Google opens Angel in a full preview tab; Email & Password works directly here.'
+              : 'Completing Google sign-in returns directly to the preview callback.'}
+          </p>
+          <p className={`mt-1 ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+            Preview callback:{' '}
+            <span className="font-mono break-all">{currentCallbackUrl}</span>
+          </p>
+          {previewTabOpenedMessage && (
+            <p className={`mt-1.5 font-semibold ${isLight ? 'text-emerald-700' : 'text-emerald-300'}`}>
+              {previewTabOpenedMessage}
+            </p>
+          )}
+          {inEmbeddedFrame && (
+            <button
+              type="button"
+              onClick={() => openTopLevelPreviewTab(directPreviewSignInUrl)}
+              className={`mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold cursor-pointer transition-colors ${
+                isLight
+                  ? 'bg-sky-600 hover:bg-sky-700 text-white'
+                  : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200'
+              }`}
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Open preview auth debugger in a normal tab</span>
+            </button>
           )}
         </div>
       )}

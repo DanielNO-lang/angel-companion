@@ -72,10 +72,12 @@ export const FRIENDLY_ERROR_MESSAGES = {
   RATE_LIMIT: "Too many requests were sent in a short moment. Please wait briefly and try again.",
   SERVICE_UNAVAILABLE: "Sign-in is temporarily unavailable right now. Please try again shortly.",
   LINK_EXPIRED: "That verification or recovery link is no longer valid. Please request a fresh one.",
+  AI_HIGH_DEMAND: "Angel's conversation model is temporarily experiencing high demand. Please try again in a moment.",
+  AI_TIMEOUT: "Angel took a bit too long to respond. Please try again.",
 } as const;
 
 const SENSITIVE_KEY_PATTERN =
-  /password|passwd|secret|token|access_token|refresh_token|authorization|apikey|api_key|client_secret|code|verifier|session|cookie|jwt|credential/i;
+  /password|passwd|secret|token|access_token|refresh_token|authorization|apikey|api_key|client_secret|^code$|auth_code|authorization_code|verifier|session|cookie|jwt|credential/i;
 
 const diagnosticBuffer: SanitizedDiagnosticRecord[] = [];
 
@@ -86,12 +88,13 @@ export function scrubSensitiveText(input: unknown): string {
   if (input === null || input === undefined) return '';
   let text = input instanceof Error ? `${input.name}: ${input.message}` : String(input);
 
-  // Strip Bearer tokens & JWT shapes
+  // Strip Google API keys, Bearer tokens & JWT shapes
+  text = text.replace(/AIza[0-9A-Za-z\-_]{10,}/g, '[REDACTED_GOOGLE_KEY]');
   text = text.replace(/Bearer\s+[A-Za-z0-9\-._~+/]+=*/gi, 'Bearer [REDACTED]');
   text = text.replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]*)?/g, '[REDACTED_JWT]');
   // Strip key=value / query parameters holding sensitive secrets
   text = text.replace(
-    /([?&]|\b)(code|access_token|refresh_token|token|apikey|api_key|client_secret|password|secret)=([^&\s]+)/gi,
+    /([?&]|\b)(code|access_token|refresh_token|token|apikey|api_key|key|client_secret|password|secret)=([^&\s]+)/gi,
     '$1$2=[REDACTED]'
   );
   // Strip local filesystem stack paths
@@ -243,6 +246,8 @@ export function toFriendlyError(
         : FRIENDLY_ERROR_MESSAGES.AUTH;
     retryable = false;
   } else if (
+    options?.metadata?.code === 'GEMINI_CONFIG_MISSING' ||
+    options?.metadata?.code === 'UNCONFIGURED' ||
     /not configured|missing.*env|vite_supabase|url_missing|key_missing|url_and_key_missing|unconfigured|invalid_url|provider.*(disabled|not enabled|unsupported)|invalid_client|client_id|client_secret|gemini_api_key/i.test(
       lower
     )
@@ -273,7 +278,7 @@ export function toFriendlyError(
   } else if (
     context === 'session' ||
     statusCode === 401 ||
-    /jwt|session.*expired|session.*not.*restored|not verified|unauthenticated|invalid refresh token/i.test(lower)
+    /jwt|session.*(expired|not.*restored|couldn't be restored)|not verified|unauthenticated|invalid refresh token/i.test(lower)
   ) {
     category = 'invalid_session';
     title = 'Session needs refresh';
@@ -299,8 +304,8 @@ export function toFriendlyError(
     retryable = false;
   } else if (/timed out|timeout|aborterror|abort/i.test(lower)) {
     category = 'network_timeout';
-    title = 'Connection timed out';
-    userMessage = FRIENDLY_ERROR_MESSAGES.NETWORK;
+    title = context === 'ai' ? 'Response timed out' : 'Connection timed out';
+    userMessage = context === 'ai' ? FRIENDLY_ERROR_MESSAGES.AI_TIMEOUT : FRIENDLY_ERROR_MESSAGES.NETWORK;
     retryable = true;
   } else if (
     context === 'network' ||
@@ -316,9 +321,16 @@ export function toFriendlyError(
   ) {
     category = context === 'ai' ? 'ai_unavailable' : 'server_failure';
     title = 'Temporarily unavailable';
+    const isModelDemand =
+      context === 'ai' &&
+      (statusCode === 503 ||
+        options?.metadata?.errorCode === 'MODEL_UNAVAILABLE' ||
+        /high demand|overloaded|503/i.test(lower));
     userMessage =
       context === 'ai'
-        ? FRIENDLY_ERROR_MESSAGES.FEATURE
+        ? isModelDemand
+          ? FRIENDLY_ERROR_MESSAGES.AI_HIGH_DEMAND
+          : FRIENDLY_ERROR_MESSAGES.FEATURE
         : context === 'google_oauth'
           ? FRIENDLY_ERROR_MESSAGES.GOOGLE_OAUTH
           : FRIENDLY_ERROR_MESSAGES.GENERAL;

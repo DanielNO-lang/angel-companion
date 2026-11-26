@@ -22,6 +22,32 @@ function assert(condition: boolean, testNum: number, name: string, detail?: stri
 async function runPhase5BAttachmentTests() {
   console.log('=== STARTING PHASE 5B: UNIVERSAL ATTACHMENT, FILE HANDLING & LINK PREVIEW TESTS (28 TESTS) ===');
 
+  const originalFetch = globalThis.fetch;
+  const originalWindow = (globalThis as any).window;
+  (globalThis as any).window = { location: { origin: 'http://localhost:3000' } };
+  conversationEngine.setAccessToken('test_access_token_5b', 'test_user_5b');
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.includes('/api/chat')) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          reply: 'Verified attachment analysis response.',
+          modelUsed: 'gemini-3.8-flash',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+    if (url.includes('/api/title')) {
+      return new Response(
+        JSON.stringify({ success: true, title: 'Attachment Chat' }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+    return new Response(JSON.stringify({}), { status: 404 });
+  }) as typeof fetch;
+
+  try {
   const testCtx: ComposerContext = { type: 'general', conversationId: 'conv_5b_test_main' };
 
   // 1. Single-file selection
@@ -77,7 +103,7 @@ async function runPhase5BAttachmentTests() {
   // 4. Oversized file rejection
   const bigRes = await universalAttachmentService.stageAttachment(testCtx, {
     name: 'huge_archive.zip',
-    size: 30 * 1024 * 1024, // 30MB (>25MB limit)
+    size: 30 * 1024 * 1024, // 30MB (>20MB limit)
     content: 'large_data',
   });
   assert(
@@ -459,7 +485,13 @@ async function runPhase5BAttachmentTests() {
     'Existing Phase 5A regression tests'
   );
 
-  console.log('=== ALL 28 PHASE 5B ATTACHMENT & LINK PREVIEW TESTS PASSED SUCCESSFULLY! ✅ ===');
+  console.log('=== ALL 28 PHASE 5B ATTACHMENT & LINK PREVIEW TESTS PASSED SUCCESSFULLY! ===');
+  } finally {
+    globalThis.fetch = originalFetch;
+    conversationEngine.setAccessToken(null);
+    if (originalWindow === undefined) delete (globalThis as any).window;
+    else (globalThis as any).window = originalWindow;
+  }
 }
 
 runPhase5BAttachmentTests().catch((err) => {

@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { X, CheckCircle2, AlertTriangle, ActivitySquare } from 'lucide-react';
+import { X, CheckCircle2, AlertTriangle, ActivitySquare, RefreshCw } from 'lucide-react';
 import { geminiModelService, type ModelHealthStatus } from '../../services/geminiModelService';
 import { getSupabaseConfigState } from '../../services/supabaseClient';
 import { cloudMigrationService, type CloudMigrationStatus } from '../../services/cloudMigrationService';
 import { companionData, type CloudSyncHealthState } from '../../services/companionData';
+import { cloudSyncCoordinator } from '../../services/cloudSyncCoordinator';
+import { conversationEngine } from '../../services/conversationEngine';
 import { toFriendlyError } from '../../services/errorHandlingService';
 
 interface SystemDetailsModalProps {
@@ -18,6 +20,7 @@ export const SystemDetailsModal: React.FC<SystemDetailsModalProps> = ({
   const [modelStatus, setModelStatus] = useState<ModelHealthStatus>(() => geminiModelService.getCachedStatus());
   const [migrationStatus, setMigrationStatus] = useState<CloudMigrationStatus>(() => cloudMigrationService.getStatus());
   const [cloudHealth, setCloudHealth] = useState<CloudSyncHealthState>(() => companionData.getCloudSyncHealth());
+  const [isRetryingSync, setIsRetryingSync] = useState(false);
 
   useEffect(() => {
     const unsubModel = geminiModelService.subscribeStatus(setModelStatus);
@@ -151,8 +154,35 @@ export const SystemDetailsModal: React.FC<SystemDetailsModalProps> = ({
           ))}
         </div>
 
+        {/* Cloud sync error note & manual retry */}
+        {(cloudHealth.status !== 'healthy' || conversationEngine.getOfflineCacheStatus().pendingCloudSync) && (
+          <div className="mb-4 p-3 rounded-2xl bg-amber-950/40 border border-amber-500/30 flex items-center justify-between gap-2 text-xs text-amber-200">
+            <span>{cloudHealth.lastError || 'Pending cloud changes are saved locally.'}</span>
+            <button
+              type="button"
+              disabled={isRetryingSync}
+              onClick={() => {
+                setIsRetryingSync(true);
+                void cloudSyncCoordinator.reconcilePendingSync().finally(() => setIsRetryingSync(false));
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-600/80 hover:bg-amber-500 text-white font-semibold shrink-0 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3 h-3 ${isRetryingSync ? 'animate-spin' : ''}`} />
+              <span>{isRetryingSync ? 'Syncing...' : 'Retry Sync'}</span>
+            </button>
+          </div>
+        )}
+
         {/* Footer */}
-        <div className="pt-3 flex justify-end">
+        <div className="pt-3 flex items-center justify-between">
+          <a
+            href="https://aistudio.google.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-cyan-400 hover:text-cyan-300 underline underline-offset-4 transition-colors cursor-pointer"
+          >
+            Open Google AI Studio ↗
+          </a>
           <button
             onClick={onClose}
             className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-all cursor-pointer"

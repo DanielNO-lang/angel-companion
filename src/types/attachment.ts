@@ -25,6 +25,9 @@ export interface AttachmentRecord {
   size: number;
   createdAt: string;
   storageRef: string;
+  storagePath?: string;
+  cloudStatus?: 'local_only' | 'uploading' | 'synced' | 'sync_failed' | 'pending_delete';
+  analysisMode?: 'extracted_text' | 'multimodal_inline' | 'metadata_only' | 'unsupported';
   context: ComposerContext;
   status: AttachmentStatus;
   category: AttachmentCategory;

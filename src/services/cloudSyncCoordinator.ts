@@ -13,6 +13,7 @@ import { voiceEngine } from './voiceEngine';
 import { mediaStreamService } from './mediaStreamService';
 import { getStoredThemeMode, saveStoredThemeMode } from './authValidation';
 import { eventBus } from './AngelEventBus';
+import { authService } from './authService';
 
 export interface CloudAuthContextInput {
   status: string;
@@ -44,6 +45,7 @@ class CloudSyncCoordinator {
     this.lastBoundToken = token;
 
     // 1. Bind per-user storage scoping and cloud hydration across all engines
+    conversationEngine.setTokenRefresher(() => authService.getFreshAccessToken());
     conversationEngine.setAccessToken(token, userId);
     memoryEngine.setAuthContext(token, userId);
     libraryService.setAuthContext(token, userId);
@@ -52,7 +54,7 @@ class CloudSyncCoordinator {
     agentEngine.setAuthContext(token, userId);
     permissionsEngine.setUserContext(userId);
     universalComposerService.setUserContext(userId);
-    universalAttachmentService.setUserContext(userId);
+    universalAttachmentService.setAuthContext(token, userId);
 
     // 2. Sync browser permissions non-invasively
     void permissionsEngine.syncBrowserPermissionStates();
@@ -81,9 +83,22 @@ class CloudSyncCoordinator {
           // Non-fatal if profile table has not yet been initialized for this user
         }
       }
+    } else if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+      // Flush any offline-queued conversations or memories when online auth verification completes
+      void this.reconcilePendingSync();
     }
 
     return migrationResult;
+  }
+
+  public async reconcilePendingSync(): Promise<void> {
+    if (!this.lastBoundUserId || !this.lastBoundToken || !companionData.isCloudConfigured()) return;
+    await Promise.allSettled([
+      conversationEngine.reconcileOnReconnect(),
+      memoryEngine.reconcileOnReconnect(),
+      libraryService.reconcileOnReconnect(),
+      universalAttachmentService.reconcilePendingCloudOperations(),
+    ]);
   }
 
   public async syncUserThemePreference(
@@ -114,6 +129,7 @@ class CloudSyncCoordinator {
     voiceEngine.stopAll();
     mediaStreamService.stopAll();
 
+    conversationEngine.setTokenRefresher(null);
     conversationEngine.setAccessToken(null, null);
     memoryEngine.setAuthContext(null, null);
     libraryService.setAuthContext(null, null);
@@ -122,7 +138,8 @@ class CloudSyncCoordinator {
     agentEngine.setAuthContext(null, null);
     permissionsEngine.setUserContext(null);
     universalComposerService.setUserContext(null);
-    universalAttachmentService.setUserContext(null);
+    universalAttachmentService.setAuthContext(null, null);
+    companionData.resetCloudSyncHealth();
     eventBus.clearHistory();
   }
 }

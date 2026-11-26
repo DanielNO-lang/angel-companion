@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, User, Trash2, ArrowLeft } from 'lucide-react';
 import { AngelEmblem3D } from '../branding/AngelEmblem3D';
+import { geminiModelService } from '../../services/geminiModelService';
+import { authService } from '../../services/authService';
+import { toFriendlyError } from '../../services/errorHandlingService';
 
 interface IncognitoMessage {
   id: string;
@@ -23,7 +26,7 @@ export const IncognitoChatPage: React.FC<IncognitoChatPageProps> = ({ onReturnTo
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isThinking]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim() || isThinking) return;
 
     const userMsgText = input.trim();
@@ -34,12 +37,36 @@ export const IncognitoChatPage: React.FC<IncognitoChatPageProps> = ({ onReturnTo
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
+    const currentHistory = messages.map((m) => ({
+      id: m.id,
+      sender: m.sender,
+      content: m.content,
+      timestamp: m.timestamp,
+      status: 'completed' as const,
+    }));
+
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setIsThinking(true);
 
-    setTimeout(() => {
-      const angelReplyText = `I have processed your private request for "${userMsgText}". No history or session logs have been saved.`;
+    try {
+      const accessToken = authService.getSnapshot().session?.access_token;
+      const result = await geminiModelService.generateChatResponse(
+        currentHistory,
+        userMsgText,
+        'Standard Intelligent',
+        'You are Angel operating in ephemeral Private Mode. Respond naturally, accurately, and concisely. Never claim logs or cloud history are saved.',
+        accessToken
+      );
+
+      const angelReplyText =
+        result.success && result.text?.trim()
+          ? result.text.trim()
+          : toFriendlyError(result.error || 'Private session response unavailable.', 'ai', {
+              statusCode: result.statusCode,
+              metadata: result.diagnostic,
+            }).userMessage;
+
       const angelMsg: IncognitoMessage = {
         id: 'ang_' + Date.now(),
         sender: 'angel',
@@ -47,8 +74,17 @@ export const IncognitoChatPage: React.FC<IncognitoChatPageProps> = ({ onReturnTo
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
       setMessages((prev) => [...prev, angelMsg]);
+    } catch (err) {
+      const angelMsg: IncognitoMessage = {
+        id: 'ang_' + Date.now(),
+        sender: 'angel',
+        content: toFriendlyError(err, 'ai').userMessage,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages((prev) => [...prev, angelMsg]);
+    } finally {
       setIsThinking(false);
-    }, 850);
+    }
   };
 
   const handleClearChat = () => {

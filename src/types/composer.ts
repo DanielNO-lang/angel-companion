@@ -44,7 +44,9 @@ export interface ComposerSubmissionPayload {
 export interface ComposerSubmissionResult {
   success: boolean;
   messageId?: string;
+  threadId?: string;
   taskId?: string;
+  responseKind?: 'assistant_reply' | 'workspace_update' | 'agent_execution' | 'adaptive_route';
   summaryText: string;
   error?: string;
   awaitingIntegrationReason?: string;

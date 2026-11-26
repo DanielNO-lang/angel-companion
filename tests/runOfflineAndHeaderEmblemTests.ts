@@ -232,7 +232,9 @@ test('Sidebar Recent Conversations subscribes to live/cached conversationEngine 
   assert.ok(app.includes('<OfflineIndicator'));
   assert.ok(mainTsx.includes('registerAngelServiceWorker'));
   assert.ok(viteConfig.includes('VitePWA'));
-  assert.ok(viteConfig.includes('angel-supabase-threads-cache'));
+  assert.ok(viteConfig.includes("handler: 'NetworkOnly'"));
+  assert.equal(viteConfig.includes('angel-supabase-threads-cache'), false);
+  assert.ok(viteConfig.includes('navigateFallbackAllowlist'));
   assert.ok(viteConfig.includes('maximumFileSizeToCacheInBytes'));
   assert.ok(fs.existsSync(path.join(root, 'public/pwa-192x192.png')));
   assert.ok(fs.existsSync(path.join(root, 'public/pwa-512x512.png')));
@@ -255,11 +257,13 @@ test('Manifest JSON, Vite React dedupe, Netlify headers, and static NewConversat
 
   const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(indexHtml.includes('href="/manifest.webmanifest"'));
+  assert.ok(indexHtml.includes('crossorigin="use-credentials"'));
 
   const viteConfig = fs.readFileSync(path.join(root, 'vite.config.ts'), 'utf8');
   assert.ok(viteConfig.includes("dedupe: ['react', 'react-dom'"));
   assert.ok(viteConfig.includes('optimizeDeps:'));
   assert.ok(viteConfig.includes('manifest\\.webmanifest'));
+  assert.ok(viteConfig.includes('navigateFallbackDenylist'));
 
   const netlifyToml = fs.readFileSync(path.join(root, 'netlify.toml'), 'utf8');
   assert.ok(netlifyToml.includes('/manifest.webmanifest'));

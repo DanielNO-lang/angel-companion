@@ -23,8 +23,11 @@ export const ComposerBar: React.FC<ComposerBarProps> = ({
         variant="full"
         onOrbStateChange={onOrbStateChange}
         onStartVoiceSession={onStartVoiceSession}
+        onSubmissionStarted={() => {
+          onSendMessage('Submitted');
+        }}
         onSubmitted={() => {
-          // Additional notification if needed
+          onSendMessage('Submitted');
         }}
       />
     </div>

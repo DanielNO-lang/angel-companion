@@ -65,6 +65,8 @@ export interface ChatMessage {
   sender: 'user' | 'angel' | 'system';
   content: string;
   timestamp: string;
+  createdAt?: string;
+  sequence?: number;
   attachments?: string[];
   attachmentDetails?: AttachmentRecord[];
   linkPreviews?: LinkPreview[];
@@ -72,6 +74,8 @@ export interface ChatMessage {
   status?: 'completed' | 'failed' | 'pending' | 'unsent';
   error?: string;
   modelUsed?: string;
+  requestedModel?: string;
+  fallbackActivated?: boolean;
   requestedMode?: string;
   appliedMode?: string;
   thinkingLevel?: string;

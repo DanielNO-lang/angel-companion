@@ -67,7 +67,7 @@ if (!self.define) {
     });
   };
 }
-define(['./workbox-5d155c7a'], (function (workbox) { 'use strict';
+define(['./workbox-43e44e5a'], (function (workbox) { 'use strict';
 
   self.skipWaiting();
   workbox.clientsClaim();
@@ -78,13 +78,15 @@ define(['./workbox-5d155c7a'], (function (workbox) { 'use strict';
    */
   workbox.precacheAndRoute([{
     "url": "/index.html",
-    "revision": "0.ubfpf9hav"
+    "revision": "0.ds28nankur"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("/index.html"), {
-    allowlist: [/^\/$/],
-    denylist: [/^\/api\//, /^\/auth\//, /^\/manifest\.webmanifest$/, /\.webmanifest$/i, /^\/assets\//]
+    allowlist: [/^\/$/, /^\/(app|signin|signup|verify-email|forgot-password|reset-password|preview-auth|debug\/preview-auth|auth\/callback|auth\/preview-callback)(\/.*)?$/i],
+    denylist: [/^\/api\//, /^\/auth\/v1\//, /^\/manifest\.webmanifest$/, /\.webmanifest$/i, /^\/assets\//]
   }));
+  workbox.registerRoute(/^\/api\/.*/i, new workbox.NetworkOnly(), 'GET');
+  workbox.registerRoute(/^https:\/\/[^/]+\.supabase\.co\/.*/i, new workbox.NetworkOnly(), 'GET');
   workbox.registerRoute(/^https:\/\/fonts\.googleapis\.com\/.*/i, new workbox.CacheFirst({
     "cacheName": "google-fonts-cache",
     plugins: [new workbox.ExpirationPlugin({
@@ -99,16 +101,6 @@ define(['./workbox-5d155c7a'], (function (workbox) { 'use strict';
     plugins: [new workbox.ExpirationPlugin({
       maxEntries: 10,
       maxAgeSeconds: 31536000
-    }), new workbox.CacheableResponsePlugin({
-      statuses: [0, 200]
-    })]
-  }), 'GET');
-  workbox.registerRoute(/^https:\/\/[^/]+\.supabase\.co\/rest\/v1\/companion_(conversations|messages).*/i, new workbox.NetworkFirst({
-    "cacheName": "angel-supabase-threads-cache",
-    "networkTimeoutSeconds": 4,
-    plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 30,
-      maxAgeSeconds: 604800
     }), new workbox.CacheableResponsePlugin({
       statuses: [0, 200]
     })]
