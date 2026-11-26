@@ -830,7 +830,10 @@ test('Supabase repair migration covers all 3 tables, companionData surfaces miss
   assert.ok(indexSql.includes('companion_messages_conversation_user_idx'));
   assert.ok(indexSql.includes('companion_memories_user_client_uidx'));
   assert.ok(indexSql.includes('consume_companion_rate_limit'));
-  assert.ok(indexSql.includes('canonical_convs'));
+  assert.ok(indexSql.includes('raise exception'));
+  assert.ok(indexSql.includes('Duplicate (user_id, client_id) rows exist'));
+  assert.equal(/delete\s+from\s+public\./i.test(indexSql), false, 'Migration must never delete user rows automatically');
+  assert.equal(/update\s+public\.companion_messages/i.test(indexSql), false, 'Migration must never reparent conversation messages automatically');
   assert.ok(indexSql.includes('coalesce(p_max_requests, 30)'));
   assert.ok(indexSql.includes('coalesce(p_window_seconds, 60)'));
   assert.ok(indexSql.includes('on conflict (id) do update'));
