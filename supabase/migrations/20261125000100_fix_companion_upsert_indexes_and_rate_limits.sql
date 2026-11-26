@@ -19,41 +19,46 @@ alter table if exists public.companion_library_items add column if not exists cl
 create index if not exists companion_messages_conversation_user_idx
   on public.companion_messages(conversation_id, user_id);
 
--- Safely deduplicate any non-null (user_id, client_id) duplicates (keeping latest row)
--- and replace partial unique indexes with standard non-partial unique indexes
--- so ON CONFLICT (user_id, client_id) matches cleanly in PostgREST upserts.
+-- Refuse to proceed if duplicate client IDs exist. Never delete or rewrite user data
+-- automatically during a deployment. Resolve any reported duplicates with a reviewed,
+-- backed-up, user-approved data repair before retrying this migration.
 do $$
 declare
   idx_def text;
 begin
-  -- companion_conversations (preserve child messages before removing older duplicate conversations)
-  with canonical_convs as (
-    select distinct on (user_id, client_id)
-      id as keep_id,
-      user_id,
-      client_id
-    from public.companion_conversations
+  if exists (
+    select 1 from public.companion_conversations
     where client_id is not null
-    order by user_id, client_id, updated_at desc, id desc
-  )
-  update public.companion_messages m
-     set conversation_id = cc.keep_id
-    from public.companion_conversations dup
-    join canonical_convs cc
-      on cc.user_id = dup.user_id
-     and cc.client_id = dup.client_id
-   where m.conversation_id = dup.id
-     and m.user_id = dup.user_id
-     and dup.id <> cc.keep_id;
+    group by user_id, client_id having count(*) > 1
+  ) then
+    raise exception 'Duplicate (user_id, client_id) rows exist in companion_conversations; migration stopped without modifying user data.';
+  end if;
 
-  delete from public.companion_conversations a
-   using public.companion_conversations b
-   where a.client_id is not null
-     and b.client_id is not null
-     and a.user_id = b.user_id
-     and a.client_id = b.client_id
-     and (a.updated_at, a.id) < (b.updated_at, b.id);
+  if exists (
+    select 1 from public.companion_messages
+    where client_id is not null
+    group by user_id, client_id having count(*) > 1
+  ) then
+    raise exception 'Duplicate (user_id, client_id) rows exist in companion_messages; migration stopped without modifying user data.';
+  end if;
 
+  if exists (
+    select 1 from public.companion_memories
+    where client_id is not null
+    group by user_id, client_id having count(*) > 1
+  ) then
+    raise exception 'Duplicate (user_id, client_id) rows exist in companion_memories; migration stopped without modifying user data.';
+  end if;
+
+  if exists (
+    select 1 from public.companion_library_items
+    where client_id is not null
+    group by user_id, client_id having count(*) > 1
+  ) then
+    raise exception 'Duplicate (user_id, client_id) rows exist in companion_library_items; migration stopped without modifying user data.';
+  end if;
+
+  -- Replace partial unique indexes only after all four duplicate checks pass.
   select indexdef into idx_def from pg_indexes
    where schemaname = 'public' and indexname = 'companion_conversations_user_client_uidx';
   if idx_def is not null and idx_def ilike '% where %' then
@@ -61,15 +66,6 @@ begin
   end if;
   create unique index if not exists companion_conversations_user_client_uidx
     on public.companion_conversations(user_id, client_id);
-
-  -- companion_messages
-  delete from public.companion_messages a
-   using public.companion_messages b
-   where a.client_id is not null
-     and b.client_id is not null
-     and a.user_id = b.user_id
-     and a.client_id = b.client_id
-     and (a.created_at, a.id) < (b.created_at, b.id);
 
   select indexdef into idx_def from pg_indexes
    where schemaname = 'public' and indexname = 'companion_messages_user_client_uidx';
@@ -79,15 +75,6 @@ begin
   create unique index if not exists companion_messages_user_client_uidx
     on public.companion_messages(user_id, client_id);
 
-  -- companion_memories
-  delete from public.companion_memories a
-   using public.companion_memories b
-   where a.client_id is not null
-     and b.client_id is not null
-     and a.user_id = b.user_id
-     and a.client_id = b.client_id
-     and (a.updated_at, a.id) < (b.updated_at, b.id);
-
   select indexdef into idx_def from pg_indexes
    where schemaname = 'public' and indexname = 'companion_memories_user_client_uidx';
   if idx_def is not null and idx_def ilike '% where %' then
@@ -95,15 +82,6 @@ begin
   end if;
   create unique index if not exists companion_memories_user_client_uidx
     on public.companion_memories(user_id, client_id);
-
-  -- companion_library_items
-  delete from public.companion_library_items a
-   using public.companion_library_items b
-   where a.client_id is not null
-     and b.client_id is not null
-     and a.user_id = b.user_id
-     and a.client_id = b.client_id
-     and (a.updated_at, a.id) < (b.updated_at, b.id);
 
   select indexdef into idx_def from pg_indexes
    where schemaname = 'public' and indexname = 'companion_library_items_user_client_uidx';
