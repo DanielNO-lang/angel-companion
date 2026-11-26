@@ -5,6 +5,11 @@
   publish = "dist"
   functions = "netlify/functions"
 
+# GEMINI_MODEL is a non-secret model identifier, not a credential.
+# Keep scanning enabled for all actual secrets, including GEMINI_API_KEY.
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "GEMINI_MODEL"
+
 
 [[redirects]]
   from = "/api/chat"
