@@ -20,7 +20,7 @@ function assert(condition: boolean, testNum: number, name: string, detail?: stri
 }
 
 async function runPhase5BAttachmentTests() {
-  console.log('=== STARTING PHASE 5B: UNIVERSAL ATTACHMENT, FILE HANDLING & LINK PREVIEW TESTS (28 TESTS) ===');
+  console.log('=== STARTING PHASE 5B: UNIVERSAL ATTACHMENT, FILE HANDLING & LINK PREVIEW TESTS (29 TESTS) ===');
 
   const originalFetch = globalThis.fetch;
   const originalWindow = (globalThis as any).window;
@@ -472,7 +472,33 @@ async function runPhase5BAttachmentTests() {
     'Duplicate attachment prevention'
   );
 
-  // 28. Existing Phase 5A regression tests
+  // 28. Visual attachments must contain original bytes before they are sent for AI analysis.
+  const visualCtx: ComposerContext = { type: 'general', conversationId: 'conv_visual_integrity' };
+  const visualBytes = new Uint8Array([137, 80, 78, 71]).buffer;
+  const visualStage = await universalAttachmentService.stageAttachment(visualCtx, {
+    name: 'integrity-check.png',
+    size: visualBytes.byteLength,
+    content: visualBytes,
+  });
+  let visualPayloadError = '';
+  if (visualStage.attachment) {
+    await fileStorageService.deleteFile(visualStage.attachment.storageRef);
+    try {
+      await universalAttachmentService.buildChatPayloads([visualStage.attachment]);
+    } catch (error: any) {
+      visualPayloadError = error?.message || String(error);
+    }
+  }
+  assert(
+    visualStage.success === true &&
+    visualStage.attachment?.analysisMode === 'multimodal_inline' &&
+    visualPayloadError.includes('could not access the original data') &&
+    visualPayloadError.includes('integrity-check.png'),
+    28,
+    'Visual attachment without source bytes is rejected instead of silently degrading to filename metadata'
+  );
+
+  // 29. Existing Phase 5A regression tests
   // Verify mode selection, mode persistence, and submit handling work seamlessly
   const regCtx: ComposerContext = { type: 'general', conversationId: 'conv_reg_5a' };
   universalComposerService.setMode(regCtx, 'Deep Research');
@@ -481,11 +507,11 @@ async function runPhase5BAttachmentTests() {
   assert(
     regMode === 'Deep Research' &&
     regSub.success === true,
-    28,
+    29,
     'Existing Phase 5A regression tests'
   );
 
-  console.log('=== ALL 28 PHASE 5B ATTACHMENT & LINK PREVIEW TESTS PASSED SUCCESSFULLY! ===');
+  console.log('=== ALL 29 PHASE 5B ATTACHMENT & LINK PREVIEW TESTS PASSED SUCCESSFULLY! ===');
   } finally {
     globalThis.fetch = originalFetch;
     conversationEngine.setAccessToken(null);
