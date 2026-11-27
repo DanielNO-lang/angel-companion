@@ -20,7 +20,7 @@ function assert(condition: boolean, testNum: number, name: string, detail?: stri
 }
 
 async function runPhase5BAttachmentTests() {
-  console.log('=== STARTING PHASE 5B: UNIVERSAL ATTACHMENT, FILE HANDLING & LINK PREVIEW TESTS (28 TESTS) ===');
+  console.log('=== STARTING PHASE 5B: UNIVERSAL ATTACHMENT, FILE HANDLING & LINK PREVIEW TESTS (29 TESTS) ===');
 
   const originalFetch = globalThis.fetch;
   const originalWindow = (globalThis as any).window;
