@@ -507,7 +507,7 @@ async function runPhase5BAttachmentTests() {
   assert(
     regMode === 'Deep Research' &&
     regSub.success === true,
-    28,
+    29,
     'Existing Phase 5A regression tests'
   );
 
