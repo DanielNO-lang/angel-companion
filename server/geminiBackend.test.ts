@@ -407,3 +407,110 @@ test('handleModelStatusRequest verifies fallback tier and reports envAudit safel
   assert.deepEqual(envAudit.fallbackChain, [DEFAULT_GEMINI_MODEL, EMERGENCY_FALLBACK_MODEL]);
   assert.equal(JSON.stringify(statusRes.body).includes('AIzaTestSecretShouldNeverLeakInEnvAudit123'), false);
 });
+
+
+test('handleChatRequest retries a transient primary failure even when the failed attempt takes over 1.5 seconds', async () => {
+  resetBackendCachesForTesting();
+  let fakeNow = 1_000_000;
+  let primaryCalls = 0;
+  const attemptedModels: string[] = [];
+  const deps = makeDeps(
+    async (params) => {
+      const model = String(params.model);
+      attemptedModels.push(model);
+      if (model === DEFAULT_GEMINI_MODEL) {
+        primaryCalls += 1;
+        if (primaryCalls === 1) {
+          fakeNow += 1800;
+          throw Object.assign(new Error('503 high demand'), { status: 503 });
+        }
+        return { text: 'Primary recovered after a slow transient failure.' };
+      }
+      return { text: 'Fallback response.' };
+    },
+    {
+      now: () => fakeNow,
+      sleep: async (ms: number) => { fakeNow += ms; },
+    }
+  );
+
+  const res = await handleChatRequest(
+    {
+      method: 'POST',
+      authorizationHeader: 'Bearer test_jwt',
+      body: { messages: [{ role: 'user', content: 'Continue our discussion.' }] },
+    },
+    deps
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.actualModel, DEFAULT_GEMINI_MODEL);
+  assert.equal(res.body.fallbackActivated, false);
+  assert.equal(primaryCalls, 2);
+  assert.equal(attemptedModels.includes(EMERGENCY_FALLBACK_MODEL), false);
+  assert.equal(res.body.retryCount, 1);
+});
+
+test('handleChatRequest retries a transient primary timeout once before using emergency fallback', async () => {
+  resetBackendCachesForTesting();
+  let primaryCalls = 0;
+  let fallbackCalls = 0;
+  const attemptedModels: string[] = [];
+  const deps = makeDeps(async (params) => {
+    const model = String(params.model);
+    attemptedModels.push(model);
+    if (model === DEFAULT_GEMINI_MODEL) {
+      primaryCalls += 1;
+      if (primaryCalls === 1) throw new Error('Gemini generation timed out');
+      return { text: 'Primary recovered after one bounded timeout retry.' };
+    }
+    fallbackCalls += 1;
+    return { text: 'Emergency fallback response.' };
+  });
+
+  const res = await handleChatRequest(
+    {
+      method: 'POST',
+      authorizationHeader: 'Bearer test_jwt',
+      body: { messages: [{ role: 'user', content: 'Hello Angel.' }] },
+    },
+    deps
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.actualModel, DEFAULT_GEMINI_MODEL);
+  assert.equal(res.body.fallbackActivated, false);
+  assert.equal(primaryCalls, 2);
+  assert.equal(fallbackCalls, 0);
+  assert.deepEqual(attemptedModels, [DEFAULT_GEMINI_MODEL, DEFAULT_GEMINI_MODEL]);
+  assert.equal(res.body.retryCount, 1);
+});
+
+test('successful fallback logs include the safe primary failure reason', async () => {
+  resetBackendCachesForTesting();
+  const originalInfo = console.info;
+  const captured: string[] = [];
+  console.info = (...args: unknown[]) => { captured.push(args.map(String).join(' ')); };
+  try {
+    const deps = makeDeps(async (params) => {
+      if (String(params.model) === DEFAULT_GEMINI_MODEL) {
+        throw Object.assign(new Error('503 Service Unavailable'), { status: 503 });
+      }
+      return { text: 'Fallback is available.' };
+    });
+    const res = await handleChatRequest(
+      {
+        method: 'POST',
+        authorizationHeader: 'Bearer test_jwt',
+        body: { messages: [{ role: 'user', content: 'Hello Angel.' }] },
+      },
+      deps
+    );
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.fallbackActivated, true);
+    assert.match(captured.join('\n'), /fallbackReason.*MODEL_UNAVAILABLE/);
+    assert.equal(captured.join('\n').includes('test-key-not-real'), false);
+  } finally {
+    console.info = originalInfo;
+  }
+});

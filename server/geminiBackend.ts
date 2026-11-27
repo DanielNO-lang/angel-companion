@@ -441,7 +441,7 @@ function logEvent(
       model: details.model,
       ...(details.requestedModel ? { requestedModel: details.requestedModel } : {}),
       ...(typeof details.fallbackActivated === 'boolean' ? { fallbackActivated: details.fallbackActivated } : {}),
-      ...(includeVerboseFailureDetails && details.fallbackReason
+      ...(details.fallbackReason
         ? { fallbackReason: redactSecrets(details.fallbackReason) }
         : {}),
       ...(typeof details.retryCount === 'number' ? { retryCount: details.retryCount } : {}),
@@ -1395,7 +1395,7 @@ export async function handleChatRequest(
           ? 1800
           : 2500
         : serverless
-          ? 3800
+          ? 5000
           : 6500
       : serverless
         ? 8500
@@ -1435,9 +1435,7 @@ export async function handleChatRequest(
         const nowAfterErr = nowFn();
         const attemptElapsed = nowAfterErr - attemptStarted;
         const remainingForRetry = tierDeadline - nowAfterErr;
-        const maxAttemptsForCode = info.code === 'TIMEOUT' ? (hasFallbackTier ? 1 : 3) : maxAttempts;
-        const slowNonFinalFailure = hasFallbackTier && attemptElapsed >= 1500;
-
+        const maxAttemptsForCode = info.code === 'TIMEOUT' ? (hasFallbackTier ? 2 : 3) : maxAttempts;
         if (!hasFallbackTier && info.code === 'TIMEOUT' && attemptConfig.thinkingConfig) {
           stripThinkingOnRetry = true;
         }
@@ -1445,7 +1443,6 @@ export async function handleChatRequest(
         if (
           !info.transientRetryable ||
           attempt >= maxAttemptsForCode ||
-          slowNonFinalFailure ||
           remainingForRetry < 2500
         ) {
           throw err;
@@ -1494,7 +1491,7 @@ export async function handleChatRequest(
       const remainingUnvisitedTiers = candidateModels.length - 1 - idx;
       const maxTierDeadline = startedAt + totalBudgetMs - remainingUnvisitedTiers * reservePerTierMs;
       const cappedPrimaryDeadline = hasFallbackTier
-        ? startedAt + (inCooldownProbe ? (serverless ? 2000 : 2800) : serverless ? 5200 : 11000)
+        ? startedAt + (inCooldownProbe ? (serverless ? 2000 : 2800) : serverless ? 10800 : 11000)
         : maxTierDeadline;
       const tierDeadline = Math.min(maxTierDeadline, cappedPrimaryDeadline);
 
@@ -1932,11 +1929,10 @@ export async function handleTitleRequest(
             const info = extractProviderErrorInfo(innerErr);
             const nowAfterErr = nowFn();
             const remainingForRetry = tierDeadline - nowAfterErr;
-            const slowNonFinalFailure = hasFallbackTier && nowAfterErr - attemptStarted >= 1500;
             if (!hasFallbackTier && info.code === 'TIMEOUT') {
               stripThinkingOnRetry = true;
             }
-            if (!info.transientRetryable || attempt >= maxAttempts || slowNonFinalFailure || remainingForRetry < 2000) {
+            if (!info.transientRetryable || attempt >= maxAttempts || remainingForRetry < 2000) {
               throw innerErr;
             }
             const delay = info.retryAfterMs ? Math.min(2500, info.retryAfterMs) : 350 + Math.random() * 200;
