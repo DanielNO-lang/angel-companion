@@ -346,6 +346,21 @@ export class UniversalAttachmentService {
       };
 
       const isMultimodal = fileProcessingEngine.isMultimodalInlineMime(att.mimeType);
+      const requiresInlineVision =
+        att.analysisMode === 'multimodal_inline' && !att.extractedText;
+
+      if (requiresInlineVision && att.size > MAX_SINGLE_INLINE_MEDIA_BYTES) {
+        throw new Error(
+          `"${att.name}" is too large for inline visual analysis (maximum 3 MB). Resize it or attach a smaller version.`
+        );
+      }
+
+      if (requiresInlineVision && att.size > remainingInlineBudget) {
+        throw new Error(
+          `"${att.name}" exceeds the remaining attachment analysis budget. Send fewer or smaller visual files.`
+        );
+      }
+
       if (isMultimodal && att.size <= MAX_SINGLE_INLINE_MEDIA_BYTES && att.size <= remainingInlineBudget) {
         let rawBytes = await fileStorageService.getFile(att.storageRef);
 
@@ -365,7 +380,7 @@ export class UniversalAttachmentService {
               this.activeUserId
             );
           } catch {
-            // Fall back to extractedText/metadata when offline or storage unavailable
+            // The explicit integrity check below prevents metadata-only "visual analysis" success.
           }
         }
 
@@ -379,6 +394,12 @@ export class UniversalAttachmentService {
             remainingInlineBudget -= buffer.byteLength;
           }
         }
+      }
+
+      if (requiresInlineVision && !payload.inlineDataBase64) {
+        throw new Error(
+          `Angel could not access the original data for "${att.name}". Reattach the file on this device or restore its private cloud copy before asking Angel to analyse it.`
+        );
       }
 
       payloads.push(payload);
