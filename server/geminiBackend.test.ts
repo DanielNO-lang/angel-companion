@@ -451,6 +451,41 @@ test('handleChatRequest retries a transient primary failure even when the failed
   assert.equal(res.body.retryCount, 1);
 });
 
+test('handleChatRequest retries a transient primary timeout once before using emergency fallback', async () => {
+  resetBackendCachesForTesting();
+  let primaryCalls = 0;
+  let fallbackCalls = 0;
+  const attemptedModels: string[] = [];
+  const deps = makeDeps(async (params) => {
+    const model = String(params.model);
+    attemptedModels.push(model);
+    if (model === DEFAULT_GEMINI_MODEL) {
+      primaryCalls += 1;
+      if (primaryCalls === 1) throw new Error('Gemini generation timed out');
+      return { text: 'Primary recovered after one bounded timeout retry.' };
+    }
+    fallbackCalls += 1;
+    return { text: 'Emergency fallback response.' };
+  });
+
+  const res = await handleChatRequest(
+    {
+      method: 'POST',
+      authorizationHeader: 'Bearer test_jwt',
+      body: { messages: [{ role: 'user', content: 'Hello Angel.' }] },
+    },
+    deps
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.actualModel, DEFAULT_GEMINI_MODEL);
+  assert.equal(res.body.fallbackActivated, false);
+  assert.equal(primaryCalls, 2);
+  assert.equal(fallbackCalls, 0);
+  assert.deepEqual(attemptedModels, [DEFAULT_GEMINI_MODEL, DEFAULT_GEMINI_MODEL]);
+  assert.equal(res.body.retryCount, 1);
+});
+
 test('successful fallback logs include the safe primary failure reason', async () => {
   resetBackendCachesForTesting();
   const originalInfo = console.info;
