@@ -1395,7 +1395,7 @@ export async function handleChatRequest(
           ? 1800
           : 2500
         : serverless
-          ? 3800
+          ? 5000
           : 6500
       : serverless
         ? 8500
@@ -1435,7 +1435,7 @@ export async function handleChatRequest(
         const nowAfterErr = nowFn();
         const attemptElapsed = nowAfterErr - attemptStarted;
         const remainingForRetry = tierDeadline - nowAfterErr;
-        const maxAttemptsForCode = info.code === 'TIMEOUT' ? (hasFallbackTier ? 1 : 3) : maxAttempts;
+        const maxAttemptsForCode = info.code === 'TIMEOUT' ? (hasFallbackTier ? 2 : 3) : maxAttempts;
         if (!hasFallbackTier && info.code === 'TIMEOUT' && attemptConfig.thinkingConfig) {
           stripThinkingOnRetry = true;
         }
@@ -1491,7 +1491,7 @@ export async function handleChatRequest(
       const remainingUnvisitedTiers = candidateModels.length - 1 - idx;
       const maxTierDeadline = startedAt + totalBudgetMs - remainingUnvisitedTiers * reservePerTierMs;
       const cappedPrimaryDeadline = hasFallbackTier
-        ? startedAt + (inCooldownProbe ? (serverless ? 2000 : 2800) : serverless ? 5200 : 11000)
+        ? startedAt + (inCooldownProbe ? (serverless ? 2000 : 2800) : serverless ? 10800 : 11000)
         : maxTierDeadline;
       const tierDeadline = Math.min(maxTierDeadline, cappedPrimaryDeadline);
 
