@@ -3,6 +3,8 @@
  * Hardened lifecycle, dynamic SpeechRecognition resolution, and clean unmount cleanup.
  */
 
+import { appendDictationText, combineDictationPreview } from '../utils/dictationFormatter';
+
 export interface SpeechRecognitionListener {
   onTranscript: (transcript: string, isFinal: boolean) => void;
   onError: (error: string) => void;
@@ -123,7 +125,7 @@ export class VoiceEngine {
         }
 
         if (finalChunk) {
-          this.baseTranscript += finalChunk;
+          this.baseTranscript = appendDictationText(this.baseTranscript, finalChunk);
         }
 
         const fullText = `${this.baseTranscript}${interimChunk}`.replace(/\s+/g, ' ').trim();
