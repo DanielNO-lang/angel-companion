@@ -19,9 +19,9 @@ export const MAX_INLINE_ATTACHMENT_BYTES = 3 * 1024 * 1024; // 3 MB per inline m
 export const MAX_TOTAL_INLINE_ATTACHMENT_BYTES = 4500 * 1024; // 4.5 MB total decoded inline media
 export const MAX_EXTRACTED_ATTACHMENT_CHARS = 24000;
 export const PROVIDER_TIMEOUT_MS = 45000;
-export const SERVERLESS_PROVIDER_TIMEOUT_MS = 22000;
+export const SERVERLESS_PROVIDER_TIMEOUT_MS = 16000;
 export const FALLBACK_RESERVE_PER_TIER_MS = 8500;
-export const SERVERLESS_FALLBACK_RESERVE_MS = 6500;
+export const SERVERLESS_FALLBACK_RESERVE_MS = 5000;
 export const HEALTH_PROBE_TIMEOUT_MS = 4500;
 export const GENERATION_PROBE_TIMEOUT_MS = 12000;
 export const HEALTH_CACHE_TTL_MS = 60000;
@@ -617,6 +617,8 @@ export async function enforceRateLimit(
 
   // Attempt Supabase RPC backed rate limit first (works cleanly across serverless invocations)
   if (url && key && token) {
+    const rpcController = new AbortController();
+    const rpcTimeout = setTimeout(() => rpcController.abort(), 2500);
     try {
       const res = await fetchFn(`${url}/rest/v1/rpc/consume_companion_rate_limit`, {
         method: 'POST',
@@ -630,6 +632,7 @@ export async function enforceRateLimit(
           p_max_requests: maxRequests,
           p_window_seconds: windowSeconds,
         }),
+        signal: rpcController.signal,
       });
       if (res.ok) {
         const rows = (await res.json().catch(() => null)) as Array<{
@@ -644,7 +647,9 @@ export async function enforceRateLimit(
         }
       }
     } catch {
-      // Fall back to in-memory limiter if RPC is unavailable
+      // Fall back to in-memory limiter if RPC times out or is unavailable
+    } finally {
+      clearTimeout(rpcTimeout);
     }
   }
 
@@ -2870,10 +2875,10 @@ export async function handleChatStreamRequest(
 
       const attemptBudgetMs = hasFallbackTier
         ? serverless
-          ? 7000
+          ? 6500
           : 12000
         : serverless
-          ? 14000
+          ? 10500
           : 28000;
 
       let yieldedAnyTokenForAttempt = false;

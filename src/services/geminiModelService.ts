@@ -515,7 +515,7 @@ export class GeminiModelService {
 
     const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 63000);
+    const timeout = setTimeout(() => controller.abort(), 38000);
     const fetchFn = diagnosticOverrides?.fetchImpl || fetch;
 
     try {
@@ -679,9 +679,13 @@ export class GeminiModelService {
 
     const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const internalController = new AbortController();
+    let timedOut = false;
     const onExternalAbort = () => internalController.abort();
     callbacks?.signal?.addEventListener('abort', onExternalAbort, { once: true });
-    const timeout = setTimeout(() => internalController.abort(), 65000);
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      internalController.abort();
+    }, 40000);
 
     try {
       const messagesPayload = [
@@ -747,6 +751,23 @@ export class GeminiModelService {
           };
         }
 
+        // If streaming route/method isn't supported (404/405), fall back once to standard JSON POST /api/chat
+        if (!res.ok && (res.status === 404 || res.status === 405)) {
+          const nonStream = await this.generateChatResponse(
+            history,
+            newMessage,
+            mode,
+            systemInstruction,
+            accessToken,
+            undefined,
+            attachments
+          );
+          if (nonStream.success && nonStream.text) {
+            callbacks?.onDelta?.(nonStream.text, nonStream.text);
+          }
+          return nonStream;
+        }
+
         const derivedCode =
           res.ok && (!parsedOk || (!payload.reply && !payload.text))
             ? 'INVALID_RESPONSE'
@@ -772,6 +793,7 @@ export class GeminiModelService {
             durationMs,
             ...(requestId ? { requestId } : {}),
             errorCode: derivedCode,
+            stage: 'client_stream',
           },
         };
       }
@@ -882,16 +904,27 @@ export class GeminiModelService {
         requestId: typeof doneEvent?.requestId === 'string' ? doneEvent.requestId : headerRequestId,
       };
     } catch (err: any) {
+      const durationMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt);
       const userAborted = Boolean(callbacks?.signal?.aborted);
+      const isTimeoutAbort = timedOut || (!userAborted && err?.name === 'AbortError');
+      const errorCode = userAborted ? 'ABORTED_BY_USER' : isTimeoutAbort ? 'TIMEOUT' : 'NETWORK_ERROR';
       return {
         success: false,
         statusCode: userAborted ? 499 : undefined,
         error: userAborted
           ? 'Generation stopped by user.'
-          : err?.name === 'AbortError'
+          : isTimeoutAbort
             ? 'The conversation request timed out. Please retry.'
             : err?.message || 'Unable to reach Angel conversation service.',
-        status: userAborted ? 'ABORTED_BY_USER' : err?.name === 'AbortError' ? 'timeout' : 'network_error',
+        status: userAborted ? 'ABORTED_BY_USER' : isTimeoutAbort ? 'timeout' : 'network_error',
+        diagnostic: {
+          endpoint: '/api/chat?stream=1',
+          method: 'POST',
+          errorCode,
+          stage: 'client_stream',
+          durationMs,
+          providerDetail: err?.message || errorCode,
+        },
       };
     } finally {
       clearTimeout(timeout);

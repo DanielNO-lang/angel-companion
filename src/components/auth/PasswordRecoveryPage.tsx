@@ -28,6 +28,8 @@ export const PasswordRecoveryPage: React.FC<PasswordRecoveryPageProps> = ({
 }) => {
   const isLight = theme === 'light';
   const [email, setEmail] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
+  const [showCodeEntry, setShowCodeEntry] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -60,7 +62,40 @@ export const PasswordRecoveryPage: React.FC<PasswordRecoveryPageProps> = ({
         return;
       }
 
+      setShowCodeEntry(true);
       setSuccessMessage(result.message);
+    } catch (err) {
+      setFormError(toFriendlyError(err, 'network').userMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleVerifyRecoveryCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    setSuccessMessage(null);
+
+    if (!email.trim() || !validateEmail(email)) {
+      setFieldErrors({ email: 'Please enter your account email address.' });
+      return;
+    }
+
+    const cleaned = recoveryCode.replace(/[\s-]+/g, '').trim();
+    if (!/^\d{6,8}$/.test(cleaned)) {
+      setFieldErrors({ recoveryCode: 'Enter the 6-digit recovery code sent to your email.' });
+      return;
+    }
+    setFieldErrors({});
+
+    setIsSubmitting(true);
+    try {
+      const result = await authService.verifyEmailOtpCode(email, cleaned, 'recovery');
+      if (!result.ok) {
+        setFormError(toFriendlyError(result.message, 'auth').userMessage);
+        return;
+      }
+      onNavigate('reset-password');
     } catch (err) {
       setFormError(toFriendlyError(err, 'network').userMessage);
     } finally {
@@ -154,41 +189,92 @@ export const PasswordRecoveryPage: React.FC<PasswordRecoveryPageProps> = ({
       )}
 
       {mode === 'request' ? (
-        <form onSubmit={handleRequestReset} className="space-y-4" noValidate>
-          <div>
-            <label
-              htmlFor="recovery-email"
-              className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}
-            >
-              Account email address
-            </label>
-            <div className="relative flex items-center">
-              <Mail className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
-              <input
-                id="recovery-email"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@example.com"
-                className={inputBaseClass}
-                aria-invalid={Boolean(fieldErrors.email)}
-              />
+        <div className="space-y-4">
+          <form onSubmit={showCodeEntry ? handleVerifyRecoveryCode : handleRequestReset} className="space-y-4" noValidate>
+            <div>
+              <label
+                htmlFor="recovery-email"
+                className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}
+              >
+                Account email address
+              </label>
+              <div className="relative flex items-center">
+                <Mail className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
+                <input
+                  id="recovery-email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@example.com"
+                  className={inputBaseClass}
+                  aria-invalid={Boolean(fieldErrors.email)}
+                />
+              </div>
+              {fieldErrors.email && (
+                <p className="mt-1 text-xs text-rose-500 font-medium">{fieldErrors.email}</p>
+              )}
             </div>
-            {fieldErrors.email && (
-              <p className="mt-1 text-xs text-rose-500 font-medium">{fieldErrors.email}</p>
+
+            {showCodeEntry && (
+              <div>
+                <label
+                  htmlFor="recovery-otp-code"
+                  className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}
+                >
+                  Recovery verification code
+                </label>
+                <div className="relative flex items-center">
+                  <KeyRound className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
+                  <input
+                    id="recovery-otp-code"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={8}
+                    value={recoveryCode}
+                    onChange={(e) => setRecoveryCode(e.target.value.replace(/[^\d]/g, '').slice(0, 8))}
+                    placeholder="Enter 6-digit code"
+                    className={`${inputBaseClass} font-mono tracking-[0.22em] text-base`}
+                    aria-invalid={Boolean(fieldErrors.recoveryCode)}
+                  />
+                </div>
+                {fieldErrors.recoveryCode && (
+                  <p className="mt-1 text-xs text-rose-500 font-medium">{fieldErrors.recoveryCode}</p>
+                )}
+              </div>
             )}
-          </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full min-h-[48px] rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold text-sm shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60"
+            >
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+              <span>
+                {isSubmitting
+                  ? 'Processing...'
+                  : showCodeEntry
+                    ? 'Verify Recovery Code'
+                    : 'Send Recovery Code / Email'}
+              </span>
+            </button>
+          </form>
 
           <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full min-h-[48px] rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold text-sm shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60"
+            type="button"
+            onClick={() => {
+              setShowCodeEntry((prev) => !prev);
+              setFieldErrors({});
+              setFormError(null);
+            }}
+            className={`w-full text-center text-xs font-semibold cursor-pointer hover:underline ${
+              isLight ? 'text-blue-600' : 'text-cyan-300'
+            }`}
           >
-            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
-            <span>{isSubmitting ? 'Sending Link...' : 'Send Password Recovery Email'}</span>
+            {showCodeEntry ? 'Request a new recovery email instead' : 'Already have a recovery code?'}
           </button>
-        </form>
+        </div>
       ) : resetCompleted ? (
         <div className="space-y-3 pt-1">
           <button

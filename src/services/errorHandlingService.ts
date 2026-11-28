@@ -62,7 +62,7 @@ export const FRIENDLY_ERROR_MESSAGES = {
   NETWORK: "Angel couldn't connect right now. Check your internet connection and try again.",
   AUTH: "We couldn't complete your sign-in. Please try again.",
   INVALID_CREDENTIALS: "The email or password you entered didn't match our records. Please try again.",
-  EMAIL_UNCONFIRMED: "Your email address isn't verified yet. Check your inbox or request a fresh verification link.",
+  EMAIL_UNCONFIRMED: "Your email address isn't verified yet. Enter your 6-digit verification code or request a fresh code.",
   GOOGLE_OAUTH: "Google sign-in couldn't be completed. Please try again or choose another sign-in method.",
   GOOGLE_CANCELLED: "Google sign-in was closed before finishing. Try again or choose another sign-in method.",
   OAUTH_GENERIC: "That sign-in option couldn't be completed right now. Please try again or choose another method.",
@@ -71,7 +71,7 @@ export const FRIENDLY_ERROR_MESSAGES = {
   FEATURE: "Angel couldn't complete this action right now. Your work has been preserved where possible.",
   RATE_LIMIT: "Too many requests were sent in a short moment. Please wait briefly and try again.",
   SERVICE_UNAVAILABLE: "Sign-in is temporarily unavailable right now. Please try again shortly.",
-  LINK_EXPIRED: "That verification or recovery link is no longer valid. Please request a fresh one.",
+  LINK_EXPIRED: "That verification code or link is invalid or has expired. Please request a fresh one.",
   AI_HIGH_DEMAND: "Angel's conversation model is temporarily experiencing high demand. Please try again in a moment.",
   AI_TIMEOUT: "Angel took a bit too long to respond. Please try again.",
 } as const;
@@ -284,14 +284,20 @@ export function toFriendlyError(
     title = 'Session needs refresh';
     userMessage = FRIENDLY_ERROR_MESSAGES.SESSION;
     retryable = false;
-  } else if (/otp|expired|invalid.*link|pkce|exchange.*code|authorization code|code_verifier/i.test(lower)) {
+  } else if (/otp|token.*(expired|invalid)|verification code|expired|invalid.*link|pkce|exchange.*code|authorization code|code_verifier/i.test(lower)) {
     category = 'expired_callback';
-    title = context === 'google_oauth' ? "Google sign-in couldn't be completed" : 'Link no longer valid';
+    const isCodeError = /otp|token|verification code/i.test(lower);
+    title =
+      context === 'google_oauth'
+        ? "Google sign-in couldn't be completed"
+        : isCodeError
+          ? 'Code invalid or expired'
+          : 'Link no longer valid';
     userMessage =
       context === 'google_oauth'
         ? FRIENDLY_ERROR_MESSAGES.GOOGLE_OAUTH
         : FRIENDLY_ERROR_MESSAGES.LINK_EXPIRED;
-    retryable = context === 'google_oauth';
+    retryable = context === 'google_oauth' || isCodeError;
   } else if (/invalid login credentials|invalid email or password|incorrect password/i.test(lower)) {
     category = 'invalid_credentials';
     title = 'Check your details';

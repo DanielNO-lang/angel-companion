@@ -14,6 +14,7 @@ import {
   UserPlus,
   ChevronDown,
   ChevronUp,
+  KeyRound,
 } from 'lucide-react';
 import { AuthLayout } from './AuthLayout';
 import { ProviderAuthSection } from './ProviderAuthSection';
@@ -108,9 +109,11 @@ export const SignInPage: React.FC<SignInPageProps> = ({
   const [liveExternalProviders, setLiveExternalProviders] = useState<Record<string, boolean> | null>(null);
   const [offerPasswordFallback, setOfferPasswordFallback] = useState(false);
 
-  const [authMethod, setAuthMethod] = useState<'password' | 'magic-link'>('password');
+  const [authMethod, setAuthMethod] = useState<'password' | 'email-code'>('password');
   const [email, setEmail] = useState(() => getRememberedAuthEmail() || restoreSafeWorkflowDraft()?.authEmail || '');
   const [password, setPassword] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpCodeSent, setOtpCodeSent] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(() => getRememberMePreference());
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -201,17 +204,21 @@ export const SignInPage: React.FC<SignInPageProps> = ({
 
       setEmail(account.email);
       saveSafeWorkflowDraft({ authEmail: account.email });
-      const magicResult = await authService.signInWithMagicLink(account.email);
+      const otpResult = await authService.sendSignInOtpCode(account.email);
       setBusyAccountId(null);
 
-      if (!magicResult.ok) {
+      if (!otpResult.ok) {
         setShowOtherMethods(true);
         setAuthMethod('password');
-        setFormError(toFriendlyError(magicResult.message, 'auth').userMessage);
+        setFormError(toFriendlyError(otpResult.message, 'auth').userMessage);
         return;
       }
 
-      setSuccessMessage(magicResult.message);
+      setShowOtherMethods(true);
+      setAuthMethod('email-code');
+      setOtpCodeSent(true);
+      setOtpCode('');
+      setSuccessMessage(otpResult.message);
       setOfferPasswordFallback(true);
     } catch (error) {
       setBusyAccountId(null);
@@ -264,8 +271,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({
     }
   };
 
-  const handleMagicLink = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSendOtpCode = async () => {
     setFormError(null);
     setSuccessMessage(null);
     setOfferPasswordFallback(false);
@@ -278,12 +284,51 @@ export const SignInPage: React.FC<SignInPageProps> = ({
 
     setIsSubmitting(true);
     try {
-      const result = await authService.signInWithMagicLink(email);
+      const result = await authService.sendSignInOtpCode(email);
       if (!result.ok) {
         setFormError(toFriendlyError(result.message, 'auth').userMessage);
         return;
       }
+      setOtpCodeSent(true);
+      setOtpCode('');
       setSuccessMessage(result.message);
+    } catch (error) {
+      setFormError(toFriendlyError(error, 'network').userMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleEmailCodeSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otpCodeSent) {
+      await handleSendOtpCode();
+      return;
+    }
+
+    setFormError(null);
+    setSuccessMessage(null);
+
+    if (!email.trim() || !validateEmail(email)) {
+      setFieldErrors({ email: 'Please enter a valid email address.' });
+      return;
+    }
+
+    const cleanedCode = otpCode.replace(/[\s-]+/g, '').trim();
+    if (!/^\d{6,8}$/.test(cleanedCode)) {
+      setFieldErrors({ otpCode: 'Enter the 6-digit verification code sent to your email.' });
+      return;
+    }
+    setFieldErrors({});
+
+    setIsSubmitting(true);
+    try {
+      const result = await authService.verifyEmailOtpCode(email, cleanedCode, 'email');
+      if (!result.ok) {
+        setFormError(toFriendlyError(result.message, 'auth').userMessage);
+        return;
+      }
+      onNavigate('app');
     } catch (error) {
       setFormError(toFriendlyError(error, 'network').userMessage);
     } finally {
@@ -480,7 +525,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({
             onError={(msg) => setFormError(msg)}
           />
 
-          {/* Mode selector between Password and Passwordless Magic Link */}
+          {/* Mode selector between Password and Passwordless Verification Code */}
           <div
             className={`grid grid-cols-2 p-1 rounded-2xl mb-4 text-xs font-semibold backdrop-blur-md ${
               isLight ? 'bg-slate-900/5 text-slate-600' : 'bg-white/[0.05] text-slate-400'
@@ -506,12 +551,12 @@ export const SignInPage: React.FC<SignInPageProps> = ({
             <button
               type="button"
               onClick={() => {
-                setAuthMethod('magic-link');
+                setAuthMethod('email-code');
                 setFieldErrors({});
                 setFormError(null);
               }}
               className={`py-2 rounded-xl transition-all cursor-pointer inline-flex items-center justify-center gap-1.5 ${
-                authMethod === 'magic-link'
+                authMethod === 'email-code'
                   ? isLight
                     ? 'bg-white text-slate-900 shadow-sm'
                     : 'bg-indigo-600 text-white shadow-md'
@@ -519,11 +564,11 @@ export const SignInPage: React.FC<SignInPageProps> = ({
               }`}
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Email Magic Link</span>
+              <span>Email Code</span>
             </button>
           </div>
 
-          <form onSubmit={authMethod === 'password' ? handlePasswordSignIn : handleMagicLink} className="space-y-4" noValidate>
+          <form onSubmit={authMethod === 'password' ? handlePasswordSignIn : handleEmailCodeSignIn} className="space-y-4" noValidate>
             <div>
               <label
                 htmlFor="signin-email"
@@ -541,6 +586,10 @@ export const SignInPage: React.FC<SignInPageProps> = ({
                   onChange={(e) => {
                     setEmail(e.target.value);
                     saveSafeWorkflowDraft({ authEmail: e.target.value });
+                    if (otpCodeSent) {
+                      setOtpCodeSent(false);
+                      setOtpCode('');
+                    }
                   }}
                   placeholder="name@example.com"
                   className={inputBaseClass}
@@ -551,6 +600,47 @@ export const SignInPage: React.FC<SignInPageProps> = ({
                 <p className="mt-1 text-xs text-rose-500 font-medium">{fieldErrors.email}</p>
               )}
             </div>
+
+            {authMethod === 'email-code' && otpCodeSent && (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label
+                    htmlFor="signin-otp-code"
+                    className={`block text-xs font-semibold ${isLight ? 'text-slate-700' : 'text-slate-200'}`}
+                  >
+                    Verification code
+                  </label>
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={handleSendOtpCode}
+                    className={`text-xs font-semibold cursor-pointer disabled:opacity-50 ${
+                      isLight ? 'text-blue-600 hover:text-blue-800' : 'text-cyan-300 hover:text-cyan-200'
+                    }`}
+                  >
+                    Resend code
+                  </button>
+                </div>
+                <div className="relative flex items-center">
+                  <KeyRound className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
+                  <input
+                    id="signin-otp-code"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={8}
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/[^\d]/g, '').slice(0, 8))}
+                    placeholder="Enter 6-digit code"
+                    className={`${inputBaseClass} font-mono tracking-[0.22em] text-base`}
+                    aria-invalid={Boolean(fieldErrors.otpCode)}
+                  />
+                </div>
+                {fieldErrors.otpCode && (
+                  <p className="mt-1 text-xs text-rose-500 font-medium">{fieldErrors.otpCode}</p>
+                )}
+              </div>
+            )}
 
             {authMethod === 'password' && (
               <>
@@ -630,7 +720,9 @@ export const SignInPage: React.FC<SignInPageProps> = ({
                   ? 'Verifying...'
                   : authMethod === 'password'
                     ? 'Sign In to Angel'
-                    : 'Send Sign-In Link'}
+                    : otpCodeSent
+                      ? 'Verify & Sign In'
+                      : 'Send Verification Code'}
               </span>
             </button>
           </form>

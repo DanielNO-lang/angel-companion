@@ -186,3 +186,126 @@ test('voiceConversationService reports unsupported error gracefully when recogni
     (voiceEngine as any).isRecognitionSupported = origIsSupported;
   }
 });
+
+test('geminiModelService.generateChatStream includes diagnostic metadata on timeout and falls back pre-token on 502', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = (globalThis as any).window;
+  (globalThis as any).window = { location: { origin: 'http://localhost:3000' } };
+
+  // 1) Simulate AbortError / stream timeout -> must populate diagnostic metadata
+  globalThis.fetch = (async () => {
+    throw Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' });
+  }) as typeof fetch;
+
+  try {
+    const timedOutRes = await geminiModelService.generateChatStream(
+      [],
+      'Timeout check',
+      'Standard Intelligent',
+      undefined,
+      'tok_timeout'
+    );
+    assert.equal(timedOutRes.success, false);
+    assert.equal(timedOutRes.status, 'timeout');
+    assert.ok(timedOutRes.diagnostic);
+    assert.equal(timedOutRes.diagnostic?.errorCode, 'TIMEOUT');
+    assert.equal(timedOutRes.diagnostic?.stage, 'client_stream');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete (globalThis as any).window;
+    else (globalThis as any).window = originalWindow;
+  }
+
+  // 2) Simulate SSE endpoint returning HTTP 405 -> falls back cleanly to non-stream /api/chat JSON
+  (globalThis as any).window = { location: { origin: 'http://localhost:3000' } };
+  let callCount = 0;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    callCount += 1;
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.includes('stream=1')) {
+      return new Response(JSON.stringify({ error: 'Stream method not allowed' }), {
+        status: 405,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        success: true,
+        reply: 'Recovered via non-stream fallback.',
+        actualModel: 'gemini-3.1-flash-lite',
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  }) as typeof fetch;
+
+  try {
+    const recovered = await geminiModelService.generateChatStream(
+      [],
+      'Fallback check',
+      'Standard Intelligent',
+      undefined,
+      'tok_fallback'
+    );
+    assert.equal(callCount, 2);
+    assert.equal(recovered.success, true);
+    assert.equal(recovered.text, 'Recovered via non-stream fallback.');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete (globalThis as any).window;
+    else (globalThis as any).window = originalWindow;
+  }
+});
+
+test('usePWAInstall singleton listener captures beforeinstallprompt once and calls prompt() cleanly', async () => {
+  const {
+    initPWAInstallListeners,
+    triggerPWAInstallPrompt,
+    resetPWAInstallStoreForTesting,
+  } = await import('../src/hooks/usePWAInstall');
+
+  const originalWindow = (globalThis as any).window;
+  const listenersMap = new Map<string, Array<(e: Event) => void>>();
+  (globalThis as any).window = {
+    navigator: { userAgent: 'Chrome/135.0.0.0' },
+    matchMedia: () => ({ matches: false }),
+    addEventListener: (ev: string, fn: (e: Event) => void) => {
+      const list = listenersMap.get(ev) || [];
+      list.push(fn);
+      listenersMap.set(ev, list);
+    },
+    removeEventListener: () => {},
+  };
+
+  try {
+    resetPWAInstallStoreForTesting();
+    initPWAInstallListeners();
+    initPWAInstallListeners();
+    assert.equal((listenersMap.get('beforeinstallprompt') || []).length, 1);
+
+    let prevented = false;
+    let prompted = false;
+    const mockEvt = {
+      preventDefault: () => {
+        prevented = true;
+      },
+      prompt: async () => {
+        prompted = true;
+      },
+      userChoice: Promise.resolve({ outcome: 'accepted' as const, platform: 'web' }),
+    } as unknown as Event;
+
+    for (const fn of listenersMap.get('beforeinstallprompt') || []) {
+      fn(mockEvt);
+    }
+    assert.equal(prevented, true);
+
+    const installed = await triggerPWAInstallPrompt();
+    assert.equal(prompted, true);
+    assert.equal(installed, true);
+  } finally {
+    resetPWAInstallStoreForTesting();
+    if (originalWindow === undefined) delete (globalThis as any).window;
+    else (globalThis as any).window = originalWindow;
+  }
+});
+

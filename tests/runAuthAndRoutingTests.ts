@@ -394,3 +394,71 @@ test('Top-level preview OAuth handoff path preserves oauth_provider while blocki
   );
 });
 
+test('OTP code verification validates 6-digit codes, restores session cleanly, and reports expired tokens', async () => {
+  const invalidFormat = await authService.verifyEmailOtpCodeWithClient(
+    {
+      auth: {
+        verifyOtp: async () => ({ data: {}, error: null }),
+      },
+    },
+    'user@angel.ai',
+    '12ab',
+    'signup'
+  );
+  assert.equal(invalidFormat.ok, false);
+
+  const verifiedCalls: Array<{ email: string; token: string; type: string }> = [];
+  const validOtp = await authService.verifyEmailOtpCodeWithClient(
+    {
+      auth: {
+        verifyOtp: async (params) => {
+          verifiedCalls.push(params);
+          return {
+            data: {
+              session: { access_token: 'otp_tok', refresh_token: 'otp_ref' } as any,
+              user: {
+                id: 'usr_otp_1',
+                email: params.email,
+                email_confirmed_at: new Date().toISOString(),
+                user_metadata: { full_name: 'OTP Tester' },
+              } as any,
+            },
+            error: null,
+          };
+        },
+      },
+    },
+    'user@angel.ai',
+    '123 456',
+    'email'
+  );
+  assert.equal(validOtp.ok, true);
+  assert.equal(validOtp.code, 'AUTHENTICATED');
+  assert.equal(validOtp.user?.email, 'user@angel.ai');
+  assert.equal(verifiedCalls[0]?.token, '123456');
+
+  const expiredOtp = await authService.verifyEmailOtpCodeWithClient(
+    {
+      auth: {
+        verifyOtp: async () => ({
+          data: { session: null, user: null },
+          error: { message: 'Token has expired or is invalid' },
+        }),
+      },
+    },
+    'user@angel.ai',
+    '654321',
+    'email'
+  );
+  assert.equal(expiredOtp.ok, false);
+});
+
+test('netlify.toml omits GEMINI_MODEL and public Supabase keys from Netlify secrets scanner', async () => {
+  const fs = await import('node:fs/promises');
+  const path = await import('node:path');
+  const toml = await fs.readFile(path.resolve('netlify.toml'), 'utf8');
+  assert.match(toml, /\[build\.environment\]/);
+  assert.match(toml, /SECRETS_SCAN_OMIT_KEYS\s*=\s*"[^"]*GEMINI_MODEL[^"]*"/);
+});
+
+

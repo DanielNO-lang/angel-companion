@@ -550,3 +550,30 @@ test('handleTranslateRequest validates auth/input and translates text cleanly vi
   assert.equal(ok.body.translatedText, 'Bonjour');
   assert.equal(usedModel, EMERGENCY_FALLBACK_MODEL);
 });
+
+test('enforceRateLimit passes AbortSignal to Supabase RPC and falls back to memory limiter on failure', async () => {
+  const { enforceRateLimit } = await import('./geminiBackend');
+  let receivedSignal: AbortSignal | undefined;
+
+  const result = await enforceRateLimit(
+    'user_rate_test',
+    'tok_rate_test',
+    'chat',
+    {
+      env: {
+        SUPABASE_URL: 'https://example.supabase.co',
+        SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test',
+      },
+      fetchImpl: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        receivedSignal = init?.signal ?? undefined;
+        throw new Error('RPC timeout simulated');
+      }) as typeof fetch,
+    },
+    5,
+    60
+  );
+
+  assert.ok(receivedSignal instanceof AbortSignal);
+  assert.equal(result.allowed, true);
+});
+

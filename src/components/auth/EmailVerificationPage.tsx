@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { MailCheck, RefreshCw, Edit3, AlertCircle, CheckCircle2, ArrowRight, Loader2 } from 'lucide-react';
+import {
+  MailCheck,
+  RefreshCw,
+  Edit3,
+  AlertCircle,
+  CheckCircle2,
+  ArrowRight,
+  Loader2,
+  KeyRound,
+} from 'lucide-react';
 import { AuthLayout } from './AuthLayout';
 import { authService } from '../../services/authService';
 import { toFriendlyError } from '../../services/errorHandlingService';
@@ -24,6 +33,7 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
 }) => {
   const isLight = theme === 'light';
   const [email, setEmail] = useState(pendingEmail);
+  const [otpCode, setOtpCode] = useState('');
   const [isEditingEmail, setIsEditingEmail] = useState(false);
   const [newEmail, setNewEmail] = useState(pendingEmail);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -31,7 +41,9 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
     initialError ? toFriendlyError(initialError, 'auth', { logDiagnostic: false }).userMessage : null
   );
   const [cooldownSec, setCooldownSec] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [codeVerified, setCodeVerified] = useState(verifiedSuccess);
 
   useEffect(() => {
     if (pendingEmail && !email) {
@@ -41,6 +53,12 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
   }, [pendingEmail, email]);
 
   useEffect(() => {
+    if (verifiedSuccess) {
+      setCodeVerified(true);
+    }
+  }, [verifiedSuccess]);
+
+  useEffect(() => {
     if (cooldownSec <= 0) return;
     const timer = setInterval(() => {
       setCooldownSec((prev) => (prev <= 1 ? 0 : prev - 1));
@@ -48,16 +66,54 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
     return () => clearInterval(timer);
   }, [cooldownSec]);
 
+  const handleVerifyCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setStatusMessage(null);
+
+    if (!email.trim() || !validateEmail(email)) {
+      setErrorMessage('Enter the valid email address used during registration.');
+      return;
+    }
+
+    const cleaned = otpCode.replace(/[\s-]+/g, '').trim();
+    if (!/^\d{6,8}$/.test(cleaned)) {
+      setErrorMessage('Enter the 6-digit verification code sent to your email.');
+      return;
+    }
+
+    setIsVerifyingCode(true);
+    try {
+      const result = await authService.verifyEmailOtpCode(email, cleaned, 'signup');
+      if (!result.ok) {
+        setErrorMessage(toFriendlyError(result.message, 'auth').userMessage);
+        return;
+      }
+
+      if (result.user) {
+        onNavigate('app');
+        return;
+      }
+
+      setCodeVerified(true);
+      setStatusMessage(result.message);
+    } catch (err) {
+      setErrorMessage(toFriendlyError(err, 'network').userMessage);
+    } finally {
+      setIsVerifyingCode(false);
+    }
+  };
+
   const handleResend = async () => {
     setErrorMessage(null);
     setStatusMessage(null);
 
     if (!email.trim() || !validateEmail(email)) {
-      setErrorMessage('Enter the valid email address used during registration so we can resend your link.');
+      setErrorMessage('Enter the valid email address used during registration so we can resend your code.');
       return;
     }
 
-    setIsLoading(true);
+    setIsResending(true);
     try {
       const result = await authService.resendVerificationEmail(email);
       if (!result.ok) {
@@ -70,7 +126,7 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
     } catch (err) {
       setErrorMessage(toFriendlyError(err, 'network').userMessage);
     } finally {
-      setIsLoading(false);
+      setIsResending(false);
     }
   };
 
@@ -84,7 +140,7 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
       return;
     }
 
-    setIsLoading(true);
+    setIsResending(true);
     try {
       const result = await authService.updateAccountEmail(newEmail);
       if (!result.ok) {
@@ -98,7 +154,7 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
     } catch (err) {
       setErrorMessage(toFriendlyError(err, 'network').userMessage);
     } finally {
-      setIsLoading(false);
+      setIsResending(false);
     }
   };
 
@@ -108,20 +164,20 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
 
   return (
     <AuthLayout
-      title={verifiedSuccess ? 'Email verified' : initialError ? 'Verification link issue' : 'Verify your email'}
+      title={codeVerified ? 'Email verified' : initialError ? 'Verification code issue' : 'Verify your email'}
       subtitle={
-        verifiedSuccess
+        codeVerified
           ? 'Your Angel email address has been confirmed.'
-          : 'Confirm your email address to activate access to your private Angel companion workspace.'
+          : 'Enter the 6-digit verification code sent to your inbox to activate your private Angel workspace.'
       }
       visualHeading="Verify Once. Enter With Trust."
-      visualDescription="Email verification ensures only the rightful owner can access your Angel workspace, studio environments, and connected sessions."
+      visualDescription="Email code verification ensures only the rightful owner can access your Angel workspace, studio environments, and connected sessions."
       theme={theme}
       onToggleTheme={onToggleTheme}
       onNavigate={(r) => onNavigate(r)}
     >
       <div className="space-y-4">
-        {verifiedSuccess && (
+        {codeVerified && (
           <div
             role="status"
             className={`p-4 rounded-2xl border text-xs leading-relaxed flex items-start gap-3 ${
@@ -166,7 +222,7 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
           </div>
         )}
 
-        {!verifiedSuccess && (
+        {!codeVerified && (
           <>
             <div
               className={`p-4 rounded-2xl text-xs space-y-2.5 backdrop-blur-md ${
@@ -175,7 +231,7 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
             >
               <div className="flex items-center gap-2 font-semibold">
                 <MailCheck className="w-4 h-4 text-cyan-400" />
-                <span>Confirmation destination</span>
+                <span>Verification code destination</span>
               </div>
               {email && !isEditingEmail ? (
                 <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -208,7 +264,7 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
                     <div className="flex items-center gap-2">
                       <button
                         type="submit"
-                        disabled={isLoading}
+                        disabled={isResending || isVerifyingCode}
                         className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-semibold cursor-pointer"
                       >
                         Update Email
@@ -225,22 +281,60 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
                 </form>
               )}
               <p className="text-[11px] opacity-85">
-                Open the verification email from Supabase and click the confirmation link. If your link expired, request a
-                new verification email below.
+                Enter the 6-digit verification code from your inbox below. If you do not see it, check spam or request a
+                fresh code.
               </p>
             </div>
+
+            <form onSubmit={handleVerifyCode} className="space-y-3" noValidate>
+              <div>
+                <label
+                  htmlFor="verify-otp-code"
+                  className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}
+                >
+                  Verification code
+                </label>
+                <div className="relative flex items-center">
+                  <KeyRound className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
+                  <input
+                    id="verify-otp-code"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={8}
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/[^\d]/g, '').slice(0, 8))}
+                    placeholder="Enter 6-digit code"
+                    className={`${inputBaseClass} pl-10 font-mono tracking-[0.22em] text-base`}
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isVerifyingCode || isResending}
+                className="w-full min-h-[46px] rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold text-sm shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60"
+              >
+                {isVerifyingCode ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                <span>{isVerifyingCode ? 'Verifying Code...' : 'Verify Email Code'}</span>
+              </button>
+            </form>
 
             <button
               type="button"
               onClick={handleResend}
-              disabled={isLoading || cooldownSec > 0}
-              className="w-full min-h-[46px] rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold text-sm shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60"
+              disabled={isResending || isVerifyingCode || cooldownSec > 0}
+              className={`w-full min-h-[44px] rounded-2xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60 ${
+                isLight
+                  ? 'bg-white/75 hover:bg-white text-slate-800 shadow-xs ring-1 ring-slate-900/10'
+                  : 'bg-white/[0.06] hover:bg-white/[0.12] text-slate-200 ring-1 ring-white/10'
+              }`}
             >
-              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {isResending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
               <span>
                 {cooldownSec > 0
-                  ? `Resend available in ${cooldownSec}s`
-                  : 'Resend Verification Email'}
+                  ? `Resend code in ${cooldownSec}s`
+                  : 'Resend Verification Code'}
               </span>
             </button>
           </>

@@ -745,7 +745,6 @@ class AuthService {
         data: {
           full_name: fullName.trim(),
         },
-        emailRedirectTo: getCallbackUrl('/auth/callback?type=signup'),
       },
     });
 
@@ -781,7 +780,7 @@ class AuthService {
       ok: true,
       code: 'CONFIRMATION_REQUIRED',
       email: email.trim(),
-      message: `Account created. Please check ${email.trim()} to verify your email address before entering Angel.`,
+      message: `Account created. Enter the verification code sent to ${email.trim()} to activate your Angel account.`,
     };
   }
 
@@ -798,16 +797,13 @@ class AuthService {
     const { error } = await supabase.auth.resend({
       type: 'signup',
       email: email.trim(),
-      options: {
-        emailRedirectTo: getCallbackUrl('/auth/callback?type=signup'),
-      },
     });
 
     if (error) {
       return {
         ok: false,
         code: 'ERROR',
-        message: error.message || 'Unable to resend verification email.',
+        message: error.message || 'Unable to resend verification code.',
       };
     }
 
@@ -815,7 +811,7 @@ class AuthService {
       ok: true,
       code: 'MAGIC_LINK_SENT',
       email: email.trim(),
-      message: `A fresh verification link has been sent to ${email.trim()}.`,
+      message: `A fresh verification code has been sent to ${email.trim()}.`,
     };
   }
 
@@ -936,7 +932,7 @@ class AuthService {
     };
   }
 
-  public async signInWithMagicLink(email: string): Promise<AuthActionResult> {
+  public async sendSignInOtpCode(email: string): Promise<AuthActionResult> {
     const supabase = getSupabaseClient();
     if (!supabase) {
       return {
@@ -946,10 +942,11 @@ class AuthService {
       };
     }
 
+    const cleanEmail = email.trim();
     const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
+      email: cleanEmail,
       options: {
-        emailRedirectTo: getCallbackUrl('/auth/callback?type=magiclink'),
+        shouldCreateUser: true,
       },
     });
 
@@ -957,16 +954,140 @@ class AuthService {
       return {
         ok: false,
         code: 'ERROR',
-        message: error.message || 'Unable to send sign-in link.',
+        message: error.message || 'Unable to send verification code.',
       };
     }
 
     return {
       ok: true,
       code: 'MAGIC_LINK_SENT',
-      email: email.trim(),
-      message: `Check ${email.trim()} for your one-time Angel sign-in link.`,
+      email: cleanEmail,
+      message: `Enter the verification code sent to ${cleanEmail}.`,
     };
+  }
+
+  public async verifyEmailOtpCodeWithClient(
+    client: {
+      auth: {
+        verifyOtp: (params: {
+          email: string;
+          token: string;
+          type: 'signup' | 'email' | 'recovery' | 'email_change';
+        }) => Promise<{ data?: { session?: Session | null; user?: User | null }; error: { message?: string } | null }>;
+      };
+    },
+    email: string,
+    code: string,
+    type: 'signup' | 'email' | 'recovery' | 'email_change' = 'signup'
+  ): Promise<AuthActionResult> {
+    const cleanEmail = email.trim();
+    const cleanCode = code.replace(/[\s-]+/g, '').trim();
+    if (!cleanEmail) {
+      return {
+        ok: false,
+        code: 'ERROR',
+        message: 'Please enter the email address associated with this code.',
+      };
+    }
+    if (!/^\d{6,8}$/.test(cleanCode)) {
+      return {
+        ok: false,
+        code: 'ERROR',
+        message: 'Enter the 6-digit verification code from your email.',
+      };
+    }
+
+    this.ensureAuthListener();
+
+    let result = await withTimeout(
+      client.auth.verifyOtp({
+        email: cleanEmail,
+        token: cleanCode,
+        type,
+      }),
+      12000,
+      'Verification code check timed out. Please try again.'
+    );
+
+    // If user entered a signup confirmation code on SignIn (type='email') or vice versa, retry once across signup/email
+    if (result.error && (type === 'signup' || type === 'email')) {
+      const msg = (result.error.message || '').toLowerCase();
+      if (/otp|token|expired|invalid/i.test(msg)) {
+        const alternateType = type === 'signup' ? 'email' : 'signup';
+        const alternate = await withTimeout(
+          client.auth.verifyOtp({
+            email: cleanEmail,
+            token: cleanCode,
+            type: alternateType,
+          }),
+          12000,
+          'Verification code check timed out. Please try again.'
+        );
+        if (!alternate.error) {
+          result = alternate;
+        }
+      }
+    }
+
+    if (result.error) {
+      return {
+        ok: false,
+        code: 'ERROR',
+        message: result.error.message || 'Verification code is invalid or has expired.',
+      };
+    }
+
+    const session = result.data?.session ?? null;
+    const rawUser = result.data?.user ?? session?.user ?? null;
+
+    if (session && rawUser) {
+      const mapped = mapSupabaseUser(rawUser);
+      saveRememberedAuthEmail(cleanEmail);
+      recordRememberedUserAccount(mapped, rawUser, 'email');
+      this.snapshot = {
+        status: 'authenticated',
+        user: mapped,
+        session,
+        identities: mapIdentities(rawUser),
+        error: null,
+      };
+      this.emit();
+      broadcastCrossTabAuthEvent('authenticated');
+      return {
+        ok: true,
+        code: 'AUTHENTICATED',
+        email: cleanEmail,
+        user: mapped,
+        message: type === 'recovery' ? 'Recovery code verified.' : 'Email verified and signed in.',
+      };
+    }
+
+    return {
+      ok: true,
+      code: 'AUTHENTICATED',
+      email: cleanEmail,
+      message: 'Email address verified.',
+    };
+  }
+
+  public async verifyEmailOtpCode(
+    email: string,
+    code: string,
+    type: 'signup' | 'email' | 'recovery' | 'email_change' = 'signup'
+  ): Promise<AuthActionResult> {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      return {
+        ok: false,
+        code: 'UNCONFIGURED',
+        message: 'Supabase authentication is not configured yet.',
+      };
+    }
+    return this.verifyEmailOtpCodeWithClient(supabase, email, code, type);
+  }
+
+  public async signInWithMagicLink(email: string): Promise<AuthActionResult> {
+    return this.sendSignInOtpCode(email);
   }
 
   public async signInWithOAuthProvider(
