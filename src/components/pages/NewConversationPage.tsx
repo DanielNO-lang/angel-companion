@@ -218,7 +218,6 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [isGenerating, setIsGenerating] = useState(() => conversationEngine.isGenerating(activeThread.id));
-  const [executionStage, setExecutionStage] = useState(() => conversationEngine.getExecutionStage(activeThread.id));
   const [visibleCount, setVisibleCount] = useState(VISIBLE_MESSAGE_BATCH);
   const [voiceSession, setVoiceSession] = useState<VoiceSessionSnapshot>(() => voiceConversationService.getSnapshot());
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
@@ -249,7 +248,6 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
       const current = conversationEngine.getActiveThread('general');
       setActiveThread({ ...current });
       setIsGenerating(conversationEngine.isGenerating(current.id));
-      setExecutionStage(conversationEngine.getExecutionStage(current.id));
       setPendingCloudSync(conversationEngine.getOfflineCacheStatus().pendingCloudSync);
     };
     syncThread();
@@ -429,7 +427,6 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
                 const isLastMessage = idx === visibleMessages.length - 1;
                 const isAngel = msg.sender === 'angel';
                 const isPending = msg.status === 'pending';
-                const stageLabel = msg.activityStage || (isPending ? executionStage?.stage : undefined) || 'Thinking';
 
                 return (
                   <div
