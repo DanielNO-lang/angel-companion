@@ -13,6 +13,7 @@ import {
   Mic,
   Send,
   Sparkles,
+  Square,
   ChevronUp,
 } from 'lucide-react';
 import { CompanionOrbState, StudioId } from '../../types/angel';
