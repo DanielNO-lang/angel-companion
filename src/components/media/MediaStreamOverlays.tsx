@@ -152,7 +152,7 @@ export const MediaStreamOverlays: React.FC<MediaStreamOverlaysProps> = ({
 
       {/* 2. CAMERA LIVE PREVIEW HUD OVERLAY WINDOW */}
       {cameraStream && (
-        <div className="fixed bottom-20 right-4 z-50 w-72 sm:w-80 rounded-3xl bg-[#080c22]/95 border border-cyan-400/60 shadow-[0_12px_45px_rgba(0,0,0,0.9),0_0_25px_rgba(56,189,248,0.35)] backdrop-blur-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95">
+        <div className="fixed bottom-20 right-2 sm:right-4 z-50 w-[min(18rem,calc(100vw-1rem))] sm:w-80 rounded-3xl bg-[#080c22]/95 border border-cyan-400/60 shadow-[0_12px_45px_rgba(0,0,0,0.9),0_0_25px_rgba(56,189,248,0.35)] backdrop-blur-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95">
           {/* Header Controls */}
           <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-800/80 bg-slate-950/60">
             <div className="flex items-center gap-2 text-xs font-bold text-cyan-300">
