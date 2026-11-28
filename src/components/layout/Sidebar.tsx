@@ -376,7 +376,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   aria-current={isSelected ? 'page' : undefined}
                   onClick={() => handleThreadClick(thread)}
                   title={thread.title}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-left cursor-pointer min-w-0"
+                  className="w-full flex items-center gap-2.5 px-3 pr-8 py-2 rounded-xl text-xs font-medium text-left cursor-pointer min-w-0"
                 >
                   <MessageSquare className={`w-3.5 h-3.5 shrink-0 transition-colors ${isSelected ? 'text-cyan-300' : 'text-slate-400 group-hover:text-cyan-300'}`} />
                   <span className={`truncate flex-1 text-xs ${isSelected ? 'text-white font-semibold' : 'text-slate-300 group-hover:text-white'}`}>{thread.title}</span>
