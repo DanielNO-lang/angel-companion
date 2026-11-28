@@ -4,39 +4,41 @@ Angel Companion uses Supabase Auth for email/password signup, OTP verification, 
 
 ## Local email inbox
 
-The Supabase CLI local stack includes Inbucket, a local email catcher. It captures outgoing Auth emails without delivering them to real mailboxes.
+The Supabase CLI starts a local SMTP catcher (Mailpit) with the local Supabase stack. It captures outgoing Auth emails without delivering them to real mailboxes.
 
-The repository enables Inbucket in `supabase/config.toml`:
+The repository enables it in `supabase/config.toml` using the current `[local_smtp]` configuration:
 
 - Inbox UI: http://127.0.0.1:54324
-- SMTP host used by the local Supabase stack: `inbucket`
 - SMTP port: `54325`
-- POP3 port: `54326`
 
-## Start it
+## Start it on Windows
 
-Requirements: Docker Desktop must be running.
+Requirements:
+- Docker Desktop installed and running.
+- Node.js 20 or later.
+- The Angel Companion repository cloned to your computer.
 
-From the Angel Companion repository root:
+Open PowerShell in the Angel Companion repository folder and run:
 
-```bash
+```powershell
+npm install
 npx supabase start
 npx supabase status
 ```
 
-Open http://127.0.0.1:54324 in your browser. Register a test account against the local Supabase stack, then inspect the captured confirmation/OTP email in the inbox. Open the message and copy the one-time code into Angel Companion's verification screen.
+The first start downloads the local Supabase containers and can take several minutes. When startup completes, open http://127.0.0.1:54324 to view the local email inbox.
 
-To stop the local stack:
+For a safe signup test, the local Supabase stack must be running and the local Angel Companion development app must be configured to use the local Supabase URL and anon key printed by `npx supabase status`. Do not point the production Netlify site at the local stack. Register a test account in the local app, open the captured confirmation email in Mailpit, and copy its one-time code into the verification screen.
 
-```bash
+Stop the local stack when finished:
+
+```powershell
 npx supabase stop
 ```
 
-If the Supabase CLI is already installed globally, `supabase start`, `supabase status`, and `supabase stop` can be used instead.
-
 ## Important separation
 
-- Local Auth emails are captured by Inbucket and are not sent to real recipients.
+- Local Auth emails are captured by Mailpit and are not sent to real recipients.
 - The production Netlify site continues to use the connected hosted Supabase project.
 - This local inbox does not fix production SMTP delivery or bypass Supabase's hosted default-mailer restrictions.
 - Never put Gemini API keys, Supabase service-role keys, or SMTP passwords in frontend code or commit them to Git.
