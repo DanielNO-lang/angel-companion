@@ -99,7 +99,6 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
     setActiveMode(universalComposerService.getMode(context));
     setStagedAttachments(universalAttachmentService.getStagedAttachments(context));
     setFeedback(null);
-    setTranslatedPreview('');
   }, [context.type, context.conversationId, context.studioId, context.projectId, context.agentId]);
 
   // Click outside listener for menus
