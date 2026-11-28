@@ -200,6 +200,35 @@ test('probeSupabaseAuthSettings reports reachable providers, auth_rejected HTTP 
       });
       assert.equal(unreachable.diagnosticCode, 'unreachable');
       assert.equal(unreachable.reachable, false);
+
+      // Verify default global fetch probes are deduplicated concurrently & cached for 30s
+      const originalFetch = globalThis.fetch;
+      let fetchCalls = 0;
+      globalThis.fetch = (async () => {
+        fetchCalls += 1;
+        return new Response(
+          JSON.stringify({ external: { email: true, google: true } }),
+          { status: 200 }
+        );
+      }) as typeof fetch;
+      try {
+        resetSupabaseClientCacheForTests();
+        const [p1, p2, p3] = await Promise.all([
+          probeSupabaseAuthSettings(globalThis.fetch),
+          probeSupabaseAuthSettings(globalThis.fetch),
+          probeSupabaseAuthSettings(globalThis.fetch),
+        ]);
+        assert.equal(fetchCalls, 1);
+        assert.equal(p1.reachable, true);
+        assert.equal(p2.reachable, true);
+        assert.equal(p3.reachable, true);
+
+        const p4 = await probeSupabaseAuthSettings(globalThis.fetch);
+        assert.equal(fetchCalls, 1);
+        assert.equal(p4.reachable, true);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     }
   );
 });

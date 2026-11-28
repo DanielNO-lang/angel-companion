@@ -461,4 +461,28 @@ test('netlify.toml omits GEMINI_MODEL and public Supabase keys from Netlify secr
   assert.match(toml, /SECRETS_SCAN_OMIT_KEYS\s*=\s*"[^"]*GEMINI_MODEL[^"]*"/);
 });
 
+test('isDuplicateSignUpResponse detects existing-account silent responses and classifies email delivery failures', async () => {
+  const { isDuplicateSignUpResponse } = await import('../src/services/authService');
+  const { toFriendlyError } = await import('../src/services/errorHandlingService');
+
+  assert.equal(
+    isDuplicateSignUpResponse({
+      user: { id: 'u1', email: 'dup@angel.ai', identities: [] } as any,
+      session: null,
+    }),
+    true
+  );
+  assert.equal(
+    isDuplicateSignUpResponse({
+      user: { id: 'u2', email: 'new@angel.ai', identities: [{ id: 'i1' }] } as any,
+      session: null,
+    }),
+    false
+  );
+
+  const deliveryErr = toFriendlyError('Error sending confirmation email', 'auth', { logDiagnostic: false });
+  assert.equal(deliveryErr.category, 'email_delivery_failed');
+});
+
+
 

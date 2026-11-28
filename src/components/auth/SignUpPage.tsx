@@ -55,6 +55,10 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
     try {
       const result = await authService.signUpWithEmailPassword(fullName, email, password);
       if (!result.ok) {
+        if (result.code === 'ACCOUNT_EXISTS') {
+          setFormError(result.message);
+          return;
+        }
         setFormError(toFriendlyError(result.message, 'auth').userMessage);
         return;
       }

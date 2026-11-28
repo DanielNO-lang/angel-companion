@@ -12,6 +12,7 @@ import {
 import { AuthLayout } from './AuthLayout';
 import { authService } from '../../services/authService';
 import { toFriendlyError } from '../../services/errorHandlingService';
+import { restoreSafeWorkflowDraft } from '../../services/recoveryNavigationService';
 import { validateEmail, type AppRoute, type ThemeMode } from '../../services/authValidation';
 
 interface EmailVerificationPageProps {
@@ -32,10 +33,10 @@ export const EmailVerificationPage: React.FC<EmailVerificationPageProps> = ({
   verifiedSuccess = false,
 }) => {
   const isLight = theme === 'light';
-  const [email, setEmail] = useState(pendingEmail);
+  const [email, setEmail] = useState(() => pendingEmail || restoreSafeWorkflowDraft()?.authEmail || '');
   const [otpCode, setOtpCode] = useState('');
   const [isEditingEmail, setIsEditingEmail] = useState(false);
-  const [newEmail, setNewEmail] = useState(pendingEmail);
+  const [newEmail, setNewEmail] = useState(() => pendingEmail || restoreSafeWorkflowDraft()?.authEmail || '');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(() =>
     initialError ? toFriendlyError(initialError, 'auth', { logDiagnostic: false }).userMessage : null

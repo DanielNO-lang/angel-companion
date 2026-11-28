@@ -247,11 +247,16 @@ const adaptiveAuthStorage = {
 let cachedClient: SupabaseClient | null = null;
 let cachedUrl: string | null = null;
 let cachedKey: string | null = null;
+let cachedAuthProbe: { cacheKey: string; expiresAt: number; result: SupabaseLiveHealthProbe } | null = null;
+let inFlightAuthProbe: { cacheKey: string; promise: Promise<SupabaseLiveHealthProbe> } | null = null;
+const AUTH_PROBE_CACHE_TTL_MS = 30000;
 
 export const resetSupabaseClientCacheForTests = (): void => {
   cachedClient = null;
   cachedUrl = null;
   cachedKey = null;
+  cachedAuthProbe = null;
+  inFlightAuthProbe = null;
   lastClientInitError = null;
 };
 
@@ -302,38 +307,21 @@ export const getSupabaseClient = (): SupabaseClient | null => {
   }
 };
 
-/**
- * Probes Supabase's public GoTrue /auth/v1/settings endpoint to verify live reachability
- * and read real enabled OAuth providers without exposing any sensitive keys.
- */
-export async function probeSupabaseAuthSettings(
-  fetchImpl: typeof fetch = fetch,
-  timeoutMs: number = 4500
+async function executeSingleAuthProbe(
+  endpoint: string,
+  apiKey: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number
 ): Promise<SupabaseLiveHealthProbe> {
   const checkedAt = new Date().toISOString();
-  const config = getSupabaseConfigState();
-  const keyInfo = readPublicSupabaseKey();
-
-  if (!config.isConfigured || !config.supabaseUrl || !keyInfo.value) {
-    return {
-      checkedAt,
-      diagnosticCode: 'unconfigured',
-      reachable: false,
-      statusCode: null,
-      externalProviders: {},
-      message: config.statusMessage,
-    };
-  }
-
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
   try {
-    const endpoint = `${config.supabaseUrl}/auth/v1/settings`;
     const res = await fetchImpl(endpoint, {
       method: 'GET',
       headers: {
-        apikey: keyInfo.value,
+        apikey: apiKey,
       },
       signal: controller?.signal,
     });
@@ -375,20 +363,88 @@ export async function probeSupabaseAuthSettings(
       message: 'Supabase Auth endpoint is reachable.',
     };
   } catch (err) {
+    const isAbort = err instanceof Error && err.name === 'AbortError';
     return {
       checkedAt,
       diagnosticCode: 'unreachable',
       reachable: false,
       statusCode: null,
       externalProviders: {},
-      message:
-        err instanceof Error && err.name === 'AbortError'
-          ? 'Timed out while reaching Supabase Auth settings.'
-          : 'Could not reach Supabase Auth endpoint from the browser.',
+      message: isAbort
+        ? 'Timed out while reaching Supabase Auth settings.'
+        : 'Could not reach Supabase Auth endpoint from the browser.',
     };
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+/**
+ * Probes Supabase's public GoTrue /auth/v1/settings endpoint to verify live reachability
+ * and read real enabled OAuth providers without exposing any sensitive keys.
+ * Deduplicates concurrent probes and caches reachable results briefly so multiple mounted
+ * auth components do not flood Supabase during page load.
+ */
+export async function probeSupabaseAuthSettings(
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs: number = 10000,
+  options?: { forceRefresh?: boolean }
+): Promise<SupabaseLiveHealthProbe> {
+  const checkedAt = new Date().toISOString();
+  const config = getSupabaseConfigState();
+  const keyInfo = readPublicSupabaseKey();
+
+  if (!config.isConfigured || !config.supabaseUrl || !keyInfo.value) {
+    return {
+      checkedAt,
+      diagnosticCode: 'unconfigured',
+      reachable: false,
+      statusCode: null,
+      externalProviders: {},
+      message: config.statusMessage,
+    };
+  }
+
+  const endpoint = `${config.supabaseUrl}/auth/v1/settings`;
+  const apiKey = keyInfo.value;
+  const cacheKey = `${config.supabaseUrl}|${apiKey}`;
+  const useSharedCache = fetchImpl === fetch && !options?.forceRefresh;
+
+  if (useSharedCache && cachedAuthProbe && cachedAuthProbe.cacheKey === cacheKey && Date.now() < cachedAuthProbe.expiresAt) {
+    return cachedAuthProbe.result;
+  }
+
+  if (useSharedCache && inFlightAuthProbe && inFlightAuthProbe.cacheKey === cacheKey) {
+    return inFlightAuthProbe.promise;
+  }
+
+  const runProbe = async (): Promise<SupabaseLiveHealthProbe> => {
+    let result = await executeSingleAuthProbe(endpoint, apiKey, fetchImpl, timeoutMs);
+    // Cold-start Supabase Free Tier projects can occasionally stall the first handshake; retry once on timeout
+    if (!result.reachable && result.diagnosticCode === 'unreachable' && result.message.includes('Timed out') && fetchImpl === fetch) {
+      result = await executeSingleAuthProbe(endpoint, apiKey, fetchImpl, timeoutMs);
+    }
+    if (useSharedCache && result.reachable) {
+      cachedAuthProbe = {
+        cacheKey,
+        expiresAt: Date.now() + AUTH_PROBE_CACHE_TTL_MS,
+        result,
+      };
+    }
+    return result;
+  };
+
+  if (useSharedCache) {
+    const promise = runProbe().finally(() => {
+      if (inFlightAuthProbe?.promise === promise) {
+        inFlightAuthProbe = null;
+      }
+    });
+    inFlightAuthProbe = { cacheKey, promise };
+    return promise;
+  }
+
+  return runProbe();
 }
 
 /**

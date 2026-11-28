@@ -37,6 +37,7 @@ export type DiagnosticFailureCategory =
   | 'render_exception'
   | 'invalid_credentials'
   | 'email_unconfirmed'
+  | 'email_delivery_failed'
   | 'unknown_failure';
 
 export interface ClassifiedFriendlyError {
@@ -74,6 +75,8 @@ export const FRIENDLY_ERROR_MESSAGES = {
   LINK_EXPIRED: "That verification code or link is invalid or has expired. Please request a fresh one.",
   AI_HIGH_DEMAND: "Angel's conversation model is temporarily experiencing high demand. Please try again in a moment.",
   AI_TIMEOUT: "Angel took a bit too long to respond. Please try again.",
+  EMAIL_DELIVERY: "We couldn't send the verification email right now. Please wait a minute and try again, or verify your email sender (SMTP) settings.",
+  ACCOUNT_EXISTS: "An account with this email already exists. Try signing in with Email Code, your password, or Google instead.",
 } as const;
 
 const SENSITIVE_KEY_PATTERN =
@@ -303,6 +306,16 @@ export function toFriendlyError(
     title = 'Check your details';
     userMessage = FRIENDLY_ERROR_MESSAGES.INVALID_CREDENTIALS;
     retryable = false;
+  } else if (/already exists|already registered|account_exists/i.test(lower)) {
+    category = 'invalid_credentials';
+    title = 'Account already exists';
+    userMessage = FRIENDLY_ERROR_MESSAGES.ACCOUNT_EXISTS;
+    retryable = false;
+  } else if (/error sending.*(email|confirmation|recovery|magic)|smtp|mailer|email.*delivery/i.test(lower)) {
+    category = 'email_delivery_failed';
+    title = 'Verification email not sent';
+    userMessage = FRIENDLY_ERROR_MESSAGES.EMAIL_DELIVERY;
+    retryable = true;
   } else if (/email not confirmed|confirm your email/i.test(lower)) {
     category = 'email_unconfirmed';
     title = 'Verify your email first';

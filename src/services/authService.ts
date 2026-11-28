@@ -78,6 +78,7 @@ export interface AuthActionResult {
     | 'PASSWORD_UPDATED'
     | 'OAUTH_REDIRECT'
     | 'EMAIL_UPDATED'
+    | 'ACCOUNT_EXISTS'
     | 'UNCONFIGURED'
     | 'ERROR';
   message: string;
@@ -330,6 +331,19 @@ export function buildOAuthSignInOptions(
   }
 
   return options;
+}
+
+/**
+ * Supabase privacy protection returns a user object with an empty `identities` array
+ * and no session (and sends NO confirmation email) when signing up with an already-registered email.
+ */
+export function isDuplicateSignUpResponse(data: { user?: User | null; session?: Session | null } | null | undefined): boolean {
+  return Boolean(
+    data?.user &&
+      !data.session &&
+      Array.isArray(data.user.identities) &&
+      data.user.identities.length === 0
+  );
 }
 
 export interface CallbackOutcome {
@@ -773,6 +787,15 @@ class AuthService {
         message: 'Account created and verified.',
         email: email.trim(),
         user: mapped,
+      };
+    }
+
+    if (isDuplicateSignUpResponse(data)) {
+      return {
+        ok: false,
+        code: 'ACCOUNT_EXISTS',
+        email: email.trim(),
+        message: 'An account with this email already exists. Try signing in with Email Code, your password, or Google.',
       };
     }
 
