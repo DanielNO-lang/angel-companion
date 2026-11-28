@@ -107,7 +107,14 @@ export function appendDictationText(previousText: string, recognizedChunk: strin
 }
 
 export function combineDictationPreview(finalText: string, interimText: string): string {
-  return `${finalText}${interimText}`
+  const separator =
+    finalText &&
+    interimText &&
+    !/[ \t\n([{“]$/.test(finalText) &&
+    !/^[,.;:!?)}\]”]/.test(interimText)
+      ? ' '
+      : '';
+  return `${finalText}${separator}${interimText}`
     .replace(/[ \t]+/g, ' ')
     .replace(/ *\n */g, '\n')
     .replace(/\n{3,}/g, '\n\n')
