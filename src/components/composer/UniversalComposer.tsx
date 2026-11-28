@@ -679,6 +679,25 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
 
           <button
             type="button"
+            onClick={() => {
+              if (onStartVoiceSession) onStartVoiceSession();
+              else toggleDictation();
+            }}
+            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-transparent flex items-center justify-center text-cyan-300 hover:text-white hover:bg-white/10 transition-all shrink-0 group cursor-pointer"
+            aria-label="Start Voice Conversation"
+            title="Start Voice Conversation"
+          >
+            <div className="flex items-center gap-[2px] h-3.5">
+              <span className="w-[2px] h-2 bg-cyan-400 group-hover:bg-white rounded-full transition-all group-hover:h-2.5" />
+              <span className="w-[2px] h-3 bg-cyan-300 group-hover:bg-white rounded-full transition-all group-hover:h-3.5" />
+              <span className="w-[2px] h-3.5 bg-white rounded-full transition-all group-hover:h-2.5" />
+              <span className="w-[2px] h-3 bg-cyan-300 group-hover:bg-white rounded-full transition-all group-hover:h-3.5" />
+              <span className="w-[2px] h-2 bg-cyan-400 group-hover:bg-white rounded-full transition-all group-hover:h-2.5" />
+            </div>
+          </button>
+
+          <button
+            type="button"
             onClick={() => void handleSubmit()}
             disabled={(!text.trim() && stagedAttachments.length === 0) || isSubmitting}
             className="p-1.5 sm:p-2 rounded-full bg-transparent hover:bg-white/10 disabled:opacity-30 text-cyan-300 hover:text-white transition-all drop-shadow-[0_0_12px_rgba(56,189,248,0.8)] shrink-0 double-glow-pulse-rounded flex items-center justify-center cursor-pointer shadow-[0_0_12px_rgba(56,189,248,0.4)]"
