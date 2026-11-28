@@ -10,6 +10,7 @@ interface ComposerBarProps {
   isGenerating?: boolean;
   onStopGenerating?: () => void;
   context?: ComposerContext;
+  autoFocusOnOpen?: boolean;
 }
 
 export const ComposerBar: React.FC<ComposerBarProps> = ({
@@ -19,12 +20,14 @@ export const ComposerBar: React.FC<ComposerBarProps> = ({
   isGenerating = false,
   onStopGenerating,
   context = { type: 'general' },
+  autoFocusOnOpen = false,
 }) => {
   return (
     <div className="w-full max-w-4xl mx-auto">
       <UniversalComposer
         context={context}
         variant="full"
+        autoFocusOnOpen={autoFocusOnOpen}
         onOrbStateChange={onOrbStateChange}
         onStartVoiceSession={onStartVoiceSession}
         isGenerating={isGenerating}
