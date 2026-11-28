@@ -601,7 +601,6 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
         /* Compact Variant (e.g. Panel / Inline) */
         <div className="rounded-2xl bg-slate-900/90 border border-indigo-500/30 p-2 space-y-2 backdrop-blur-xl shadow-lg">
           <textarea
-            ref={textareaRef}
             value={text}
             onChange={(e) => handleTextChange(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -703,6 +702,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
           </button>
 
           <textarea
+            ref={textareaRef}
             value={text}
             onChange={(e) => handleTextChange(e.target.value)}
             onKeyDown={handleKeyDown}
