@@ -58,6 +58,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
   const [isTranslating, setIsTranslating] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textRef = useRef(text);
   const infoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -76,6 +77,17 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
       }
     };
   }, []);
+
+  // Grow the composer upward to five visible lines, then scroll within the input.
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || variant === 'compact') return;
+    textarea.style.height = 'auto';
+    const maxHeight = 120;
+    const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, [text, variant]);
 
   // Subscribe to external staged attachments (e.g. Camera / Screen Share frame capture)
   useEffect(() => {
@@ -589,6 +601,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
         /* Compact Variant (e.g. Panel / Inline) */
         <div className="rounded-2xl bg-slate-900/90 border border-indigo-500/30 p-2 space-y-2 backdrop-blur-xl shadow-lg">
           <textarea
+            ref={textareaRef}
             value={text}
             onChange={(e) => handleTextChange(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -643,7 +656,42 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
         </div>
       ) : variant === 'simple' ? (
         /* Simple Variant (Clean single line bar - SimpleComposerBar) */
-        <div className="flex items-center gap-1.5 sm:gap-2 p-1.5 sm:p-2 rounded-full bg-[#070b1e]/40 backdrop-blur-2xl shadow-[0_8px_30px_rgba(0,0,0,0.4)] focus-within:shadow-[0_0_25px_rgba(59,130,246,0.3)] transition-all">
+        <div className="flex items-center gap-1.5 sm:gap-2 p-1.5 sm:p-2 rounded-3xl bg-[#070b1e]/40 backdrop-blur-2xl shadow-[0_8px_30px_rgba(0,0,0,0.4)] focus-within:shadow-[0_0_25px_rgba(59,130,246,0.3)] transition-all">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#10183b]/80 flex items-center justify-center text-cyan-400 hover:text-white hover:bg-cyan-600 transition-all shadow-[0_0_15px_rgba(56,189,248,0.4)] shrink-0 double-glow-pulse-rounded cursor-pointer"
+            aria-label="Attach Files"
+            title="Attach Files"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => handleTextChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={inputPlaceholder}
+            aria-label={inputPlaceholder}
+            rows={1}
+            className="flex-1 min-w-0 bg-transparent px-2.5 text-xs sm:text-sm text-slate-100 placeholder-slate-400 focus:outline-none tracking-wide resize-none min-h-6 max-h-[120px] py-1 leading-6 overflow-y-hidden"
+          />
+
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={(!text.trim() && stagedAttachments.length === 0) || isSubmitting}
+            className="p-1.5 sm:p-2 rounded-full bg-transparent hover:bg-white/10 disabled:opacity-30 text-cyan-300 hover:text-white transition-all drop-shadow-[0_0_12px_rgba(56,189,248,0.8)] shrink-0 double-glow-pulse-rounded flex items-center justify-center cursor-pointer shadow-[0_0_12px_rgba(56,189,248,0.4)]"
+            aria-label="Send Message"
+            title="Send Message"
+          >
+            {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      ) : (
+        /* Full Variant (Full-width cosmic bar with controls) */
+        <div className="w-full rounded-3xl bg-[#070b1e]/40 p-1.5 sm:p-2 backdrop-blur-2xl shadow-[0_10px_35px_rgba(0,0,0,0.4)] flex items-center gap-1.5 sm:gap-3 transition-all focus-within:shadow-[0_0_25px_rgba(59,130,246,0.3)]">
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -651,7 +699,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
             aria-label="Attach Files"
             title="Attach Files"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </button>
 
           <textarea
@@ -661,56 +709,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
             placeholder={inputPlaceholder}
             aria-label={inputPlaceholder}
             rows={1}
-            className="flex-1 min-w-0 bg-transparent px-3 text-xs sm:text-sm text-slate-100 placeholder-slate-400 focus:outline-none tracking-wide resize-none h-6 sm:h-7 py-0.5 leading-normal overflow-y-auto"
-          />
-
-          <button
-            type="button"
-            onClick={toggleDictation}
-            aria-pressed={isDictating}
-            aria-label={isDictating ? 'Stop voice dictation' : 'Dictate with voice'}
-            className={`p-2 rounded-full transition-all shrink-0 double-glow-pulse-rounded cursor-pointer shadow-[0_0_12px_rgba(56,189,248,0.4)] ${
-              isDictating
-                ? 'bg-cyan-500/30 text-cyan-300 animate-pulse border border-cyan-400/50'
-                : 'text-cyan-300 hover:text-white hover:bg-white/10'
-            }`}
-            title={isDictating ? 'Stop voice dictation' : 'Dictate with voice'}
-          >
-            <Mic className="w-4 h-4" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => void handleSubmit()}
-            disabled={(!text.trim() && stagedAttachments.length === 0) || isSubmitting}
-            className="p-2 sm:p-2.5 rounded-full bg-transparent hover:bg-white/10 disabled:opacity-30 text-cyan-300 hover:text-white transition-all drop-shadow-[0_0_12px_rgba(56,189,248,0.8)] shrink-0 double-glow-pulse-rounded flex items-center justify-center cursor-pointer shadow-[0_0_12px_rgba(56,189,248,0.4)]"
-            aria-label="Send Message"
-            title="Send Message"
-          >
-            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-          </button>
-        </div>
-      ) : (
-        /* Full Variant (Full-width cosmic bar with controls) */
-        <div className="w-full rounded-full bg-[#070b1e]/40 p-1.5 sm:p-2.5 backdrop-blur-2xl shadow-[0_10px_35px_rgba(0,0,0,0.4)] flex items-center gap-1.5 sm:gap-3 transition-all focus-within:shadow-[0_0_25px_rgba(59,130,246,0.3)]">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#10183b]/80 flex items-center justify-center text-cyan-400 hover:text-white hover:bg-cyan-600 transition-all shadow-[0_0_15px_rgba(56,189,248,0.4)] shrink-0 double-glow-pulse-rounded cursor-pointer"
-            aria-label="Attach Files"
-            title="Attach Files"
-          >
-            <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
-
-          <textarea
-            value={text}
-            onChange={(e) => handleTextChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={inputPlaceholder}
-            aria-label={inputPlaceholder}
-            rows={1}
-            className="flex-1 min-w-0 bg-transparent text-xs sm:text-base text-slate-100 placeholder-slate-400 focus:outline-none px-1.5 sm:px-2 tracking-wide resize-none h-6 sm:h-8 py-0.5 leading-normal overflow-y-auto"
+            className="flex-1 min-w-0 bg-transparent text-xs sm:text-sm text-slate-100 placeholder-slate-400 focus:outline-none px-1.5 sm:px-2 tracking-wide resize-none min-h-6 max-h-[120px] py-1 leading-6 overflow-y-hidden"
           />
 
           <div className="flex items-center gap-1 sm:gap-2 shrink-0 pr-0.5 sm:pr-1">
@@ -720,7 +719,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
                 setShowModesMenu(!showModesMenu);
                 setShowVisualMenu(false);
               }}
-              className="p-2 sm:p-2.5 rounded-full text-cyan-300 hover:text-white hover:bg-white/10 transition-all shadow-[0_0_12px_rgba(56,189,248,0.4)] double-glow-pulse-rounded cursor-pointer"
+              className="p-1.5 sm:p-2 rounded-full text-cyan-300 hover:text-white hover:bg-white/10 transition-all shadow-[0_0_12px_rgba(56,189,248,0.4)] double-glow-pulse-rounded cursor-pointer"
               aria-label={`Angel Controls (${activeMode})`}
               title={`Angel Controls (${activeMode})`}
             >
@@ -759,7 +758,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
               <button
                 type="button"
                 onClick={onStopGenerating}
-                className="p-2.5 sm:p-3 rounded-full bg-rose-600/80 hover:bg-rose-500 text-white transition-all shadow-[0_0_12px_rgba(244,63,94,0.6)] flex items-center justify-center cursor-pointer"
+                className="p-2 sm:p-2.5 rounded-full bg-rose-600/80 hover:bg-rose-500 text-white transition-all shadow-[0_0_12px_rgba(244,63,94,0.6)] flex items-center justify-center cursor-pointer"
                 aria-label="Stop generating"
                 title="Stop generating"
               >
@@ -770,7 +769,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
                 type="button"
                 onClick={() => void handleSubmit()}
                 disabled={isSubmitting}
-                className="p-2.5 sm:p-3 rounded-full bg-transparent hover:bg-white/10 text-cyan-300 hover:text-white transition-all drop-shadow-[0_0_12px_rgba(56,189,248,0.8)] shadow-[0_0_12px_rgba(56,189,248,0.4)] double-glow-pulse-rounded flex items-center justify-center cursor-pointer"
+                className="p-2 sm:p-2.5 rounded-full bg-transparent hover:bg-white/10 text-cyan-300 hover:text-white transition-all drop-shadow-[0_0_12px_rgba(56,189,248,0.8)] shadow-[0_0_12px_rgba(56,189,248,0.4)] double-glow-pulse-rounded flex items-center justify-center cursor-pointer"
                 aria-label="Send Message"
                 title="Send Message"
               >
@@ -787,7 +786,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
                   if (onStartVoiceSession) onStartVoiceSession();
                   else toggleDictation();
                 }}
-                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-transparent flex items-center justify-center text-cyan-300 hover:text-white hover:bg-white/10 transition-all drop-shadow-[0_0_12px_rgba(56,189,248,0.6)] shadow-[0_0_12px_rgba(56,189,248,0.4)] group double-glow-pulse-rounded cursor-pointer"
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-transparent flex items-center justify-center text-cyan-300 hover:text-white hover:bg-white/10 transition-all drop-shadow-[0_0_12px_rgba(56,189,248,0.6)] shadow-[0_0_12px_rgba(56,189,248,0.4)] group double-glow-pulse-rounded cursor-pointer"
                 aria-label="Start Voice Session"
                 title="Start Voice Session"
               >
