@@ -665,6 +665,7 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
             type: 'general',
             conversationId: activeThread.id,
           }}
+          autoFocusOnOpen
           isGenerating={isGenerating}
           onStopGenerating={() => conversationEngine.abortGeneration(activeThread.id)}
           onStartVoiceSession={() =>

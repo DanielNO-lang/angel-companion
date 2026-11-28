@@ -19,6 +19,7 @@ export interface UniversalComposerProps {
   onStopGenerating?: () => void;
   placeholder?: string;
   className?: string;
+  autoFocusOnOpen?: boolean;
 }
 
 const MODES: ComposerMode[] = [
@@ -40,6 +41,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
   onStopGenerating,
   placeholder,
   className = '',
+  autoFocusOnOpen = false,
 }) => {
   const [text, setText] = useState(() => universalComposerService.getDraft(context));
   const [activeMode, setActiveMode] = useState<ComposerMode>(() => universalComposerService.getMode(context));
@@ -70,6 +72,15 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
       }
     };
   }, []);
+
+  // Put the writing field in focus whenever the user opens or switches conversations.
+  useEffect(() => {
+    if (!autoFocusOnOpen || variant === 'compact') return;
+    const focusTimer = window.setTimeout(() => {
+      textareaRef.current?.focus({ preventScroll: true });
+    }, 80);
+    return () => window.clearTimeout(focusTimer);
+  }, [autoFocusOnOpen, context.type, context.conversationId, context.studioId, context.projectId, context.agentId, variant]);
 
   // Grow the composer upward to five visible lines, then scroll within the input.
   useEffect(() => {
