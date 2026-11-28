@@ -128,7 +128,7 @@ export class VoiceEngine {
           this.baseTranscript = appendDictationText(this.baseTranscript, finalChunk);
         }
 
-        const fullText = `${this.baseTranscript}${interimChunk}`.replace(/\s+/g, ' ').trim();
+        const fullText = combineDictationPreview(this.baseTranscript, interimChunk);
         if (this.activeListener && (fullText || finalChunk || interimChunk)) {
           this.activeListener.onTranscript(fullText, Boolean(finalChunk));
         }
