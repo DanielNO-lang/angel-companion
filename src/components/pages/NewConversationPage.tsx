@@ -219,7 +219,6 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [isGenerating, setIsGenerating] = useState(() => conversationEngine.isGenerating(activeThread.id));
-  const [executionStage, setExecutionStage] = useState(() => conversationEngine.getExecutionStage(activeThread.id));
   const [visibleCount, setVisibleCount] = useState(VISIBLE_MESSAGE_BATCH);
   const [voiceSession, setVoiceSession] = useState<VoiceSessionSnapshot>(() => voiceConversationService.getSnapshot());
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
@@ -250,7 +249,6 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
       const current = conversationEngine.getActiveThread('general');
       setActiveThread({ ...current });
       setIsGenerating(conversationEngine.isGenerating(current.id));
-      setExecutionStage(conversationEngine.getExecutionStage(current.id));
       setPendingCloudSync(conversationEngine.getOfflineCacheStatus().pendingCloudSync);
     };
     syncThread();
@@ -430,7 +428,6 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
                 const isLastMessage = idx === visibleMessages.length - 1;
                 const isAngel = msg.sender === 'angel';
                 const isPending = msg.status === 'pending';
-                const stageLabel = msg.activityStage || (isPending ? executionStage?.stage : undefined) || 'Thinking';
 
                 return (
                   <div
@@ -465,16 +462,7 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
                       >
                         <div className="flex items-center justify-between gap-2 mb-1.5 opacity-75 text-[10px] flex-wrap">
                           <div className="flex items-center gap-1.5">
-                            <span className="font-bold uppercase tracking-wider">{msg.sender === 'angel' ? 'Angel' : 'You'}</span>
-                            {isAngel && isPending && (
-                              <span
-                                data-execution-stage="true"
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-400/30 text-cyan-200 font-semibold"
-                              >
-                                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                                <span>{stageLabel}...</span>
-                              </span>
-                            )}
+                            {msg.sender === 'user' && <span className="font-bold uppercase tracking-wider">You</span>}
                             {isAngel && msg.status === 'failed' && (
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-900/70 text-rose-200 font-semibold">
                                 <AlertCircle className="w-3 h-3" />
@@ -486,21 +474,13 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
                                 Think{msg.thinkingLevel ? ` • ${msg.thinkingLevel}` : ''}
                               </span>
                             )}
-                            {isAngel && !isPending && msg.status !== 'failed' && msg.modelUsed && (
-                              <span
-                                className="px-1.5 py-0.5 rounded bg-slate-900/70 border border-slate-700/60 text-slate-300 font-mono"
-                                title={msg.fallbackActivated && msg.requestedModel ? `Fallback from ${msg.requestedModel}` : undefined}
-                              >
-                                {msg.modelUsed}{msg.fallbackActivated ? ' • fallback' : ''}
-                              </span>
-                            )}
                           </div>
                           <span>{msg.timestamp}</span>
                         </div>
 
                         {isPending && !msg.content ? (
                           <div className="flex items-center gap-2 text-cyan-200 py-0.5">
-                            <span className="font-semibold">Angel is {stageLabel.toLowerCase()}</span>
+                            <span className="font-semibold">Angel is thinking</span>
                             <span className="inline-flex items-center gap-1" aria-hidden="true">
                               <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '0ms' }} />
                               <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -523,21 +503,7 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
                         />
                       </div>
 
-                      {/* Pending Stop Control vs Per-Message Toolbar */}
-                      {isAngel && isPending && (
-                        <div className="flex items-center gap-2 mt-1.5 pl-2">
-                          <button
-                            type="button"
-                            onClick={() => conversationEngine.abortGeneration(activeThread.id)}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/35 border border-rose-400/30 text-[11px] font-semibold text-rose-200 transition-colors cursor-pointer"
-                            title="Stop generating"
-                          >
-                            <Square className="w-3 h-3 fill-current" />
-                            <span>Stop generating</span>
-                          </button>
-                        </div>
-                      )}
-
+                      {/* Response actions appear after Angel finishes. */}
                       {isAngel && !isPending && (
                         <div className="flex items-center gap-1.5 mt-1.5 pl-2 opacity-80 hover:opacity-100 transition-opacity">
                           {msg.status !== 'failed' && (
@@ -597,7 +563,7 @@ export const NewConversationPage: React.FC<NewConversationPageProps> = ({
             <div className="flex flex-col max-w-[88%] sm:max-w-[80%]">
               <div className="p-3.5 sm:p-4 rounded-3xl rounded-tl-none text-xs sm:text-sm bg-[#090e26]/40 backdrop-blur-xl text-slate-200 shadow-md border border-cyan-500/20">
                 <div className="flex items-center gap-2 text-cyan-200">
-                  <span className="font-semibold">Angel is {(executionStage?.stage || 'thinking').toLowerCase()}</span>
+                  <span className="font-semibold">Angel is thinking</span>
                   <span className="inline-flex items-center gap-1" aria-hidden="true">
                     <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '0ms' }} />
                     <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '150ms' }} />

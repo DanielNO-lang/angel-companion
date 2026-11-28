@@ -148,8 +148,10 @@ export class VoiceConversationService {
     if (!spoken || this.snapshot.phase !== 'listening') return;
 
     this.clearSilenceTimer();
-    voiceEngine.stopListening();
+    // Change phase before stopping recognition: stopListening synchronously fires onEnd,
+    // and that callback must not re-enter commitCurrentTurn for the same transcript.
     this.publish({ phase: 'thinking', error: null });
+    voiceEngine.stopListening();
     this.options.onOrbStateChange?.('thinking');
 
     const ctx = {

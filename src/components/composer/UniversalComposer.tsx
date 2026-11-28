@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Sliders, Eye, Mic, Send, Camera, Monitor, Paperclip, Loader2, AlertCircle, RotateCw, X, Languages, Square } from 'lucide-react';
+import { Plus, Sliders, Eye, Mic, Send, Camera, Monitor, Paperclip, Loader2, AlertCircle, RotateCw, X, Square } from 'lucide-react';
 import { CompanionOrbState } from '../../types/angel';
 import { ComposerContext, ComposerMode, ComposerSubmissionResult } from '../../types/composer';
 import { AttachmentRecord } from '../../types/attachment';
@@ -7,7 +7,6 @@ import { universalComposerService } from '../../services/universalComposerServic
 import { universalAttachmentService } from '../../services/universalAttachmentService';
 import { voiceEngine } from '../../services/voiceEngine';
 import { mediaStreamService } from '../../services/mediaStreamService';
-import { SUPPORTED_TRANSLATION_LANGUAGES, translationService } from '../../services/translationService';
 
 export interface UniversalComposerProps {
   context: ComposerContext;
@@ -53,16 +52,12 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
   );
   const [isDragging, setIsDragging] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; type: 'info' | 'error'; canRetry?: boolean } | null>(null);
-  const [translationPrefs, setTranslationPrefs] = useState(() => translationService.getPrefs());
-  const [translatedPreview, setTranslatedPreview] = useState('');
-  const [isTranslating, setIsTranslating] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textRef = useRef(text);
   const infoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const translateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   textRef.current = text;
 
@@ -70,8 +65,6 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
   useEffect(() => {
     return () => {
       if (infoTimeoutRef.current) clearTimeout(infoTimeoutRef.current);
-      if (translateTimerRef.current) clearTimeout(translateTimerRef.current);
-      translationService.cancelInFlight();
       if (voiceEngine.getIsListening()) {
         voiceEngine.stopListening();
       }
@@ -106,7 +99,6 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
     setActiveMode(universalComposerService.getMode(context));
     setStagedAttachments(universalAttachmentService.getStagedAttachments(context));
     setFeedback(null);
-    setTranslatedPreview('');
   }, [context.type, context.conversationId, context.studioId, context.projectId, context.agentId]);
 
   // Click outside listener for menus
@@ -132,65 +124,10 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
     }, durationMs);
   };
 
-  const scheduleLiveTranslation = (inputText: string, immediate = false) => {
-    if (translateTimerRef.current) {
-      clearTimeout(translateTimerRef.current);
-      translateTimerRef.current = null;
-    }
-    const prefs = translationService.getPrefs();
-    if (!prefs.enabled) return;
-    const cleaned = inputText.trim();
-    if (!cleaned) {
-      setTranslatedPreview('');
-      setIsTranslating(false);
-      return;
-    }
-    translateTimerRef.current = setTimeout(async () => {
-      setIsTranslating(true);
-      const res = await translationService.translate(cleaned, prefs.targetLanguage, prefs.sourceLanguage);
-      setIsTranslating(false);
-      if (res.success && res.translatedText) {
-        setTranslatedPreview(res.translatedText);
-      } else if (res.error && res.error !== 'Translation cancelled.') {
-        setFeedback({ message: res.error, type: 'error', canRetry: false });
-      }
-    }, immediate ? 80 : 650);
-  };
-
   const handleTextChange = (val: string) => {
     setText(val);
     textRef.current = val;
     universalComposerService.setDraft(context, val);
-    if (translationPrefs.enabled) {
-      scheduleLiveTranslation(val);
-    }
-  };
-
-  const handleToggleLiveTranslation = () => {
-    const nextPrefs = translationService.updatePrefs({ enabled: !translationPrefs.enabled });
-    setTranslationPrefs(nextPrefs);
-    if (nextPrefs.enabled && textRef.current.trim()) {
-      scheduleLiveTranslation(textRef.current, true);
-    } else if (!nextPrefs.enabled) {
-      translationService.cancelInFlight();
-      setTranslatedPreview('');
-      setIsTranslating(false);
-    }
-  };
-
-  const handleTargetLanguageChange = (targetLanguage: string) => {
-    const nextPrefs = translationService.updatePrefs({ targetLanguage, enabled: true });
-    setTranslationPrefs(nextPrefs);
-    if (textRef.current.trim()) {
-      scheduleLiveTranslation(textRef.current, true);
-    }
-  };
-
-  const handleApplyTranslation = () => {
-    if (!translatedPreview.trim()) return;
-    handleTextChange(translatedPreview.trim());
-    setTranslatedPreview('');
-    showTransientInfo(`Applied ${translationPrefs.targetLanguage} translation.`);
   };
 
   const handleModeSelect = (mode: ComposerMode) => {
@@ -333,11 +270,8 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
 
     const started = voiceEngine.startListening(
       {
-        onTranscript: (transcript, isFinal) => {
+        onTranscript: (transcript) => {
           handleTextChange(transcript);
-          if (translationService.getPrefs().enabled && isFinal) {
-            scheduleLiveTranslation(transcript, true);
-          }
           if (onOrbStateChange) onOrbStateChange('listening');
         },
         onError: (err) => {
@@ -413,75 +347,6 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
         multiple
         className="hidden"
       />
-
-      {/* Persistent Listening Indicator & Live Translation Controls */}
-      {(isDictating || translationPrefs.enabled) && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="mb-2 flex flex-col items-center gap-1.5"
-        >
-          <div className="inline-flex flex-wrap items-center justify-center gap-2 px-3.5 py-1.5 rounded-full bg-cyan-950/90 border border-cyan-400/50 text-cyan-200 text-xs font-medium shadow-lg backdrop-blur-md">
-            {isDictating && (
-              <>
-                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-                <span>Listening... Speak naturally</span>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={handleToggleLiveTranslation}
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold transition-colors cursor-pointer ${
-                translationPrefs.enabled
-                  ? 'bg-cyan-500/30 text-white border border-cyan-400/50'
-                  : 'bg-slate-900/70 text-cyan-300 hover:text-white'
-              }`}
-              title="Toggle Live Voice Translation"
-            >
-              <Languages className="w-3 h-3" />
-              <span>{translationPrefs.enabled ? 'Translate On' : 'Translate Off'}</span>
-            </button>
-            {translationPrefs.enabled && (
-              <select
-                value={translationPrefs.targetLanguage}
-                onChange={(e) => handleTargetLanguageChange(e.target.value)}
-                aria-label="Target translation language"
-                className="bg-slate-900 text-cyan-100 border border-cyan-500/40 rounded-full px-2 py-0.5 text-[11px] focus:outline-none cursor-pointer"
-              >
-                {SUPPORTED_TRANSLATION_LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code}>
-                    {lang.label}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          {translationPrefs.enabled && (isTranslating || translatedPreview) && (
-            <div className="max-w-2xl w-full px-3.5 py-2 rounded-2xl bg-[#090d24]/95 border border-cyan-500/40 text-xs text-slate-100 flex items-center justify-between gap-2 shadow-lg backdrop-blur-md">
-              <div className="min-w-0">
-                <span className="text-[10px] uppercase tracking-wider font-bold text-cyan-400 mr-2">
-                  {translationPrefs.targetLanguage}:
-                </span>
-                {isTranslating ? (
-                  <span className="text-slate-400 italic">Translating...</span>
-                ) : (
-                  <span className="text-slate-100 break-words">{translatedPreview}</span>
-                )}
-              </div>
-              {!isTranslating && translatedPreview && (
-                <button
-                  type="button"
-                  onClick={handleApplyTranslation}
-                  className="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-semibold shrink-0 cursor-pointer"
-                >
-                  Use Translation
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Feedback Banner (Persistent on error with Retry & Dismiss) */}
       {feedback && (
@@ -666,7 +531,20 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
             <Plus className="w-3.5 h-3.5" />
           </button>
 
-          <textarea
+          {isDictating ? (
+            <div className="flex-1 min-w-0 min-h-10 flex items-center gap-3 px-2" role="status" aria-live="polite" aria-label="Dictation recording and speech-to-text transcription">
+              <div className="flex items-center gap-[3px] h-8 shrink-0" aria-hidden="true">
+                {[8, 14, 22, 12, 27, 17, 10, 24, 15, 29, 18, 11, 23, 14, 26, 9, 19, 28, 13, 22, 10, 17, 25, 12, 20, 8, 16, 27, 13, 21, 9].map((height, index) => (
+                  <span key={index} className="w-[2px] rounded-full bg-cyan-300 dictation-wave-bar" style={{ height: `${height}px`, animationDelay: `${index * 38}ms` }} />
+                ))}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] uppercase tracking-[0.16em] text-cyan-300 font-semibold">Listening · Speech to text</div>
+                <div className="text-xs text-slate-100 truncate">{text.trim() || 'Speak naturally. Your words will appear here…'}</div>
+              </div>
+            </div>
+          ) : (
+                      <textarea
             ref={textareaRef}
             value={text}
             onChange={(e) => handleTextChange(e.target.value)}
@@ -676,6 +554,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
             rows={1}
             className="flex-1 min-w-0 bg-transparent px-2.5 text-xs sm:text-sm text-slate-100 placeholder-slate-400 focus:outline-none tracking-wide resize-none min-h-6 max-h-[120px] py-1 leading-6 overflow-y-hidden"
           />
+          )}
 
           <button
             type="button"
@@ -720,7 +599,20 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
             <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </button>
 
-          <textarea
+          {isDictating ? (
+            <div className="flex-1 min-w-0 min-h-10 flex items-center gap-3 px-2" role="status" aria-live="polite" aria-label="Dictation recording and speech-to-text transcription">
+              <div className="flex items-center gap-[3px] h-8 shrink-0" aria-hidden="true">
+                {[8, 14, 22, 12, 27, 17, 10, 24, 15, 29, 18, 11, 23, 14, 26, 9, 19, 28, 13, 22, 10, 17, 25, 12, 20, 8, 16, 27, 13, 21, 9].map((height, index) => (
+                  <span key={index} className="w-[2px] rounded-full bg-cyan-300 dictation-wave-bar" style={{ height: `${height}px`, animationDelay: `${index * 38}ms` }} />
+                ))}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] uppercase tracking-[0.16em] text-cyan-300 font-semibold">Listening · Speech to text</div>
+                <div className="text-xs text-slate-100 truncate">{text.trim() || 'Speak naturally. Your words will appear here…'}</div>
+              </div>
+            </div>
+          ) : (
+                      <textarea
             ref={textareaRef}
             value={text}
             onChange={(e) => handleTextChange(e.target.value)}
@@ -730,6 +622,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
             rows={1}
             className="flex-1 min-w-0 bg-transparent text-xs sm:text-sm text-slate-100 placeholder-slate-400 focus:outline-none px-1.5 sm:px-2 tracking-wide resize-none min-h-6 max-h-[120px] py-1 leading-6 overflow-y-hidden"
           />
+          )}
 
           <div className="flex items-center gap-1 sm:gap-2 shrink-0 pr-0.5 sm:pr-1">
             <button
