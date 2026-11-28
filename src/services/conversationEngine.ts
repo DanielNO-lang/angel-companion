@@ -5,6 +5,7 @@ import { companionData } from './companionData';
 import { extractIntelligentTitle, geminiModelService } from './geminiModelService';
 import { toFriendlyError } from './errorHandlingService';
 import { universalAttachmentService } from './universalAttachmentService';
+import { activityEngine } from './activityEngine';
 import {
   loadRecentConversationsFromCache,
   mergeConversationSnapshots,
@@ -56,6 +57,8 @@ export class ConversationEngine {
   private cloudSyncQueued = false;
   private cloudHydrationToken: string | null = null;
   private inFlightThreads = new Set<string>();
+  private activeAbortControllers = new Map<string, AbortController>();
+  private threadExecutionStages = new Map<string, { stage: string; label: string }>();
   private changeListeners = new Set<() => void>();
   private pendingCloudSync = false;
   private pendingDeletes: string[] = [];
@@ -274,12 +277,39 @@ export class ConversationEngine {
     }
   }
 
+  public getAccessToken(): string | null {
+    return this.accessToken;
+  }
+
   public setTokenRefresher(refresher: (() => Promise<string | null>) | null): void {
     this.tokenRefresher = refresher;
   }
 
   public isGenerating(threadId: string): boolean {
     return this.inFlightThreads.has(threadId);
+  }
+
+  public getExecutionStage(threadId: string): { stage: string; label: string } | null {
+    return this.threadExecutionStages.get(threadId) || null;
+  }
+
+  public abortGeneration(threadId: string): boolean {
+    const controller = this.activeAbortControllers.get(threadId);
+    if (!controller) return false;
+    controller.abort();
+    return true;
+  }
+
+  public clearThreadMessages(threadId: string): boolean {
+    const thread = this.threads.find((t) => t.id === threadId);
+    if (!thread) return false;
+    this.abortGeneration(threadId);
+    thread.messages = [];
+    thread.title = 'New Conversation';
+    thread.isCustomTitle = false;
+    thread.updatedAt = new Date().toISOString();
+    this.persist();
+    return true;
   }
 
   private async flushPendingDeletes(token: string): Promise<void> {
@@ -725,9 +755,42 @@ export class ConversationEngine {
     }
 
     this.inFlightThreads.add(thread.id);
-    this.notifyChange();
+    const abortController = new AbortController();
+    this.activeAbortControllers.set(thread.id, abortController);
     const lastUserMsg = [...thread.messages].reverse().find((message) => message.sender === 'user');
     const promptText = lastUserMsg?.content || 'Hello';
+    const activeModeLabel = lastUserMsg?.mode || 'Standard Intelligent';
+    this.threadExecutionStages.set(thread.id, {
+      stage: activeModeLabel === 'Deep Research' ? 'Researching' : activeModeLabel === 'Code Analysis' ? 'Building' : 'Thinking',
+      label: activeModeLabel === 'Deep Research' ? 'Researching context' : activeModeLabel === 'Code Analysis' ? 'Analyzing code & structure' : 'Thinking',
+    });
+
+    const activityTask = activityEngine.createTask(
+      `Angel Reply: ${thread.title}`,
+      thread.scope === 'studio' ? this.formatStudioName(thread.studioId) : 'Conversation',
+      'user',
+      promptText.slice(0, 120),
+      'running'
+    );
+
+    const assistantNow = new Date();
+    let streamingMessage: ChatMessage | null = null;
+    if (this.accessToken && this.activeUserId) {
+      streamingMessage = {
+        id: createUniqueId('msg_ai'),
+        sender: 'angel',
+        content: '',
+        timestamp: assistantNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        createdAt: assistantNow.toISOString(),
+        sequence: thread.messages.length,
+        mode: lastUserMsg?.mode,
+        status: 'pending',
+        activityStage: 'Thinking',
+      };
+      thread.messages.push(streamingMessage);
+    }
+
+    this.notifyChange();
 
     let responseText = '';
     let status: 'completed' | 'failed' = 'completed';
@@ -738,6 +801,7 @@ export class ConversationEngine {
     let requestedMode: string | undefined = lastUserMsg?.mode;
     let appliedMode: string | undefined;
     let thinkingLevel: string | undefined;
+    let taskTier: 'everyday' | 'advanced' | undefined;
 
     try {
       if (!this.accessToken || !this.activeUserId) {
@@ -750,13 +814,14 @@ export class ConversationEngine {
         thread.studioId
       );
 
-      // Include valid prior turns only (exclude failed/unsent placeholders) and bound total char count cleanly
+      // Include valid prior turns only (exclude failed/unsent/pending placeholders) and bound total char count cleanly
       const validHistory = thread.messages
         .filter(
           (message) =>
             (message.sender === 'user' || message.sender === 'angel') &&
             message.status !== 'failed' &&
-            message.status !== 'unsent'
+            message.status !== 'unsent' &&
+            message.status !== 'pending'
         )
         .slice(-30);
 
@@ -779,7 +844,6 @@ export class ConversationEngine {
       }
       const priorHistory = priorHistoryReversed.reverse();
 
-      const activeModeLabel = lastUserMsg?.mode || 'Standard Intelligent';
       const systemInstruction = [
         'You are Angel, a thoughtful, natural, highly capable Universal Personal AI Companion.',
         'Communicate clearly, concisely, and naturally without robotic boilerplate or generic filler.',
@@ -805,33 +869,73 @@ export class ConversationEngine {
         lastUserMsg?.attachmentDetails
       );
 
-      let result = await geminiModelService.generateChatResponse(
-        priorHistory,
-        promptText,
-        lastUserMsg?.mode,
-        systemInstruction,
-        this.accessToken,
-        undefined,
-        attachmentPayloads
-      );
+      let lastStreamNotifyAt = 0;
+      const runStreamAttempt = (tokenToUse: string) =>
+        geminiModelService.generateChatStream(
+          priorHistory,
+          promptText,
+          lastUserMsg?.mode,
+          systemInstruction,
+          tokenToUse,
+          attachmentPayloads,
+          {
+            signal: abortController.signal,
+            onStage: (stageInfo) => {
+              this.threadExecutionStages.set(thread.id, {
+                stage: stageInfo.stage,
+                label: stageInfo.label,
+              });
+              if (streamingMessage) {
+                streamingMessage.activityStage = stageInfo.stage;
+                streamingMessage.taskTier = stageInfo.taskTier;
+                streamingMessage.modelUsed = stageInfo.modelUsed;
+              }
+              this.notifyChange();
+            },
+            onDelta: (_delta, fullSoFar) => {
+              if (!streamingMessage) return;
+              streamingMessage.content = fullSoFar;
+              streamingMessage.activityStage = 'Executing';
+              const nowMs = Date.now();
+              if (nowMs - lastStreamNotifyAt >= 32) {
+                lastStreamNotifyAt = nowMs;
+                this.notifyChange();
+              }
+            },
+          }
+        );
 
-      if (!result.success && result.statusCode === 401 && this.tokenRefresher) {
+      let result = await runStreamAttempt(this.accessToken);
+
+      if (!result.success && result.statusCode === 401 && this.tokenRefresher && !abortController.signal.aborted) {
         const refreshedToken = await this.tokenRefresher().catch(() => null);
         if (refreshedToken && refreshedToken.trim()) {
           this.accessToken = refreshedToken.trim();
-          result = await geminiModelService.generateChatResponse(
-            priorHistory,
-            promptText,
-            lastUserMsg?.mode,
-            systemInstruction,
-            this.accessToken,
-            undefined,
-            attachmentPayloads
-          );
+          if (streamingMessage) streamingMessage.content = '';
+          result = await runStreamAttempt(this.accessToken);
         }
       }
 
-      if (!result.success || !result.text?.trim()) {
+      if (abortController.signal.aborted) {
+        const partial = streamingMessage?.content?.trim() || '';
+        if (partial) {
+          responseText = partial;
+          status = 'completed';
+          errorMessage = 'Stopped by user.';
+        } else {
+          status = 'failed';
+          errorMessage = 'Response stopped before any tokens arrived.';
+          responseText = errorMessage;
+        }
+        modelUsed = result.modelUsed;
+        requestedModel = result.requestedModel;
+        taskTier = result.taskTier;
+        activityEngine.updateTaskStatus(
+          activityTask.id,
+          status === 'completed' ? 'completed' : 'failed_interrupted',
+          status === 'completed' ? undefined : errorMessage
+        );
+      } else if (!result.success || !result.text?.trim()) {
         const aiErr = new Error(
           result.error || 'Angel could not reach the conversation service. Please try again.'
         ) as Error & { statusCode?: number; diagnostic?: Record<string, unknown> };
@@ -845,28 +949,30 @@ export class ConversationEngine {
           model: result.modelUsed || geminiModelService.getCachedStatus().model,
         };
         throw aiErr;
-      }
+      } else {
+        responseText = result.text.trim();
+        modelUsed = result.modelUsed;
+        requestedModel = result.requestedModel;
+        fallbackActivated = result.fallbackActivated;
+        requestedMode = result.requestedMode || lastUserMsg?.mode;
+        appliedMode = result.appliedMode;
+        thinkingLevel = result.thinkingLevel;
+        taskTier = result.taskTier;
+        activityEngine.updateTaskStatus(activityTask.id, 'completed');
 
-      responseText = result.text.trim();
-      modelUsed = result.modelUsed;
-      requestedModel = result.requestedModel;
-      fallbackActivated = result.fallbackActivated;
-      requestedMode = result.requestedMode || lastUserMsg?.mode;
-      appliedMode = result.appliedMode;
-      thinkingLevel = result.thinkingLevel;
-
-      // Refine thread title via server AI endpoint on first completed turn when not custom-titled
-      const userTurns = thread.messages.filter((m) => m.sender === 'user');
-      if (!thread.isCustomTitle && userTurns.length === 1 && this.accessToken && typeof window !== 'undefined') {
-        const tokenSnapshot = this.accessToken;
-        void geminiModelService.generateTitle(promptText, tokenSnapshot).then((aiTitle) => {
-          const current = this.threads.find((t) => t.id === thread.id);
-          if (current && !current.isCustomTitle && aiTitle && aiTitle !== current.title) {
-            current.title = aiTitle;
-            current.updatedAt = new Date().toISOString();
-            this.persist();
-          }
-        });
+        // Refine thread title via server AI endpoint on first completed turn when not custom-titled
+        const userTurns = thread.messages.filter((m) => m.sender === 'user');
+        if (!thread.isCustomTitle && userTurns.length === 1 && this.accessToken && typeof window !== 'undefined') {
+          const tokenSnapshot = this.accessToken;
+          void geminiModelService.generateTitle(promptText, tokenSnapshot).then((aiTitle) => {
+            const current = this.threads.find((t) => t.id === thread.id);
+            if (current && !current.isCustomTitle && aiTitle && aiTitle !== current.title) {
+              current.title = aiTitle;
+              current.updatedAt = new Date().toISOString();
+              this.persist();
+            }
+          });
+        }
       }
     } catch (error) {
       status = 'failed';
@@ -884,34 +990,55 @@ export class ConversationEngine {
         }).userMessage;
       }
       responseText = errorMessage;
+      activityEngine.updateTaskStatus(activityTask.id, 'failed_interrupted', errorMessage);
     } finally {
       this.inFlightThreads.delete(thread.id);
-      this.notifyChange();
+      this.activeAbortControllers.delete(thread.id);
+      this.threadExecutionStages.delete(thread.id);
     }
 
-    const assistantNow = new Date();
-    const assistantMessage: ChatMessage = {
-      id: createUniqueId('msg_ai'),
-      sender: 'angel',
-      content: responseText,
-      timestamp: assistantNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      createdAt: assistantNow.toISOString(),
-      sequence: thread.messages.length,
-      mode: lastUserMsg?.mode,
-      status,
-      error: errorMessage,
-      modelUsed,
-      requestedModel,
-      fallbackActivated,
-      requestedMode,
-      appliedMode,
-      thinkingLevel,
-    };
+    const finishedAt = new Date();
+    let finalAssistantMessage: ChatMessage;
+    if (streamingMessage) {
+      streamingMessage.content = responseText;
+      streamingMessage.timestamp = finishedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      streamingMessage.createdAt = finishedAt.toISOString();
+      streamingMessage.status = status;
+      streamingMessage.error = errorMessage;
+      streamingMessage.modelUsed = modelUsed;
+      streamingMessage.requestedModel = requestedModel;
+      streamingMessage.fallbackActivated = fallbackActivated;
+      streamingMessage.requestedMode = requestedMode;
+      streamingMessage.appliedMode = appliedMode;
+      streamingMessage.thinkingLevel = thinkingLevel;
+      streamingMessage.taskTier = taskTier;
+      streamingMessage.activityStage = status === 'completed' ? 'Reviewing' : undefined;
+      finalAssistantMessage = streamingMessage;
+    } else {
+      finalAssistantMessage = {
+        id: createUniqueId('msg_ai'),
+        sender: 'angel',
+        content: responseText,
+        timestamp: finishedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        createdAt: finishedAt.toISOString(),
+        sequence: thread.messages.length,
+        mode: lastUserMsg?.mode,
+        status,
+        error: errorMessage,
+        modelUsed,
+        requestedModel,
+        fallbackActivated,
+        requestedMode,
+        appliedMode,
+        thinkingLevel,
+        taskTier,
+      };
+      thread.messages.push(finalAssistantMessage);
+    }
 
-    thread.messages.push(assistantMessage);
-    thread.updatedAt = assistantNow.toISOString();
+    thread.updatedAt = finishedAt.toISOString();
     this.persist();
-    return assistantMessage;
+    return finalAssistantMessage;
   }
 
   searchHistory(query: string, scopeFilter?: ConversationScope): { thread: ConversationThread; matches: ChatMessage[] }[] {

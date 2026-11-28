@@ -256,7 +256,11 @@ export class UniversalComposerService {
 
       switch (context.type) {
         case 'general': {
-          const threadId = context.conversationId || conversationEngine.getActiveThread('general').id;
+          const threadId =
+            context.conversationId ||
+            (context.createNewThread
+              ? conversationEngine.createThread('general', undefined, context.title || 'New Conversation').id
+              : conversationEngine.getActiveThread('general').id);
           const aiMsg = await this.submitUserTurnAndGenerate(
             threadId,
             fullContent,

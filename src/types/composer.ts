@@ -27,6 +27,7 @@ export interface ComposerContext {
   capabilities?: string[];
   permissions?: string[];
   title?: string;
+  createNewThread?: boolean;
 }
 
 import { AttachmentRecord, LinkPreview } from './attachment';

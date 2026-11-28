@@ -1,0 +1,737 @@
+# ANGEL COMPANION: MASTER PRODUCT, FUNCTIONAL, INTELLIGENCE & UI IMPLEMENTATION BLUEPRINT
+
+## ROLE
+
+Act as a principal software architect, senior full-stack engineer, AI systems engineer, multimodal application engineer, database architect, security engineer, and UI/UX implementation specialist.
+
+You are working on **Angel Companion**, an evolving universal personal AI companion.
+
+Active repository: `DanielNO-lang/angel-companion`
+
+Do not confuse this project with the older `Angel-ai-New` repository.
+
+The current stack includes React 19, TypeScript, Vite, Google Gemini, Netlify Functions, Supabase, PostgreSQL, GitHub Actions, and Three.js.
+
+Your job is to implement the requirements below in dependency order, not merely produce another architecture document.
+
+## 1. NON-NEGOTIABLE WORKING RULES
+
+1. Audit the existing source code before changing anything.
+2. Reuse existing working services and components where appropriate.
+3. Do not duplicate engines or create unnecessary parallel implementations.
+4. Do not alter approved interface layouts unless the requirement explicitly authorizes it.
+5. Do not remove existing working functionality while implementing new features.
+6. Do not introduce fake responses, mock success states, simulated progress, or placeholder integrations into production.
+7. Do not expose `GEMINI_API_KEY`, Supabase service-role credentials, or other secrets in frontend code.
+8. Do not delete, reset, or silently reparent user data.
+9. Every feature must have a clear acceptance test.
+10. A successful build is not proof that a feature works. Test the actual user journey.
+11. Keep production deployment and database migrations behind their existing approval safeguards.
+12. Implement changes in small, reviewable groups and report exactly what is complete, tested, partially working, or awaiting configuration.
+
+**Immediate priority: functional reliability.** Do not begin cosmetic redesign while the core application is unreliable.
+
+## 2. GEMINI INTELLIGENCE AND CHAT FOUNDATION
+
+The current model configuration is:
+
+- Primary: `gemini-3.8-flash`
+- Emergency fallback: `gemini-3.1-flash-lite`
+
+Keep the model configuration server-side and configurable. Do not reintroduce Gemini Hydrogen or silently change the selected model strategy.
+
+Implement and verify:
+
+- Secure authenticated requests from the frontend to the Netlify chat function.
+- Correct server-side Gemini API key handling.
+- Multi-turn conversation history.
+- Reliable retries with bounded timeouts and backoff.
+- Primary-model failure detection and fallback activation.
+- Protection against duplicate submissions.
+- Proper cancellation and recovery of interrupted requests.
+- Clear request IDs and internal diagnostics.
+- Accurate success, loading, retry, and failure states.
+- No false success when generation fails.
+- No lost user drafts after a failed request.
+- No hardcoded assistant replies presented as genuine Gemini responses.
+- Real response streaming from the server to the frontend.
+- Stable rendering while tokens arrive.
+- Conversation history and relevant memory supplied to the model without mixing unrelated conversations.
+
+The chat must remain reliable beyond the first two or three messages. Test long multi-turn conversations, transient provider failures, authentication expiry, and fallback activation.
+
+## 3. CONVERSATION LIFECYCLE AND RECENT CONVERSATIONS
+
+Implement the following exact behaviour.
+
+### New Conversation
+
+When the user selects New Conversation:
+
+- Create a genuinely new conversation.
+- Display the New Conversation empty state.
+- Show the Angel companion identity and useful suggested conversation starters.
+- Do not automatically reopen an older conversation.
+
+When the user sends the first message:
+
+- Create and persist the new conversation.
+- Add it to Recent Conversations.
+- Automatically select that new conversation.
+- Navigate the user into the newly created conversation.
+- Keep the new conversation active for subsequent messages.
+
+### Automatic conversation titles
+
+Generate a meaningful title from the first message or first two messages.
+
+The title must describe the actual subject of the conversation, not use generic labels.
+
+Allow automatic title refinement where useful, but do not repeatedly overwrite a title the user has manually changed.
+
+### Home composer
+
+When a message is sent from the Home composer:
+
+- Create a new conversation.
+- Add it to Recent Conversations.
+- Automatically select the new conversation.
+- Navigate into that conversation.
+- Continue the conversation there.
+
+Do not accidentally append the message to the previously selected thread.
+
+### Existing conversations
+
+When opening an existing conversation:
+
+- Load the correct thread.
+- Automatically position the view at the latest message.
+- Load older history progressively rather than retrieving everything at once.
+- Preserve message ordering.
+- Preserve the active conversation during generation and navigation.
+
+### Remove
+
+Remove unnecessary prompt-number labels and message-count numbering from individual messages.
+
+Do not make a user's conversation look like a numbered questionnaire.
+
+## 4. CHAT STATE, STREAMING AND RENDERING
+
+The current issue where the conversation disappears or starts over while Angel is thinking must be resolved.
+
+Implement stable conversation state:
+
+- Maintain stable message IDs.
+- Append new messages instead of replacing the entire message array.
+- Keep existing messages mounted during generation.
+- Do not reset the conversation when the assistant changes from thinking to responding.
+- Preserve the current scroll position unless the user is already near the bottom.
+- Automatically scroll to the latest message when appropriate.
+- Allow users to scroll through previous messages without fighting automatic scrolling.
+
+Implement consistent loading behaviour:
+
+- Skeleton loading for assistant responses.
+- Clear indicators for thinking, researching, planning, and responding.
+- Progressive loading of older messages.
+- Graceful empty states.
+- Error recovery without clearing the conversation.
+- Retry controls for failed responses.
+
+Activity indicators must represent real backend events, not fabricated progress animations.
+
+## 5. FILE ATTACHMENTS AND MULTIMODAL UNDERSTANDING
+
+Make file attachments work end-to-end.
+
+The pipeline must include:
+
+1. File selection.
+2. Type and size validation.
+3. Secure local staging.
+4. File extraction and processing.
+5. Private cloud upload where configured.
+6. Retrieval of the actual original file data.
+7. Correct Gemini-compatible attachment payload construction.
+8. Assistant analysis of the actual file contents.
+9. Persistence of attachment metadata and conversation associations.
+10. Cross-device retrieval and error recovery.
+
+Support appropriate file types, including:
+
+- Images.
+- PDFs.
+- Text and Markdown.
+- Word documents.
+- Spreadsheets and CSV files.
+- Presentations.
+- Audio files.
+- Video files.
+- Other safely supported formats.
+
+Do not tell Angel to analyse an image or video if only its filename has been supplied.
+
+For files requiring multimodal input, verify that the original bytes or an appropriate provider-supported file reference are actually available to Gemini.
+
+If the file cannot be retrieved or processed, show a clear explanation and preserve the user's message and draft.
+
+Use private Supabase Storage, signed retrieval, access checks, and sensible file-size limits.
+
+Never expose private file URLs or another user's attachment data.
+
+## 6. VOICE, DICTATION AND LIVE TRANSLATION
+
+The existing speech engine must be connected to the real conversation interface.
+
+### Dictation
+
+- Request microphone permission correctly.
+- Start and stop recording reliably.
+- Display live interim transcription.
+- Preserve final recognized text.
+- Allow the user to edit the transcript before sending.
+- Handle unsupported browsers and microphone errors.
+- Prevent duplicate microphone sessions.
+- Ensure that stopping dictation does not erase the transcript.
+
+### Live translation
+
+Introduce a live translation workflow:
+
+- Detect the spoken source language where supported.
+- Allow the user to select a preferred target language.
+- Translate recognized speech while the user is speaking.
+- Display the transcription and translated result clearly.
+- Allow the user to choose whether to send the original text or translated text.
+- Keep the translation synchronized with the actual recognized speech.
+- Handle network failures and unsupported languages honestly.
+
+Do not claim that translation is live if it only happens after the user presses Send.
+
+### Voice conversation
+
+Provide a working voice conversation experience with:
+
+- Listening state.
+- Thinking state.
+- Speaking state.
+- Interrupt/stop controls.
+- Proper audio playback handling.
+- Recovery from microphone or network failures.
+- Consistent conversation history with text chat.
+
+The same Angel intelligence, conversation history, and memory should power text and voice.
+
+## 7. VIDEO, CAMERA AND SCREEN INPUT
+
+The video and visual-input controls must perform real actions.
+
+Support the appropriate capabilities:
+
+- Camera access.
+- Video capture or supported video upload.
+- Video frame extraction and analysis.
+- Screen sharing where the browser and device permit it.
+- Audio/video permission handling.
+- User-controlled start and stop.
+- Clear visual feedback when a camera or screen is active.
+
+Do not present a video feature as functional if it is only a decorative button.
+
+Use an architecture that can process relevant frames and audio through the same secure intelligence backend.
+
+## 8. SUPABASE, AUTHENTICATION AND PERSISTENCE
+
+Use Supabase as the durable application data layer.
+
+Audit and verify:
+
+- `companion_conversations`
+- `companion_messages`
+- `companion_projects`
+- `companion_studios_state`
+- `companion_agent_executions`
+- Existing memory and library tables.
+
+Implement reliable read/write synchronization.
+
+Ensure:
+
+- Authenticated ownership checks.
+- Correct RLS policies.
+- No cross-user data access.
+- Safe handling of empty database results.
+- No navigation crashes from missing records.
+- Consistent state after refresh.
+- Correct conversation and attachment persistence.
+- Recovery from temporary network interruptions.
+
+Verify OAuth in both AI Studio preview and production.
+
+Use the correct preview callback and production callback paths. Do not break the existing Google sign-in configuration.
+
+Investigate the PWA manifest and service-worker routing separately. Confirm that the manifest URL returns valid JSON with the correct content type, and that Workbox navigation routing does not interfere with application routes.
+
+## 9. INTELLIGENCE, MEMORY AND CONTEXT
+
+Angel should evolve beyond a basic request-response chatbot.
+
+Build a structured context system that can retrieve:
+
+- User preferences.
+- Explicit user corrections.
+- Relevant conversation history.
+- Active projects.
+- Workspace information.
+- Studio state.
+- Previous agent executions.
+- Relevant stored documents and library resources.
+
+Introduce a structured User Memory and Corrections system.
+
+Memory should support:
+
+- Cross-session continuity.
+- Cross-device continuity.
+- User-approved corrections.
+- Context relevance.
+- Updates and conflict resolution.
+- Privacy and ownership controls.
+
+Do not inject every stored fact into every prompt. Retrieve only context relevant to the current request.
+
+Angel should distinguish between known information, inferred information, and information it does not have.
+
+## 10. INTELLIGENCE ROUTING AND ACTIVITY ARCHITECTURE
+
+Build a task-aware intelligence router.
+
+It should distinguish ordinary conversation from tasks requiring deeper reasoning, research, planning, coding, file analysis, or tool execution.
+
+Use the configured Gemini models appropriately without silently changing the selected default model.
+
+Introduce real activity events for:
+
+- Thinking.
+- Researching.
+- Planning.
+- Building.
+- Creating.
+- Refining.
+- Executing.
+- Reviewing.
+
+Each event should have a real source, timestamp, state, and completion or failure status.
+
+The activity interface must reflect genuine work performed by the backend.
+
+## 11. AGENTS, STUDIOS AND MULTI-AGENT MESH
+
+Transform Agents and Studios from static display areas into functional environments.
+
+Build a controlled multi-agent architecture with specialist roles such as:
+
+- Planner.
+- Researcher.
+- Architect.
+- Builder.
+- Tester.
+- Reviewer.
+- Executor.
+
+Agents must be able to:
+
+- Break complex tasks into smaller steps.
+- Delegate appropriate subtasks.
+- Share relevant context.
+- Produce structured outputs.
+- Validate intermediate work.
+- Recover from failures.
+- Record execution results.
+
+Use Gemini tool/function calling where appropriate.
+
+Persist agent executions and state transitions:
+
+`pending → running → completed / failed`
+
+Record meaningful execution logs in `companion_agent_executions`.
+
+### Safe self-building workflow
+
+Angel should eventually be able to build applications and tools progressively, component by component.
+
+Implement this through a controlled workflow:
+
+1. Understand the requested outcome.
+2. Create a structured plan.
+3. Generate one component or module at a time.
+4. Validate each component.
+5. Run tests in an isolated environment.
+6. Show the result in a preview.
+7. Refine components.
+8. Present a final review.
+9. Request approval before consequential deployment or external execution.
+
+Do not implement unsafe live DOM injection or unrestricted code execution. Use isolated sandboxes, versioned changes, and controlled previews.
+
+## 12. TOOLS, CONNECTORS, PLUGINS AND SKILLS
+
+Treat tools as a unified capability ecosystem.
+
+Include:
+
+- Native tools.
+- External API integrations.
+- Connectors.
+- Plugins.
+- Skills.
+- File-processing utilities.
+- Secure execution environments.
+- Research tools.
+- Developer tools.
+
+Angel should identify the capability needed for a task and select an available tool.
+
+Where possible, it should be able to understand API documentation and prepare new integrations through a controlled development workflow.
+
+External integrations must use explicit permissions, secure credentials, audit logs, and clear user approval for consequential actions.
+
+## 13. PROACTIVE AUTONOMY AND SCHEDULING
+
+Build the foundation for:
+
+- Scheduled tasks.
+- Reminders.
+- Deadline monitoring.
+- Background workflows.
+- Proactive check-ins.
+- Project monitoring.
+- Conditional triggers.
+
+Use suitable serverless scheduling infrastructure such as Netlify Scheduled Functions or Supabase Edge Functions with `pg_cron`, after reviewing the existing architecture.
+
+Background activity must be observable and controllable by the user.
+
+## 14. EXTERNAL EXECUTION AND FINANCIAL CAPABILITIES
+
+Design a secure execution layer for future productivity, file, business, financial, and monetization integrations.
+
+Requirements:
+
+- Explicit user-defined permissions.
+- Least-privilege access.
+- Confirmation before consequential actions.
+- Execution records.
+- Reversible operations where possible.
+- Failure recovery.
+- Clear reporting.
+
+Angel must never pretend that an external transaction, payment, deployment, or other action has succeeded without confirmation from the actual service.
+
+## 15. DECOUPLED MULTIMODAL ARCHITECTURE
+
+Keep Angel's intelligence, memory, tools, and execution systems independent from the current web interface.
+
+Provide suitable API and real-time interfaces so future clients can connect to the same core.
+
+Prepare for:
+
+- Voice interfaces.
+- Video and visual streams.
+- Ambient experiences.
+- Animated companion avatars.
+- Additional devices and platforms.
+
+Do not rebuild the intelligence separately for every new interface.
+
+## 16. NAVIGATION AND APPLICATION STRUCTURE
+
+Keep these areas distinct:
+
+- Home.
+- New Conversation.
+- Adaptive Workspace.
+- Activities.
+- Agents.
+- Workspace.
+- Studios.
+- Tools.
+
+The More menu should not duplicate items already present in the main sidebar.
+
+Keep Apps, Devices, Schedules, Locked Chats, Archive, and Recycle Bin under More where appropriate.
+
+Remove duplicate entries such as Incognito Session, System Status, Agents, or Studios from secondary menus when the same capability already has its proper primary location.
+
+The More pop-up should align beside the sidebar and must not cover Recent Conversations or prevent sidebar interaction.
+
+Move Account & Identities into the main Settings area.
+
+## 17. RESPONSIVE MOBILE AND DESKTOP STRUCTURE
+
+Desktop:
+
+- Preserve the multi-pane layout.
+- Maintain the sidebar and active conversation/workspace.
+- Avoid unnecessary horizontal overflow.
+
+Mobile:
+
+- Use a clean single-pane layout.
+- Use a responsive navigation drawer.
+- Move Sign In and Get Started into More Options on the landing page.
+- Keep the conversation header visible.
+- Keep the composer fixed at the bottom.
+- Restrict scrolling primarily to the conversation area.
+- Ensure touch-friendly controls.
+- Do not require scrolling before the composer becomes visible.
+
+Both layouts must use the same underlying conversation and application state.
+
+## 18. COSMIC AND CLOUDY VISUAL ENVIRONMENTS
+
+These visual changes are a later implementation phase. Do not allow them to delay functional repairs.
+
+### Theme naming
+
+Use a general setting called **Mode**, with the choices:
+
+- Cosmic.
+- Cloudy.
+
+Do not display redundant labels such as Cosmic Mode everywhere.
+
+The transition between themes should be smooth and consistent across the entire application, not applied element by element.
+
+### Cosmic environment
+
+Develop a realistic, layered space environment.
+
+Include:
+
+- The Sun.
+- Mercury.
+- Venus.
+- Earth.
+- Mars.
+- Jupiter.
+- Saturn.
+- Uranus.
+- Neptune.
+- Pluto, accurately labelled as a dwarf planet.
+- Major planetary moons.
+- Asteroids.
+- Meteoroids.
+- Satellites.
+- Shooting stars.
+- Exoplanets.
+- Nebulae.
+- Black holes.
+- Star fields and other realistic astronomical elements.
+
+Use high-quality, scientifically grounded visual references and texture assets.
+
+Planets must have genuine surface variation, rotation, lighting, and visible different sides. Do not duplicate one image or texture to represent every side.
+
+Use Three.js/WebGL where appropriate for realistic rendering, orbital motion, depth, and lighting.
+
+Stars should retain the attractive small-point appearance while using natural variation in brightness, size, and distribution.
+
+Build the environment in layers and optimize it for mobile devices, reduced-motion preferences, and performance.
+
+### Cloudy environment
+
+Cloudy is not yet a fully finalized visual concept.
+
+Research and present alternative light-environment concepts before selecting one.
+
+Explore suitable atmospheric directions such as soft daylight, powder-blue skies, layered clouds, sunlight, and other calm, realistic environments.
+
+Do not simply invert Cosmic colours.
+
+The light-mode icon should use a suitable cloudy/light palette rather than the existing yellow-orange appearance.
+
+## 19. ANGEL IDENTITY AND VISUAL ANIMATION
+
+Preserve the approved Home screen layout.
+
+The approved home reference is:
+
+`public/assets/aistudio/ANGEL_HOME_APPROVED_REFERENCE_1a3ba18e.png`
+
+Do not redesign or rearrange it without explicit approval.
+
+The authorized companion-orb replacement is permitted.
+
+Build three animation layers:
+
+1. Environment animation.
+2. Angel identity and companion-orb animation.
+3. Interface micro-interactions.
+
+The companion orb should support idle, listening, thinking, and speaking states.
+
+All animation must be optimized for mobile performance and reduced-motion settings.
+
+## 20. UI REFINEMENT BACKLOG FOR GOOGLE AI STUDIO
+
+These refinements must be implemented only after the functional acceptance gates have passed.
+
+### Landing page
+
+- Consolidate Sign In and Get Started into More Options on mobile.
+- Keep the desktop navigation visible on desktop.
+- Remove unnecessary horizontally scrolling navigation on mobile.
+- Remove redundant Angel branding text next to the logo.
+- Keep Angel as the primary hero heading.
+- Use “More Than AI. Your Personal Companion” as the supporting line.
+- Remove unnecessary explanatory filler.
+- Keep Get Started and Explore Angel on one line, including mobile.
+- Keep “Nine Interconnected Environments Under One Companion.”
+- Remove unnecessary Core Capabilities headings and redundant instructional copy.
+- Remove Illustrative Preview labels and Inspect Preview buttons.
+- Remove secondary environment headings where the actual feature title already exists.
+- Retain concise, useful explanations of how each capability connects across Angel.
+- Use consistent, transparent icon-and-text action buttons without unnecessary surrounding boxes.
+
+### Headers and visual controls
+
+- Apply the described gradual header blur: transparent at the lower edge, progressively blurred toward the top.
+- Avoid harsh dividing lines.
+- Remove unnecessary circles and backgrounds behind header action icons.
+- Preserve readability and appropriate contrast.
+
+### Dashboard
+
+- Preserve the approved Home layout.
+- Remove redundant labels and decorative text.
+- Keep the existing blue/indigo direction consistent in Cosmic.
+- Use consistent interaction styles.
+- Keep the companion identity and logo from overlapping important controls.
+
+### Conversation header
+
+- Keep the Angel logo and conversation title.
+- Remove unnecessary Angel text branding in the header.
+- Put plus, delete, and share actions inside a More dropdown.
+- Keep the header sticky.
+- Keep the composer at the bottom.
+
+### Composer
+
+- Reduce visible buttons to the essential actions.
+- Put less frequently used tools in a dropdown.
+- Keep the Add action on the opposite side of the composer from the main send/live action.
+- Apply that positioning consistently across relevant composers.
+- Remove the standalone dictation icon from the Home composer toggle; make dictation accessible through the appropriate voice/tool control.
+- Use subtle, borderless icon treatments instead of prominent button backgrounds.
+- Preserve useful interaction feedback.
+
+### Expanding text input
+
+- The input should expand upward as the user types.
+- Keep at least five visible text lines.
+- After five lines, the input should scroll internally rather than continue growing.
+- Keep the composer action buttons in fixed positions while the input expands.
+
+### Message display
+
+- Do not wipe previous messages while Angel thinks or responds.
+- Use stable message rendering.
+- Keep the latest response visible when appropriate.
+- Add useful retry and export controls where appropriate.
+- Do not display artificial prompt numbering.
+
+## 21. PERFORMANCE AND RELIABILITY
+
+Review:
+
+- Progressive loading.
+- Lazy loading of heavy assets.
+- Efficient message pagination.
+- Three.js/WebGL rendering performance.
+- Mobile memory use.
+- PWA caching.
+- Service-worker route handling.
+- Network failure recovery.
+- Safe state initialization.
+
+Do not load the entire conversation history or every visual asset unnecessarily.
+
+## 22. FINAL ACCEPTANCE GATES
+
+Angel is not ready to move to the next major category until the following are demonstrated.
+
+### Chat
+- Authenticated real Gemini response.
+- More than three consecutive turns.
+- Correct conversation history.
+- Correct primary/fallback model handling.
+- No false-success state.
+- No draft loss.
+- No conversation reset.
+- Streaming works.
+
+### Conversation lifecycle
+- New Conversation creates a new thread.
+- Home composer creates a new thread.
+- The new thread is automatically selected.
+- It appears in Recent Conversations.
+- Its title is generated correctly.
+- Previous conversations remain intact.
+- No unwanted prompt numbering.
+
+### Attachments
+- Real image understanding.
+- Real document extraction.
+- Private cloud retrieval.
+- Cross-device access.
+- Correct failure handling.
+
+### Voice and video
+- Working dictation.
+- Live transcription.
+- Live translation.
+- Working voice conversation.
+- Verified video/camera/screen input where supported.
+
+### Persistence and authentication
+- Correct Supabase reads and writes.
+- Correct RLS.
+- Refresh persistence.
+- Preview and production OAuth verification.
+- No data leakage.
+
+### Intelligence
+- Relevant memory retrieval.
+- Task-aware routing.
+- Genuine activity events.
+- Working planning and tool execution foundations.
+
+### Release discipline
+- Type-check passes.
+- Full test suite passes.
+- Production build passes.
+- Netlify function bundling passes.
+- Client secret scan passes.
+- Preview deployment is verified.
+- Production deployment remains a separately approved action.
+
+## 23. EXECUTION INSTRUCTIONS
+
+Work in this order:
+
+1. Complete the functional repair programme.
+2. Verify each requirement with real tests.
+3. Fix any failures discovered.
+4. Complete end-to-end acceptance.
+5. Produce a precise implementation report.
+6. Only then begin the larger UI refinement phase.
+7. Preserve the complete backlog above for later implementation.
+
+Do not claim that Angel is finished because a build passed. Angel is finished with a phase only when its actual functionality has been demonstrated.
+
+The objective is a reliable, intelligent, persistent, multimodal companion whose capabilities genuinely work, not merely a visually impressive interface.

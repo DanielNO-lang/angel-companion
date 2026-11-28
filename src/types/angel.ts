@@ -79,6 +79,8 @@ export interface ChatMessage {
   requestedMode?: string;
   appliedMode?: string;
   thinkingLevel?: string;
+  activityStage?: string;
+  taskTier?: 'everyday' | 'advanced';
 }
 
 export interface ActivityRecord {

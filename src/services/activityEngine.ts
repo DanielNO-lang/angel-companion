@@ -23,78 +23,42 @@ export interface TaskRecord {
   requiresApproval?: boolean;
 }
 
-const DEFAULT_ACTIVITIES: TaskRecord[] = [
-  {
-    id: 'act_1',
-    title: 'Research Analysis & Synthesis Task',
-    category: 'Research',
-    status: 'completed',
-    createdAt: new Date(Date.now() - 3600000).toISOString(),
-    updatedAt: new Date(Date.now() - 3500000).toISOString(),
-    durationMs: 1200,
-    initiatedBy: 'user',
-    details: 'Parsed 14 scholarly references and generated executive abstract.',
-  },
-  {
-    id: 'act_2',
-    title: 'Autonomous Code Refactoring Pipeline',
-    category: 'Development',
-    status: 'running',
-    createdAt: new Date(Date.now() - 600000).toISOString(),
-    updatedAt: new Date(Date.now() - 600000).toISOString(),
-    durationMs: 0,
-    initiatedBy: 'angel_self',
-    details: 'Optimizing TypeScript module import paths and AST tree.',
-  },
-  {
-    id: 'act_3',
-    title: 'Database Schema Migration Approval',
-    category: 'Storage',
-    status: 'waiting_approval',
-    createdAt: new Date(Date.now() - 1200000).toISOString(),
-    updatedAt: new Date(Date.now() - 1200000).toISOString(),
-    durationMs: 0,
-    initiatedBy: 'workflow',
-    details: 'Awaiting user confirmation to execute PostgreSQL RLS migrations.',
-    requiresApproval: true,
-  },
-  {
-    id: 'act_4',
-    title: 'Daily Telemetry & Diagnostic Scan',
-    category: 'Monitoring',
-    status: 'scheduled',
-    createdAt: new Date(Date.now() - 7200000).toISOString(),
-    updatedAt: new Date(Date.now() - 7200000).toISOString(),
-    durationMs: 320,
-    initiatedBy: 'scheduled_cron',
-    details: 'Scheduled to run every 12 hours.',
-  },
-  {
-    id: 'act_5',
-    title: 'External Webhook Connection Test',
-    category: 'Integrations',
-    status: 'failed_interrupted',
-    createdAt: new Date(Date.now() - 14400000).toISOString(),
-    updatedAt: new Date(Date.now() - 14400000).toISOString(),
-    durationMs: 450,
-    initiatedBy: 'user',
-    details: 'Connection timed out after 3 retries.',
-    errorLog: 'ERR_TIMEOUT: External provider returned 504 Gateway Timeout',
-  },
-];
+const LEGACY_FABRICATED_ACTIVITY_IDS = new Set(['act_1', 'act_2', 'act_3', 'act_4', 'act_5']);
 
 export class ActivityEngine {
   private tasks: TaskRecord[];
+  private listeners = new Set<() => void>();
 
   constructor() {
-    this.tasks = storageService.load<TaskRecord[]>(
-      STORAGE_KEYS.activities,
-      DEFAULT_ACTIVITIES
-    );
+    const loaded = storageService.load<TaskRecord[]>(STORAGE_KEYS.activities, []);
+    this.tasks = Array.isArray(loaded)
+      ? loaded.filter((t) => t && !LEGACY_FABRICATED_ACTIVITY_IDS.has(t.id))
+      : [];
+    if (Array.isArray(loaded) && this.tasks.length !== loaded.length) {
+      this.persist();
+    }
+  }
+
+  public subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify() {
+    this.listeners.forEach((listener) => {
+      try {
+        listener();
+      } catch {
+        // ignore listener failure
+      }
+    });
   }
 
   private persist() {
     storageService.save(STORAGE_KEYS.activities, this.tasks);
+    this.notify();
   }
 
   getTasks(filterStatus?: TaskLifecycleStatus | 'all'): TaskRecord[] {
@@ -110,7 +74,7 @@ export class ActivityEngine {
     initialStatus: TaskLifecycleStatus = 'running'
   ): TaskRecord {
     const newTask: TaskRecord = {
-      id: `task_${Date.now()}`,
+      id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       title,
       category,
       status: initialStatus,
@@ -122,6 +86,9 @@ export class ActivityEngine {
     };
 
     this.tasks.unshift(newTask);
+    if (this.tasks.length > 100) {
+      this.tasks = this.tasks.slice(0, 100);
+    }
     this.persist();
     return newTask;
   }
@@ -134,7 +101,7 @@ export class ActivityEngine {
       if (errorMsg) task.errorLog = errorMsg;
       if (newStatus === 'completed' || newStatus === 'failed_interrupted') {
         const start = new Date(task.createdAt).getTime();
-        task.durationMs = Date.now() - start;
+        task.durationMs = Math.max(0, Date.now() - start);
       }
       this.persist();
       return true;

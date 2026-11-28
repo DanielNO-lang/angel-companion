@@ -82,7 +82,21 @@ export interface ModelChatResponse {
   appliedMode?: string;
   thinkingLevel?: string;
   requestId?: string;
+  taskTier?: 'everyday' | 'advanced';
+  routingReason?: string;
   diagnostic?: Record<string, unknown>;
+}
+
+export interface ChatStreamCallbacks {
+  signal?: AbortSignal;
+  onStage?: (stage: {
+    stage: string;
+    label: string;
+    requestedModel?: string;
+    modelUsed?: string;
+    taskTier?: 'everyday' | 'advanced';
+  }) => void;
+  onDelta?: (deltaText: string, fullTextSoFar: string) => void;
 }
 
 export interface ChatAttachmentPayload {
@@ -638,6 +652,295 @@ export class GeminiModelService {
       };
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  public async generateChatStream(
+    history: ChatMessage[],
+    newMessage: string,
+    mode?: string,
+    systemInstruction?: string,
+    accessToken?: string,
+    attachments?: ChatAttachmentPayload[],
+    callbacks?: ChatStreamCallbacks
+  ): Promise<ModelChatResponse> {
+    if (!accessToken) {
+      return {
+        success: false,
+        error: 'Sign in with a verified account to start a private conversation with Angel.',
+        status: 'unauthenticated',
+        statusCode: 401,
+      };
+    }
+
+    if (typeof window === 'undefined' && !globalThis.fetch) {
+      return this.generateChatResponse(history, newMessage, mode, systemInstruction, accessToken, undefined, attachments);
+    }
+
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const internalController = new AbortController();
+    const onExternalAbort = () => internalController.abort();
+    callbacks?.signal?.addEventListener('abort', onExternalAbort, { once: true });
+    const timeout = setTimeout(() => internalController.abort(), 65000);
+
+    try {
+      const messagesPayload = [
+        ...history
+          .filter((m) => (m.sender === 'user' || m.sender === 'angel') && m.status !== 'failed' && m.status !== 'unsent')
+          .map((m) => ({
+            role: m.sender === 'angel' ? 'assistant' : 'user',
+            content: m.content,
+          })),
+        ...(newMessage.trim() ? [{ role: 'user', content: newMessage }] : []),
+      ];
+
+      const res = await fetch('/api/chat?stream=1', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream, application/json',
+          authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          messages: messagesPayload,
+          mode,
+          systemInstruction,
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        }),
+        signal: internalController.signal,
+      });
+
+      const contentType = (res.headers?.get?.('content-type') || '').toLowerCase();
+      const durationMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt);
+      const headerRequestId = res.headers?.get?.('x-request-id') || undefined;
+
+      // Fallback gracefully for JSON responses (e.g. unit test mocks or non-streaming middleware)
+      if (!contentType.includes('text/event-stream') || !res.body || typeof res.body.getReader !== 'function') {
+        let parsedOk = true;
+        const payload = await res.json().catch(() => {
+          parsedOk = false;
+          return {};
+        });
+        const requestId = typeof payload.requestId === 'string' ? payload.requestId : headerRequestId;
+
+        if (res.ok && parsedOk && (payload.reply || payload.text)) {
+          const reply = String(payload.reply || payload.text || '').trim();
+          const activeModel = payload.actualModel || payload.modelUsed || this.lastStatus.model;
+          callbacks?.onDelta?.(reply, reply);
+          return {
+            success: true,
+            text: reply,
+            modelUsed: activeModel,
+            actualModel: activeModel,
+            requestedModel: payload.requestedModel || this.lastStatus.model,
+            fallbackActivated: Boolean(payload.fallbackActivated),
+            ...(payload.fallbackReason ? { fallbackReason: payload.fallbackReason } : {}),
+            ...(typeof payload.retryCount === 'number' ? { retryCount: payload.retryCount } : {}),
+            durationMs: typeof payload.durationMs === 'number' ? payload.durationMs : durationMs,
+            ...(Array.isArray(payload.attemptedModels) ? { attemptedModels: payload.attemptedModels } : {}),
+            requestedMode: payload.requestedMode || mode,
+            appliedMode: payload.appliedMode || mode,
+            thinkingLevel: payload.thinkingLevel,
+            taskTier: payload.taskTier,
+            routingReason: payload.routingReason,
+            requestId,
+          };
+        }
+
+        const derivedCode =
+          res.ok && (!parsedOk || (!payload.reply && !payload.text))
+            ? 'INVALID_RESPONSE'
+            : payload.code || payload.status || (res.status === 401 ? 'UNAUTHENTICATED' : 'PROVIDER_ERROR');
+
+        return {
+          success: false,
+          statusCode: res.status,
+          error:
+            typeof payload.error === 'string'
+              ? payload.error
+              : res.status === 401
+                ? 'Your Angel session has expired. Please sign in again.'
+                : res.status === 429
+                  ? 'Too many requests. Please wait a moment before sending again.'
+                  : 'Angel could not reach the conversation service. Please try again.',
+          status: derivedCode,
+          requestId,
+          diagnostic: {
+            endpoint: '/api/chat',
+            method: 'POST',
+            statusCode: res.status,
+            durationMs,
+            ...(requestId ? { requestId } : {}),
+            errorCode: derivedCode,
+          },
+        };
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let sseBuffer = '';
+      let fullText = '';
+      let doneEvent: Record<string, any> | null = null;
+      let errorEvent: Record<string, any> | null = null;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        sseBuffer += decoder.decode(value, { stream: true });
+
+        const frames = sseBuffer.split(/\r?\n\r?\n/);
+        sseBuffer = frames.pop() ?? '';
+
+        for (const frame of frames) {
+          const dataLines = frame
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trim());
+          if (dataLines.length === 0) continue;
+
+          const jsonText = dataLines.join('\n');
+          try {
+            const evt = JSON.parse(jsonText) as Record<string, any>;
+            if (evt.type === 'stage' && typeof evt.stage === 'string') {
+              callbacks?.onStage?.({
+                stage: evt.stage,
+                label: typeof evt.label === 'string' ? evt.label : evt.stage,
+                requestedModel: typeof evt.requestedModel === 'string' ? evt.requestedModel : undefined,
+                modelUsed: typeof evt.modelUsed === 'string' ? evt.modelUsed : undefined,
+                taskTier: evt.taskTier === 'everyday' || evt.taskTier === 'advanced' ? evt.taskTier : undefined,
+              });
+            } else if (evt.type === 'delta' && typeof evt.text === 'string') {
+              fullText += evt.text;
+              callbacks?.onDelta?.(evt.text, fullText);
+            } else if (evt.type === 'done') {
+              doneEvent = evt;
+            } else if (evt.type === 'error') {
+              errorEvent = evt;
+            }
+          } catch {
+            // Skip malformed SSE frame
+          }
+        }
+      }
+
+      if (errorEvent) {
+        return {
+          success: false,
+          statusCode: typeof errorEvent.statusCode === 'number' ? errorEvent.statusCode : 502,
+          error: typeof errorEvent.error === 'string' ? errorEvent.error : 'Conversation stream failed.',
+          status: typeof errorEvent.code === 'string' ? errorEvent.code : 'PROVIDER_ERROR',
+          requestId: typeof errorEvent.requestId === 'string' ? errorEvent.requestId : headerRequestId,
+          diagnostic: typeof errorEvent.diagnostic === 'object' ? errorEvent.diagnostic : undefined,
+        };
+      }
+
+      const finalText = (doneEvent?.reply || fullText || '').trim();
+      if (!finalText) {
+        return {
+          success: false,
+          statusCode: 502,
+          error: 'Angel returned an empty response. Please try again.',
+          status: 'EMPTY_RESPONSE',
+          requestId: headerRequestId,
+        };
+      }
+
+      const activeModel = doneEvent?.actualModel || doneEvent?.modelUsed || this.lastStatus.model;
+      this.publishStatus({
+        ...this.lastStatus,
+        state: 'generation_successful',
+        connected: true,
+        credentialsConfigured: true,
+        providerReachable: true,
+        generationVerified: true,
+        activeModel,
+        fallbackActivated: Boolean(doneEvent?.fallbackActivated),
+        fallbackModels: [SECONDARY_GEMINI_MODEL],
+        checkedAt: new Date().toISOString(),
+        latencyMs: typeof doneEvent?.durationMs === 'number' ? doneEvent.durationMs : durationMs,
+        message: doneEvent?.fallbackActivated
+          ? `Fallback active (${activeModel}) — primary ${doneEvent?.requestedModel || this.lastStatus.model} temporarily unavailable.`
+          : `Gemini (${activeModel}) responding normally.`,
+      });
+
+      return {
+        success: true,
+        text: finalText,
+        modelUsed: activeModel,
+        actualModel: activeModel,
+        requestedModel: doneEvent?.requestedModel || this.lastStatus.model,
+        fallbackActivated: Boolean(doneEvent?.fallbackActivated),
+        ...(doneEvent?.fallbackReason ? { fallbackReason: doneEvent.fallbackReason } : {}),
+        ...(typeof doneEvent?.retryCount === 'number' ? { retryCount: doneEvent.retryCount } : {}),
+        durationMs: typeof doneEvent?.durationMs === 'number' ? doneEvent.durationMs : durationMs,
+        ...(Array.isArray(doneEvent?.attemptedModels) ? { attemptedModels: doneEvent.attemptedModels } : {}),
+        requestedMode: doneEvent?.requestedMode || mode,
+        appliedMode: doneEvent?.appliedMode || mode,
+        thinkingLevel: doneEvent?.thinkingLevel,
+        taskTier: doneEvent?.taskTier,
+        routingReason: doneEvent?.routingReason,
+        requestId: typeof doneEvent?.requestId === 'string' ? doneEvent.requestId : headerRequestId,
+      };
+    } catch (err: any) {
+      const userAborted = Boolean(callbacks?.signal?.aborted);
+      return {
+        success: false,
+        statusCode: userAborted ? 499 : undefined,
+        error: userAborted
+          ? 'Generation stopped by user.'
+          : err?.name === 'AbortError'
+            ? 'The conversation request timed out. Please retry.'
+            : err?.message || 'Unable to reach Angel conversation service.',
+        status: userAborted ? 'ABORTED_BY_USER' : err?.name === 'AbortError' ? 'timeout' : 'network_error',
+      };
+    } finally {
+      clearTimeout(timeout);
+      callbacks?.signal?.removeEventListener('abort', onExternalAbort);
+    }
+  }
+
+  public async translateText(params: {
+    text: string;
+    targetLanguage: string;
+    sourceLanguage?: string;
+    accessToken?: string;
+    signal?: AbortSignal;
+  }): Promise<{ success: boolean; translatedText?: string; error?: string; statusCode?: number }> {
+    if (!params.accessToken) {
+      return {
+        success: false,
+        statusCode: 401,
+        error: 'Sign in with a verified account to use live voice translation.',
+      };
+    }
+    try {
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          authorization: `Bearer ${params.accessToken}`,
+        },
+        body: JSON.stringify({
+          text: params.text,
+          sourceLanguage: params.sourceLanguage || 'auto',
+          targetLanguage: params.targetLanguage,
+        }),
+        signal: params.signal,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success && typeof data.translatedText === 'string') {
+        return { success: true, translatedText: data.translatedText };
+      }
+      return {
+        success: false,
+        statusCode: res.status,
+        error: typeof data.error === 'string' ? data.error : 'Translation could not be completed.',
+      };
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        return { success: false, error: 'Translation cancelled.' };
+      }
+      return { success: false, error: 'Unable to reach live translation service.' };
     }
   }
 

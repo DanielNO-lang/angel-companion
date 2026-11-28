@@ -100,6 +100,9 @@ import { conversationEngine } from './services/conversationEngine';
 import { voiceEngine } from './services/voiceEngine';
 import { geminiModelService } from './services/geminiModelService';
 import { cloudSyncCoordinator } from './services/cloudSyncCoordinator';
+import { universalAttachmentService } from './services/universalAttachmentService';
+import { voiceConversationService } from './services/voiceConversationService';
+import type { ComposerContext } from './types/composer';
 
 import { ArrowLeft } from 'lucide-react';
 
@@ -267,6 +270,41 @@ export default function App() {
 
   const [cosmicToast, setCosmicToast] = React.useState<string | null>(null);
 
+  const showCosmicToast = React.useCallback((msg: string, durationMs = 4000) => {
+    setCosmicToast(msg);
+    setTimeout(() => setCosmicToast((prev) => (prev === msg ? null : prev)), durationMs);
+  }, []);
+
+  const resolveActiveComposerContext = React.useCallback((): ComposerContext => {
+    if (activeTab === 'new-conversation') {
+      const thread = conversationEngine.getActiveThread('general');
+      return { type: 'general', conversationId: thread.id };
+    }
+    if (activeTab === 'studios') {
+      const studioId = studiosEngine.getActiveStudioId();
+      const studioThread = conversationEngine.getActiveThread('studio', studioId);
+      return { type: 'studio', studioId, conversationId: studioThread.id };
+    }
+    return { type: 'general', createNewThread: true };
+  }, [activeTab]);
+
+  const handleCapturedMediaFrame = React.useCallback(
+    async (dataUrl: string, source: 'camera' | 'screen') => {
+      const targetContext = resolveActiveComposerContext();
+      const result = await universalAttachmentService.stageSnapshotDataUrl(
+        targetContext,
+        dataUrl,
+        source === 'camera' ? 'camera_snapshot' : 'screen_capture'
+      );
+      if (result.success && result.attachment) {
+        showCosmicToast(`Attached ${result.attachment.name} to composer`);
+      } else {
+        showCosmicToast(result.error || 'Could not capture snapshot.');
+      }
+    },
+    [resolveActiveComposerContext, showCosmicToast]
+  );
+
   const handleSelectSpaceObject = async (data: {
     title: string;
     type: string;
@@ -274,22 +312,30 @@ export default function App() {
     detail: string;
   }) => {
     if (!canAccessWorkspace(authSnapshot.status)) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      showCosmicToast('Offline — reconnect to ask Angel about cosmic telemetry.');
+      return;
+    }
     const activeThread = conversationEngine.getActiveThread('general');
     handleSelectThread(activeThread.id, 'general');
     await conversationEngine.addMessage(activeThread.id, data.prompt, 'user');
     setOrbState('thinking');
-    setCosmicToast(`🔭 Intercepted Telemetry: ${data.title}`);
-    setTimeout(() => setCosmicToast(null), 4500);
+    showCosmicToast(`Intercepted Telemetry: ${data.title}`, 4500);
 
-    setTimeout(async () => {
-      setOrbState('speaking');
-      const assistantMsg = await conversationEngine.addMessage(activeThread.id, data.detail, 'angel');
-      voiceEngine.speak(
-        assistantMsg.content,
-        () => setOrbState('speaking'),
-        () => setOrbState('idle')
-      );
-    }, 600);
+    try {
+      const assistantMsg = await conversationEngine.generateAssistantResponse(activeThread.id);
+      if (assistantMsg.status === 'completed' && assistantMsg.content) {
+        voiceEngine.speak(
+          assistantMsg.content,
+          () => setOrbState('speaking'),
+          () => setOrbState('idle')
+        );
+      } else {
+        setOrbState('idle');
+      }
+    } catch {
+      setOrbState('idle');
+    }
   };
 
   const [isAppReady, setIsAppReady] = React.useState(false);
@@ -681,12 +727,20 @@ export default function App() {
 
             {/* 2. Full-Width Single-Line Composer Bar */}
             <SimpleComposerBar
-              context={{ type: 'general' }}
+              context={{ type: 'general', createNewThread: true }}
               onSubmissionStarted={() => {
                 setActiveTab('new-conversation');
               }}
               onSendMessage={() => {
                 setActiveTab('new-conversation');
+              }}
+              onStartVoiceSession={() => {
+                const newThread = conversationEngine.createThread('general', undefined, 'Voice Conversation');
+                setActiveTab('new-conversation');
+                voiceConversationService.startSession({
+                  context: { type: 'general', conversationId: newThread.id },
+                  onOrbStateChange: setOrbState,
+                });
               }}
               onOrbStateChange={setOrbState}
             />
@@ -1005,8 +1059,7 @@ export default function App() {
                 }}
                 onClearMessages={() => {
                   const active = conversationEngine.getActiveThread('general');
-                  active.messages = [];
-                  conversationEngine.renameThread(active.id, 'New Conversation');
+                  conversationEngine.clearThreadMessages(active.id);
                   setActiveTab('new-conversation');
                 }}
                 onExportConversation={() => {
@@ -1088,7 +1141,10 @@ export default function App() {
           />
 
           {/* Global Live Camera Preview & Screen Share Overlays */}
-          <MediaStreamOverlays />
+          <MediaStreamOverlays
+            onCaptureCameraFrame={(dataUrl) => void handleCapturedMediaFrame(dataUrl, 'camera')}
+            onCaptureScreenFrame={(dataUrl) => void handleCapturedMediaFrame(dataUrl, 'screen')}
+          />
         </>
       )}
 

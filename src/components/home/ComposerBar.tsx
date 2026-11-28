@@ -7,6 +7,8 @@ interface ComposerBarProps {
   onSendMessage: (text: string) => void;
   onOrbStateChange: (state: CompanionOrbState) => void;
   onStartVoiceSession?: () => void;
+  isGenerating?: boolean;
+  onStopGenerating?: () => void;
   context?: ComposerContext;
 }
 
@@ -14,6 +16,8 @@ export const ComposerBar: React.FC<ComposerBarProps> = ({
   onSendMessage,
   onOrbStateChange,
   onStartVoiceSession,
+  isGenerating = false,
+  onStopGenerating,
   context = { type: 'general' },
 }) => {
   return (
@@ -23,6 +27,8 @@ export const ComposerBar: React.FC<ComposerBarProps> = ({
         variant="full"
         onOrbStateChange={onOrbStateChange}
         onStartVoiceSession={onStartVoiceSession}
+        isGenerating={isGenerating}
+        onStopGenerating={onStopGenerating}
         onSubmissionStarted={() => {
           onSendMessage('Submitted');
         }}

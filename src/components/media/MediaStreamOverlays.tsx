@@ -1,15 +1,33 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Camera, X } from 'lucide-react';
+import { Camera, Monitor, X } from 'lucide-react';
 import { mediaStreamService } from '../../services/mediaStreamService';
 
 interface MediaStreamOverlaysProps {
   onCaptureCameraFrame?: (frameDataUrl: string) => void;
+  onCaptureScreenFrame?: (frameDataUrl: string) => void;
 }
 
-export const MediaStreamOverlays: React.FC<MediaStreamOverlaysProps> = ({ onCaptureCameraFrame }) => {
+function captureVideoFrame(videoEl: HTMLVideoElement | null): string | null {
+  if (!videoEl || videoEl.readyState < 2) return null;
+  const width = videoEl.videoWidth || 1280;
+  const height = videoEl.videoHeight || 720;
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = width;
+  offCanvas.height = height;
+  const ctx = offCanvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(videoEl, 0, 0, width, height);
+  return offCanvas.toDataURL('image/png');
+}
+
+export const MediaStreamOverlays: React.FC<MediaStreamOverlaysProps> = ({
+  onCaptureCameraFrame,
+  onCaptureScreenFrame,
+}) => {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(() => mediaStreamService.getCameraStream());
   const [screenStream, setScreenStream] = useState<MediaStream | null>(() => mediaStreamService.getScreenStream());
   const videoRef = useRef<HTMLVideoElement>(null);
+  const screenVideoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const unsubscribe = mediaStreamService.subscribe({
@@ -37,6 +55,24 @@ export const MediaStreamOverlays: React.FC<MediaStreamOverlaysProps> = ({ onCapt
     };
   }, [cameraStream]);
 
+  useEffect(() => {
+    const screenEl = screenVideoRef.current;
+    if (!screenEl) return;
+
+    if (screenStream) {
+      screenEl.srcObject = screenStream;
+      screenEl.play().catch((err) => console.warn('[ScreenOverlay] Video play error:', err));
+    } else {
+      screenEl.srcObject = null;
+    }
+
+    return () => {
+      if (screenEl) {
+        screenEl.srcObject = null;
+      }
+    };
+  }, [screenStream]);
+
   const handleStopScreenShare = () => {
     mediaStreamService.stopScreenShare();
   };
@@ -46,42 +82,71 @@ export const MediaStreamOverlays: React.FC<MediaStreamOverlaysProps> = ({ onCapt
   };
 
   const handleCaptureSnapshot = () => {
-    if (!videoRef.current || !cameraStream) return;
     try {
-      const videoEl = videoRef.current;
-      const offCanvas = document.createElement('canvas');
-      offCanvas.width = videoEl.videoWidth || 640;
-      offCanvas.height = videoEl.videoHeight || 480;
-      const ctx = offCanvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(videoEl, 0, 0, offCanvas.width, offCanvas.height);
-        const dataUrl = offCanvas.toDataURL('image/png');
-        if (onCaptureCameraFrame) {
-          onCaptureCameraFrame(dataUrl);
-        }
+      const dataUrl = captureVideoFrame(videoRef.current);
+      if (dataUrl && onCaptureCameraFrame) {
+        onCaptureCameraFrame(dataUrl);
       }
     } catch (err) {
       console.warn('[CameraOverlay] Snapshot capture error:', err);
     }
   };
 
+  const handleCaptureScreen = () => {
+    try {
+      const dataUrl = captureVideoFrame(screenVideoRef.current);
+      if (dataUrl && onCaptureScreenFrame) {
+        onCaptureScreenFrame(dataUrl);
+      }
+    } catch (err) {
+      console.warn('[ScreenOverlay] Screen capture error:', err);
+    }
+  };
+
   return (
     <>
+      {/* Hidden offscreen video element bound to live screen stream for snapshot extraction */}
+      {screenStream && (
+        <video
+          ref={screenVideoRef}
+          autoPlay
+          playsInline
+          muted
+          className="hidden"
+          aria-hidden="true"
+        />
+      )}
+
       {/* 1. SCREEN SHARING VIEWPORT OUTLINE & TOP-RIGHT FLOATING CONTROLS */}
       {screenStream && (
         <>
           {/* Glowing Animated Viewport Outline Line flush with sidebar edge */}
           <div className="fixed top-0 bottom-0 right-0 left-0 md:left-16 lg:left-64 pointer-events-none z-40 border-4 border-cyan-400 shadow-[inset_0_0_30px_rgba(56,189,248,0.5)] animate-pulse transition-all duration-300" />
 
-          <button
-            onClick={handleStopScreenShare}
-            className="fixed top-3 right-4 z-50 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
-            title="End Screen Share"
-            aria-label="Stop screen sharing"
-          >
-            <X className="w-3.5 h-3.5" />
-            <span>Stop Screen Share</span>
-          </button>
+          <div className="fixed top-3 right-4 z-50 flex items-center gap-2">
+            {onCaptureScreenFrame && (
+              <button
+                type="button"
+                onClick={handleCaptureScreen}
+                className="px-3 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+                title="Capture Screen Frame for Angel"
+                aria-label="Capture screen frame"
+              >
+                <Monitor className="w-3.5 h-3.5" />
+                <span>Capture Screen</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleStopScreenShare}
+              className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+              title="End Screen Share"
+              aria-label="Stop screen sharing"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Stop Screen Share</span>
+            </button>
+          </div>
         </>
       )}
 
@@ -96,6 +161,7 @@ export const MediaStreamOverlays: React.FC<MediaStreamOverlaysProps> = ({ onCapt
               <span>Live Camera Feed</span>
             </div>
             <button
+              type="button"
               onClick={handleStopCamera}
               className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
               title="Close Camera Feed"
@@ -118,6 +184,7 @@ export const MediaStreamOverlays: React.FC<MediaStreamOverlaysProps> = ({ onCapt
           {/* Actions Footer */}
           <div className="p-2.5 flex items-center justify-between gap-2 bg-slate-950/60 border-t border-slate-800/80">
             <button
+              type="button"
               onClick={handleCaptureSnapshot}
               className="flex-1 py-1.5 px-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow cursor-pointer"
             >
@@ -125,6 +192,7 @@ export const MediaStreamOverlays: React.FC<MediaStreamOverlaysProps> = ({ onCapt
               <span>Capture Snapshot</span>
             </button>
             <button
+              type="button"
               onClick={handleStopCamera}
               className="py-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium transition-colors cursor-pointer"
             >

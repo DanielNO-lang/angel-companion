@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Sliders, Eye, Mic, Send, Camera, Monitor, Paperclip, Loader2, AlertCircle, RotateCw, X } from 'lucide-react';
+import { Plus, Sliders, Eye, Mic, Send, Camera, Monitor, Paperclip, Loader2, AlertCircle, RotateCw, X, Languages, Square } from 'lucide-react';
 import { CompanionOrbState } from '../../types/angel';
 import { ComposerContext, ComposerMode, ComposerSubmissionResult } from '../../types/composer';
 import { AttachmentRecord } from '../../types/attachment';
@@ -7,6 +7,7 @@ import { universalComposerService } from '../../services/universalComposerServic
 import { universalAttachmentService } from '../../services/universalAttachmentService';
 import { voiceEngine } from '../../services/voiceEngine';
 import { mediaStreamService } from '../../services/mediaStreamService';
+import { SUPPORTED_TRANSLATION_LANGUAGES, translationService } from '../../services/translationService';
 
 export interface UniversalComposerProps {
   context: ComposerContext;
@@ -15,6 +16,8 @@ export interface UniversalComposerProps {
   onSubmitted?: (result: ComposerSubmissionResult) => void;
   onOrbStateChange?: (state: CompanionOrbState) => void;
   onStartVoiceSession?: () => void;
+  isGenerating?: boolean;
+  onStopGenerating?: () => void;
   placeholder?: string;
   className?: string;
 }
@@ -34,6 +37,8 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
   onSubmitted,
   onOrbStateChange,
   onStartVoiceSession,
+  isGenerating = false,
+  onStopGenerating,
   placeholder,
   className = '',
 }) => {
@@ -48,11 +53,15 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
   );
   const [isDragging, setIsDragging] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; type: 'info' | 'error'; canRetry?: boolean } | null>(null);
+  const [translationPrefs, setTranslationPrefs] = useState(() => translationService.getPrefs());
+  const [translatedPreview, setTranslatedPreview] = useState('');
+  const [isTranslating, setIsTranslating] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textRef = useRef(text);
   const infoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const translateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   textRef.current = text;
 
@@ -60,11 +69,20 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
   useEffect(() => {
     return () => {
       if (infoTimeoutRef.current) clearTimeout(infoTimeoutRef.current);
+      if (translateTimerRef.current) clearTimeout(translateTimerRef.current);
+      translationService.cancelInFlight();
       if (voiceEngine.getIsListening()) {
         voiceEngine.stopListening();
       }
     };
   }, []);
+
+  // Subscribe to external staged attachments (e.g. Camera / Screen Share frame capture)
+  useEffect(() => {
+    return universalAttachmentService.subscribe(() => {
+      setStagedAttachments(universalAttachmentService.getStagedAttachments(context));
+    });
+  }, [context.type, context.conversationId, context.studioId, context.projectId, context.agentId]);
 
   // Sync draft and staged attachments when context changes
   useEffect(() => {
@@ -76,6 +94,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
     setActiveMode(universalComposerService.getMode(context));
     setStagedAttachments(universalAttachmentService.getStagedAttachments(context));
     setFeedback(null);
+    setTranslatedPreview('');
   }, [context.type, context.conversationId, context.studioId, context.projectId, context.agentId]);
 
   // Click outside listener for menus
@@ -101,10 +120,65 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
     }, durationMs);
   };
 
+  const scheduleLiveTranslation = (inputText: string, immediate = false) => {
+    if (translateTimerRef.current) {
+      clearTimeout(translateTimerRef.current);
+      translateTimerRef.current = null;
+    }
+    const prefs = translationService.getPrefs();
+    if (!prefs.enabled) return;
+    const cleaned = inputText.trim();
+    if (!cleaned) {
+      setTranslatedPreview('');
+      setIsTranslating(false);
+      return;
+    }
+    translateTimerRef.current = setTimeout(async () => {
+      setIsTranslating(true);
+      const res = await translationService.translate(cleaned, prefs.targetLanguage, prefs.sourceLanguage);
+      setIsTranslating(false);
+      if (res.success && res.translatedText) {
+        setTranslatedPreview(res.translatedText);
+      } else if (res.error && res.error !== 'Translation cancelled.') {
+        setFeedback({ message: res.error, type: 'error', canRetry: false });
+      }
+    }, immediate ? 80 : 650);
+  };
+
   const handleTextChange = (val: string) => {
     setText(val);
     textRef.current = val;
     universalComposerService.setDraft(context, val);
+    if (translationPrefs.enabled) {
+      scheduleLiveTranslation(val);
+    }
+  };
+
+  const handleToggleLiveTranslation = () => {
+    const nextPrefs = translationService.updatePrefs({ enabled: !translationPrefs.enabled });
+    setTranslationPrefs(nextPrefs);
+    if (nextPrefs.enabled && textRef.current.trim()) {
+      scheduleLiveTranslation(textRef.current, true);
+    } else if (!nextPrefs.enabled) {
+      translationService.cancelInFlight();
+      setTranslatedPreview('');
+      setIsTranslating(false);
+    }
+  };
+
+  const handleTargetLanguageChange = (targetLanguage: string) => {
+    const nextPrefs = translationService.updatePrefs({ targetLanguage, enabled: true });
+    setTranslationPrefs(nextPrefs);
+    if (textRef.current.trim()) {
+      scheduleLiveTranslation(textRef.current, true);
+    }
+  };
+
+  const handleApplyTranslation = () => {
+    if (!translatedPreview.trim()) return;
+    handleTextChange(translatedPreview.trim());
+    setTranslatedPreview('');
+    showTransientInfo(`Applied ${translationPrefs.targetLanguage} translation.`);
   };
 
   const handleModeSelect = (mode: ComposerMode) => {
@@ -247,8 +321,11 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
 
     const started = voiceEngine.startListening(
       {
-        onTranscript: (transcript) => {
+        onTranscript: (transcript, isFinal) => {
           handleTextChange(transcript);
+          if (translationService.getPrefs().enabled && isFinal) {
+            scheduleLiveTranslation(transcript, true);
+          }
           if (onOrbStateChange) onOrbStateChange('listening');
         },
         onError: (err) => {
@@ -325,17 +402,72 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
         className="hidden"
       />
 
-      {/* Persistent Listening Indicator */}
-      {isDictating && (
+      {/* Persistent Listening Indicator & Live Translation Controls */}
+      {(isDictating || translationPrefs.enabled) && (
         <div
           role="status"
           aria-live="polite"
-          className="mb-2 flex items-center justify-center"
+          className="mb-2 flex flex-col items-center gap-1.5"
         >
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-cyan-950/90 border border-cyan-400/50 text-cyan-200 text-xs font-medium shadow-lg backdrop-blur-md">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-            <span>Listening with Speech Recognition... Speak naturally, then tap Send or Stop</span>
+          <div className="inline-flex flex-wrap items-center justify-center gap-2 px-3.5 py-1.5 rounded-full bg-cyan-950/90 border border-cyan-400/50 text-cyan-200 text-xs font-medium shadow-lg backdrop-blur-md">
+            {isDictating && (
+              <>
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                <span>Listening... Speak naturally</span>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={handleToggleLiveTranslation}
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold transition-colors cursor-pointer ${
+                translationPrefs.enabled
+                  ? 'bg-cyan-500/30 text-white border border-cyan-400/50'
+                  : 'bg-slate-900/70 text-cyan-300 hover:text-white'
+              }`}
+              title="Toggle Live Voice Translation"
+            >
+              <Languages className="w-3 h-3" />
+              <span>{translationPrefs.enabled ? 'Translate On' : 'Translate Off'}</span>
+            </button>
+            {translationPrefs.enabled && (
+              <select
+                value={translationPrefs.targetLanguage}
+                onChange={(e) => handleTargetLanguageChange(e.target.value)}
+                aria-label="Target translation language"
+                className="bg-slate-900 text-cyan-100 border border-cyan-500/40 rounded-full px-2 py-0.5 text-[11px] focus:outline-none cursor-pointer"
+              >
+                {SUPPORTED_TRANSLATION_LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.label}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
+
+          {translationPrefs.enabled && (isTranslating || translatedPreview) && (
+            <div className="max-w-2xl w-full px-3.5 py-2 rounded-2xl bg-[#090d24]/95 border border-cyan-500/40 text-xs text-slate-100 flex items-center justify-between gap-2 shadow-lg backdrop-blur-md">
+              <div className="min-w-0">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-cyan-400 mr-2">
+                  {translationPrefs.targetLanguage}:
+                </span>
+                {isTranslating ? (
+                  <span className="text-slate-400 italic">Translating...</span>
+                ) : (
+                  <span className="text-slate-100 break-words">{translatedPreview}</span>
+                )}
+              </div>
+              {!isTranslating && translatedPreview && (
+                <button
+                  type="button"
+                  onClick={handleApplyTranslation}
+                  className="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-semibold shrink-0 cursor-pointer"
+                >
+                  Use Translation
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -623,7 +755,17 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
               <Mic className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
 
-            {text.trim() || stagedAttachments.length > 0 ? (
+            {isGenerating && onStopGenerating ? (
+              <button
+                type="button"
+                onClick={onStopGenerating}
+                className="p-2.5 sm:p-3 rounded-full bg-rose-600/80 hover:bg-rose-500 text-white transition-all shadow-[0_0_12px_rgba(244,63,94,0.6)] flex items-center justify-center cursor-pointer"
+                aria-label="Stop generating"
+                title="Stop generating"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+              </button>
+            ) : text.trim() || stagedAttachments.length > 0 ? (
               <button
                 type="button"
                 onClick={() => void handleSubmit()}

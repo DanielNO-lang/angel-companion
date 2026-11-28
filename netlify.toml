@@ -18,6 +18,11 @@
   to = "/.netlify/functions/title"
   status = 200
 
+[[redirects]]
+  from = "/api/translate"
+  to = "/.netlify/functions/translate"
+  status = 200
+
 [[headers]]
   for = "/manifest.webmanifest"
   [headers.values]

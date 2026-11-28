@@ -259,7 +259,12 @@ export const StudiosPage: React.FC = () => {
                         : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-tl-none'
                     }`}
                   >
-                    <p className="whitespace-pre-wrap">{m.content}</p>
+                    {m.status === 'pending' && m.activityStage && (
+                      <div className="text-[10px] text-cyan-300 font-semibold mb-1">{m.activityStage}...</div>
+                    )}
+                    <p className="whitespace-pre-wrap">
+                      {m.content || (m.status === 'pending' ? 'Thinking...' : '')}
+                    </p>
                     <MessageAttachmentsAndLinks
                       attachments={m.attachments}
                       attachmentDetails={m.attachmentDetails}
@@ -268,7 +273,7 @@ export const StudiosPage: React.FC = () => {
                   </div>
                 </div>
               ))}
-              {isGenerating && (
+              {isGenerating && !studioThread.messages.some((m) => m.status === 'pending') && (
                 <div
                   data-thinking-indicator="true"
                   role="status"

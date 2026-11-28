@@ -6,8 +6,10 @@ import fs from 'fs';
 import path from 'path';
 import {
   handleChatRequest,
+  handleChatStreamRequest,
   handleModelStatusRequest,
   handleTitleRequest,
+  handleTranslateRequest,
 } from './server/geminiBackend';
 
 const envLocalPath = path.resolve(process.cwd(), '.env.local');
@@ -42,7 +44,7 @@ async function startServer() {
   const app = express();
   const PORT = resolvePort();
 
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '8mb' }));
 
   app.get('/api/model/status', async (req, res) => {
     const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
@@ -63,6 +65,42 @@ async function startServer() {
   });
 
   app.post('/api/chat', async (req, res) => {
+    const wantsStream =
+      req.headers.accept?.includes('text/event-stream') || req.query.stream === '1';
+
+    if (wantsStream) {
+      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders?.();
+
+      const abortController = new AbortController();
+      req.on('close', () => {
+        if (!res.writableEnded) {
+          abortController.abort();
+        }
+      });
+
+      await handleChatStreamRequest(
+        {
+          method: req.method,
+          authorizationHeader: req.headers.authorization || '',
+          body: req.body,
+          signal: abortController.signal,
+        },
+        (event) => {
+          if (!res.writableEnded && !abortController.signal.aborted) {
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
+          }
+        }
+      );
+
+      if (!res.writableEnded) {
+        res.end();
+      }
+      return;
+    }
+
     const result = await handleChatRequest({
       method: req.method,
       authorizationHeader: req.headers.authorization || '',
@@ -77,6 +115,19 @@ async function startServer() {
 
   app.post('/api/title', async (req, res) => {
     const result = await handleTitleRequest({
+      method: req.method,
+      authorizationHeader: req.headers.authorization || '',
+      body: req.body,
+    });
+    if (result.headers) {
+      Object.entries(result.headers).forEach(([k, v]) => res.setHeader(k, v));
+    }
+    res.setHeader('cache-control', 'no-store');
+    res.status(result.statusCode).json(result.body);
+  });
+
+  app.post('/api/translate', async (req, res) => {
+    const result = await handleTranslateRequest({
       method: req.method,
       authorizationHeader: req.headers.authorization || '',
       body: req.body,

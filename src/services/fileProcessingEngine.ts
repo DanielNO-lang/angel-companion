@@ -14,6 +14,11 @@ export const MULTIMODAL_INLINE_MIME_TYPES = new Set([
   'image/jpeg',
   'image/webp',
   'application/pdf',
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/wav',
+  'audio/ogg',
+  'audio/webm',
 ]);
 
 const EXTENSION_CATEGORIES: Record<string, AttachmentCategory> = {
@@ -147,6 +152,7 @@ export class FileProcessingEngine {
       webp: 'image/webp',
       mp3: 'audio/mpeg',
       wav: 'audio/wav',
+      ogg: 'audio/ogg',
       webm: 'video/webm',
       mp4: 'video/mp4',
       json: 'application/json',
@@ -520,7 +526,16 @@ export class FileProcessingEngine {
 
         case 'mp3':
         case 'wav':
-        case 'ogg':
+        case 'ogg': {
+          return {
+            status: 'ready',
+            category: 'audio',
+            analysisMode: 'multimodal_inline',
+            summary: `Audio file (${ext.toUpperCase()}) ready for Gemini audio understanding and preserved in private storage.`,
+            metadata: { format: ext, multimodalSupported: true },
+          };
+        }
+
         case 'm4a':
         case 'flac':
         case 'aac': {
@@ -528,7 +543,7 @@ export class FileProcessingEngine {
             status: 'ready',
             category: 'audio',
             analysisMode: 'unsupported',
-            summary: `Audio file (${ext.toUpperCase()}) preserved in private storage. Direct audio file transcription inside chat is not yet enabled.`,
+            summary: `Audio file (${ext.toUpperCase()}) preserved in private storage. Direct audio analysis currently supports MP3, WAV, and OGG.`,
             metadata: { format: ext, multimodalSupported: false },
           };
         }

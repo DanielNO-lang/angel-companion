@@ -11,13 +11,17 @@ import {
   buildEnvRuntimeAudit,
   extractRetryAfterMs,
   classifyTaskComplexityForThinking,
+  classifyTaskForModelRouting,
   resolveThinkingConfigForModel,
   handleChatRequest,
+  handleChatStreamRequest,
+  handleTranslateRequest,
   handleTitleRequest,
   handleModelStatusRequest,
   resetBackendCachesForTesting,
   getModelUsageCounts,
   type BackendDependencies,
+  type ChatStreamEvent,
 } from './geminiBackend';
 
 function createMockSupabaseFetch(): typeof fetch {
@@ -178,6 +182,7 @@ test('handleChatRequest simulates primary 503 failover to gemini-3.1-flash-lite 
       method: 'POST',
       authorizationHeader: 'Bearer test_jwt',
       body: {
+        mode: 'Think',
         messages: [
           { role: 'user', content: 'My favourite colour is blue.' },
           { role: 'assistant', content: 'Got it — blue is a calm choice.' },
@@ -220,7 +225,7 @@ test('handleChatRequest aborts fallback immediately on API_KEY_INVALID', async (
     {
       method: 'POST',
       authorizationHeader: 'Bearer test_jwt',
-      body: { messages: [{ role: 'user', content: 'Hello!' }] },
+      body: { mode: 'Think', messages: [{ role: 'user', content: 'Hello!' }] },
     },
     deps
   );
@@ -257,7 +262,7 @@ test('handleChatRequest retries transient 503 on primary with Retry-After and su
     {
       method: 'POST',
       authorizationHeader: 'Bearer test_jwt',
-      body: { messages: [{ role: 'user', content: 'Hi Angel' }] },
+      body: { mode: 'Think', messages: [{ role: 'user', content: 'Hi Angel' }] },
     },
     deps
   );
@@ -406,4 +411,142 @@ test('handleModelStatusRequest verifies fallback tier and reports envAudit safel
   assert.equal(envAudit.defaultModel, DEFAULT_GEMINI_MODEL);
   assert.deepEqual(envAudit.fallbackChain, [DEFAULT_GEMINI_MODEL, EMERGENCY_FALLBACK_MODEL]);
   assert.equal(JSON.stringify(statusRes.body).includes('AIzaTestSecretShouldNeverLeakInEnvAudit123'), false);
+});
+
+test('classifyTaskForModelRouting sends everyday chat directly to gemini-3.1-flash-lite and demanding tasks to gemini-3.8-flash', () => {
+  const everyday = classifyTaskForModelRouting({
+    configuredModel: DEFAULT_GEMINI_MODEL,
+    requestedMode: 'Standard Intelligent',
+    messages: [{ role: 'user', content: 'Hey Angel, how are you doing today?' }],
+  });
+  assert.equal(everyday.tier, 'everyday');
+  assert.equal(everyday.primaryModel, EMERGENCY_FALLBACK_MODEL);
+  assert.deepEqual(everyday.candidateModels, [EMERGENCY_FALLBACK_MODEL, DEFAULT_GEMINI_MODEL]);
+
+  const thinkRouting = classifyTaskForModelRouting({
+    configuredModel: DEFAULT_GEMINI_MODEL,
+    requestedMode: 'Think',
+    messages: [{ role: 'user', content: 'Hi' }],
+  });
+  assert.equal(thinkRouting.tier, 'advanced');
+  assert.equal(thinkRouting.primaryModel, DEFAULT_GEMINI_MODEL);
+
+  const attachmentRouting = classifyTaskForModelRouting({
+    configuredModel: DEFAULT_GEMINI_MODEL,
+    requestedMode: 'Standard Intelligent',
+    messages: [{ role: 'user', content: 'Transcribe this' }],
+    attachments: [{ name: 'voice.mp3', mimeType: 'audio/mpeg', sizeBytes: 1200 }],
+  });
+  assert.equal(attachmentRouting.tier, 'advanced');
+  assert.equal(attachmentRouting.primaryModel, DEFAULT_GEMINI_MODEL);
+});
+
+test('handleChatStreamRequest emits stage/delta/done events, fails over pre-token, and supports AbortSignal cancellation', async () => {
+  resetBackendCachesForTesting();
+  const events: ChatStreamEvent[] = [];
+
+  await handleChatStreamRequest(
+    {
+      method: 'POST',
+      authorizationHeader: 'Bearer test_jwt',
+      body: { mode: 'Deep Research', messages: [{ role: 'user', content: 'Compare solar vs wind storage.' }] },
+    },
+    (ev) => events.push(ev),
+    {
+      env: {
+        GEMINI_API_KEY: 'test-key-not-real',
+        SUPABASE_URL: 'https://example.supabase.co',
+        SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test',
+      },
+      fetchImpl: createMockSupabaseFetch(),
+      sleep: async () => {},
+      createGeminiClient: () => ({
+        models: {
+          generateContent: async () => ({ text: 'fallback' }),
+          generateContentStream: async (params: Record<string, unknown>) => {
+            if (String(params.model) === DEFAULT_GEMINI_MODEL) {
+              throw Object.assign(new Error('503 Service Unavailable'), { status: 503 });
+            }
+            return (async function* () {
+              yield { text: 'Solar ' };
+              yield { text: 'and wind.' };
+            })();
+          },
+        },
+      }),
+    }
+  );
+
+  assert.ok(events.some((e) => e.type === 'stage' && e.stage === 'Researching'));
+  const deltas = events.filter((e) => e.type === 'delta').map((e) => (e.type === 'delta' ? e.text : ''));
+  assert.deepEqual(deltas, ['Solar ', 'and wind.']);
+  const done = events.find((e) => e.type === 'done');
+  assert.ok(done && done.type === 'done');
+  assert.equal(done.reply, 'Solar and wind.');
+  assert.equal(done.requestedModel, DEFAULT_GEMINI_MODEL);
+  assert.equal(done.actualModel, EMERGENCY_FALLBACK_MODEL);
+  assert.equal(done.fallbackActivated, true);
+
+  // Test user AbortSignal stops stream mid-way without emitting done
+  const abortCtrl = new AbortController();
+  const abortedEvents: ChatStreamEvent[] = [];
+  await handleChatStreamRequest(
+    {
+      method: 'POST',
+      authorizationHeader: 'Bearer test_jwt',
+      signal: abortCtrl.signal,
+      body: { mode: 'Standard Intelligent', messages: [{ role: 'user', content: 'Say hi' }] },
+    },
+    (ev) => {
+      abortedEvents.push(ev);
+      if (ev.type === 'delta') abortCtrl.abort();
+    },
+    {
+      env: {
+        GEMINI_API_KEY: 'test-key-not-real',
+        SUPABASE_URL: 'https://example.supabase.co',
+        SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test',
+      },
+      fetchImpl: createMockSupabaseFetch(),
+      createGeminiClient: () => ({
+        models: {
+          generateContent: async () => ({ text: '' }),
+          generateContentStream: async () =>
+            (async function* () {
+              yield { text: 'Part 1 ' };
+              yield { text: 'Part 2' };
+            })(),
+        },
+      }),
+    }
+  );
+  assert.equal(abortedEvents.some((e) => e.type === 'done'), false);
+});
+
+test('handleTranslateRequest validates auth/input and translates text cleanly via gemini-3.1-flash-lite', async () => {
+  resetBackendCachesForTesting();
+  const unauth = await handleTranslateRequest(
+    { method: 'POST', authorizationHeader: null, body: { text: 'Hello', targetLanguage: 'Spanish' } },
+    makeDeps(async () => ({ text: 'Hola' }))
+  );
+  assert.equal(unauth.statusCode, 401);
+
+  const empty = await handleTranslateRequest(
+    { method: 'POST', authorizationHeader: 'Bearer test_jwt', body: { text: '   ', targetLanguage: 'Spanish' } },
+    makeDeps(async () => ({ text: '' }))
+  );
+  assert.equal(empty.statusCode, 400);
+
+  let usedModel = '';
+  const ok = await handleTranslateRequest(
+    { method: 'POST', authorizationHeader: 'Bearer test_jwt', body: { text: 'Good morning', targetLanguage: 'French' } },
+    makeDeps(async (params) => {
+      usedModel = String(params.model);
+      return { text: 'Bonjour' };
+    })
+  );
+  assert.equal(ok.statusCode, 200);
+  assert.equal(ok.body.success, true);
+  assert.equal(ok.body.translatedText, 'Bonjour');
+  assert.equal(usedModel, EMERGENCY_FALLBACK_MODEL);
 });

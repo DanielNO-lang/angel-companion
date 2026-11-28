@@ -15,6 +15,7 @@ export const ActivitiesPage: React.FC = () => {
 
   useEffect(() => {
     refreshTasks();
+    return activityEngine.subscribe(refreshTasks);
   }, [activeFilter]);
 
   const handleCreateTask = () => {
@@ -151,6 +152,11 @@ export const ActivitiesPage: React.FC = () => {
 
       {/* Task Records Stream */}
       <div className="space-y-3">
+        {tasks.length === 0 && (
+          <div className="p-6 rounded-2xl glass-panel border border-slate-800/80 bg-slate-950/40 text-center text-xs text-slate-400">
+            No activities recorded yet. Start a conversation, execute an agent, or create a task record to track real execution lifecycles.
+          </div>
+        )}
         {tasks.map((task) => {
           const IconComp = task.status === 'running' ? Loader2 : task.status === 'completed' ? CheckCircle2 : task.status === 'waiting_approval' ? ShieldAlert : task.status === 'failed_interrupted' ? AlertTriangle : task.status === 'scheduled' ? Clock : Activity;
 

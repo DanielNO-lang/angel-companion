@@ -294,6 +294,7 @@ async function runConversationalIntelligenceTests() {
         method: 'POST',
         authorizationHeader: 'Bearer valid_tok',
         body: {
+          mode: 'Think',
           messages: [
             { role: 'user', content: 'My favourite colour is blue.' },
             { role: 'assistant', content: 'I will remember that!' },
@@ -349,6 +350,7 @@ async function runConversationalIntelligenceTests() {
         method: 'POST',
         authorizationHeader: 'Bearer valid_tok',
         body: {
+          mode: 'Think',
           messages: [{ role: 'user', content: 'Ping check' }],
         },
       },
@@ -405,7 +407,7 @@ async function runConversationalIntelligenceTests() {
       {
         method: 'POST',
         authorizationHeader: 'Bearer valid_tok',
-        body: { messages: [{ role: 'user', content: 'First message during slow outage' }] },
+        body: { mode: 'Think', messages: [{ role: 'user', content: 'First message during slow outage' }] },
       },
       {
         env,
@@ -444,7 +446,7 @@ async function runConversationalIntelligenceTests() {
       {
         method: 'POST',
         authorizationHeader: 'Bearer valid_tok',
-        body: { messages: [{ role: 'user', content: 'Second message within cooldown' }] },
+        body: { mode: 'Think', messages: [{ role: 'user', content: 'Second message within cooldown' }] },
       },
       {
         env,
@@ -612,7 +614,7 @@ async function runConversationalIntelligenceTests() {
         {
           method: 'POST',
           authorizationHeader: 'Bearer valid_tok',
-          body: { messages: [{ role: 'user', content: 'Circuit breaker check' }] },
+          body: { mode: 'Think', messages: [{ role: 'user', content: 'Circuit breaker check' }] },
         },
         {
           env,
@@ -701,7 +703,7 @@ async function runConversationalIntelligenceTests() {
       {
         method: 'POST',
         authorizationHeader: 'Bearer valid_tok',
-        body: { messages: [{ role: 'user', content: 'Recover from slow fallback stream' }] },
+        body: { mode: 'Think', messages: [{ role: 'user', content: 'Recover from slow fallback stream' }] },
       },
       {
         env: {

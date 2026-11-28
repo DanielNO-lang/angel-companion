@@ -50,9 +50,27 @@ export class UniversalAttachmentService {
   private pendingCloudDeletes: string[] = [];
   private activeUserId: string | null = null;
   private accessToken: string | null = null;
+  private changeListeners = new Set<() => void>();
 
   constructor() {
     this.loadMetadata();
+  }
+
+  public subscribe(listener: () => void): () => void {
+    this.changeListeners.add(listener);
+    return () => {
+      this.changeListeners.delete(listener);
+    };
+  }
+
+  private notifyChange(): void {
+    this.changeListeners.forEach((listener) => {
+      try {
+        listener();
+      } catch {
+        // ignore listener failure
+      }
+    });
   }
 
   private scopedKey(base: string): string {
@@ -189,6 +207,31 @@ export class UniversalAttachmentService {
   public clearStagedAttachments(context: ComposerContext): void {
     const key = this.getContextKey(context);
     this.stagedMap.delete(key);
+    this.notifyChange();
+  }
+
+  public async stageSnapshotDataUrl(
+    context: ComposerContext,
+    dataUrl: string,
+    filenamePrefix = 'capture'
+  ): Promise<{ success: boolean; attachment?: AttachmentRecord; error?: string }> {
+    const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/i.exec(dataUrl.trim());
+    if (!match) {
+      return { success: false, error: 'Invalid captured image format.' };
+    }
+    const mime = match[1].toLowerCase();
+    const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
+    const b64 = match[2];
+    const bytes =
+      typeof atob === 'function'
+        ? Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+        : new Uint8Array(Buffer.from(b64, 'base64'));
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    return this.stageAttachment(context, {
+      name: `${filenamePrefix}_${stamp}.${ext}`,
+      size: bytes.byteLength,
+      content: bytes.buffer,
+    });
   }
 
   public async stageAttachment(
@@ -281,6 +324,7 @@ export class UniversalAttachmentService {
     this.stagedMap.set(key, staged);
     this.metadataMap.set(attachment.id, attachment);
     this.persistMetadata();
+    this.notifyChange();
 
     return { success: true, attachment };
   }
@@ -302,6 +346,7 @@ export class UniversalAttachmentService {
     await this.deleteCloudObjectOrQueue(removed.storagePath);
     this.metadataMap.delete(removed.id);
     this.persistMetadata();
+    this.notifyChange();
 
     return true;
   }
@@ -326,6 +371,7 @@ export class UniversalAttachmentService {
 
     const committed = [...staged];
     this.stagedMap.delete(key);
+    this.notifyChange();
     return committed;
   }
 
