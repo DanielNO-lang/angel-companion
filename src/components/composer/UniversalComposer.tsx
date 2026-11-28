@@ -271,7 +271,7 @@ export const UniversalComposer: React.FC<UniversalComposerProps> = ({
 
     const started = voiceEngine.startListening(
       {
-        onTranscript: (transcript, isFinal) => {
+        onTranscript: (transcript) => {
           handleTextChange(transcript);
           if (onOrbStateChange) onOrbStateChange('listening');
         },
