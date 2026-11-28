@@ -2,7 +2,7 @@ const DICTATION_COMMAND_PATTERN =
   /(new paragraph|next paragraph|paragraph break|new line|next line|line break|bullet point|bullet|numbered list|full stop|period|question mark|exclamation mark|exclamation point|comma|colon|semicolon|ellipsis|open quote|close quote|open parenthesis|close parenthesis)/gi;
 
 function shouldCapitalizeNext(text: string): boolean {
-  return !text.trim() || /[.!?]\s*$|\n\s*$/.test(text);
+  return !text.trim() || /[.!?]\s*$|\n\s*$|(?:•|1\.)\s*$|[“(]\s*$/.test(text);
 }
 
 function appendRecognizedWords(current: string, words: string): string {
