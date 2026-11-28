@@ -5,6 +5,7 @@ import path from 'node:path';
 import JSZip from 'jszip';
 
 import { VoiceEngine } from '../src/services/voiceEngine';
+import { appendDictationText } from '../src/utils/dictationFormatter';
 import { UniversalComposerService } from '../src/services/universalComposerService';
 import { UniversalAttachmentService, universalAttachmentService } from '../src/services/universalAttachmentService';
 import { conversationEngine } from '../src/services/conversationEngine';
@@ -120,6 +121,22 @@ function createSupabaseTestFetch(verifiedUserId = 'user_alpha_111'): {
 
   return { fetchFn, uploadedPaths, deletedPaths, storedObjects };
 }
+
+test('Dictation formatting converts spoken punctuation and paragraph commands into editable text', () => {
+  assert.equal(
+    appendDictationText('', 'hello full stop new paragraph bullet point first item comma second item'),
+    'Hello.\\n\\n• First item, second item'
+  );
+  assert.equal(
+    appendDictationText('Good morning', 'new line next paragraph numbered list item one comma item two'),
+    'Good morning\\n\\n1. Item one, item two'
+  );
+  assert.equal(appendDictationText('Can you help', 'question mark'), 'Can you help?');
+  assert.equal(
+    appendDictationText('He said', 'open quote hello close quote full stop'),
+    'He said “Hello”.'
+  );
+});
 
 test('VoiceEngine supports dynamic SpeechRecognition, transcript updates, stop, and permission error handling', () => {
   const originalWindow = (globalThis as any).window;
