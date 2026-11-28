@@ -1,1 +1,9 @@
 project_id = "qltiogotxbxwzwmnypwu"
+
+# Local-only email catcher for Supabase Auth emails.
+# Open http://127.0.0.1:54324 after starting the local Supabase stack.
+[inbucket]
+enabled = true
+port = 54324
+smtp_port = 54325
+pop3_port = 54326
